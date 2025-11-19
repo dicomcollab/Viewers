@@ -4,6 +4,36 @@ import Hotkey from './Hotkey';
 import migrateOldHotkeyDefinitions from '../utils/hotkeys/migrateHotkeys';
 import pubSubServiceInterface from '../services/_shared/pubSubServiceInterface';
 
+// Function to get token from cookie
+function getTokenFromCookie() {
+  const name = 'token=';
+  const decodedCookie = decodeURIComponent(document.cookie);
+  const cookies = decodedCookie.split(';');
+  for (let cookie of cookies) {
+    cookie = cookie.trim();
+    if (cookie.indexOf(name) === 0) {
+      return cookie.substring(name.length);
+    }
+  }
+  return null;
+}
+
+// Function to get backend URL from environment or config
+function getBackendUrl() {
+  if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_BACKEND_HOTKEY_URL) {
+    return process.env.REACT_APP_BACKEND_HOTKEY_URL;
+  } else if (
+    typeof window !== 'undefined' &&
+    (window as any).config &&
+    (window as any).config.backendHotkeyUrl
+  ) {
+    return (window as any).config.backendHotkeyUrl;
+  } else {
+    // Fallback to default URL if environment variable is not available
+    return 'https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences';
+  }
+}
+
 /**
  *
  *
@@ -24,8 +54,14 @@ export class HotkeysManager {
     HOTKEY_PRESSED: 'event::hotkeysManager:hotkeyPressed',
   };
   public EVENTS: Record<string, string>;
-  public listeners: Record<string, Array<{ id: string; callback: (data: unknown) => void }> | undefined> = {};
-  public subscribe: (eventName: string, callback: (data: unknown) => void) => { unsubscribe: () => void };
+  public listeners: Record<
+    string,
+    Array<{ id: string; callback: (data: unknown) => void }> | undefined
+  > = {};
+  public subscribe: (
+    eventName: string,
+    callback: (data: unknown) => void
+  ) => { unsubscribe: () => void };
   public _broadcastEvent: (eventName: string, callbackProps: unknown) => void;
   public _unsubscribe: (eventName: string, listenerId: string) => void;
   public _isValidEvent: (eventName: string) => boolean;
@@ -83,10 +119,10 @@ export class HotkeysManager {
   /**
    * Uses most recent
    *
-   * @returns {undefined}
+   * @returns {Promise<void>}
    */
-  restoreDefaultBindings() {
-    this.setHotkeys(this.hotkeyDefaults);
+  async restoreDefaultBindings() {
+    await this.setHotkeys(this.hotkeyDefaults, 'hotkey-definitions', true);
   }
 
   /**
@@ -102,18 +138,40 @@ export class HotkeysManager {
    * Registers a list of hotkey definitions.
    *
    * @param {HotkeyDefinition[] | Object} [hotkeyDefinitions=[]] Contains hotkeys definitions
+   * @param {string} [name='hotkey-definitions'] Name for localStorage key
+   * @param {boolean} [saveToApi=true] Whether to save hotkeys to API
    */
-  setHotkeys(hotkeyDefinitions = []) {
+  async setHotkeys(
+    hotkeyDefinitions: any[] | Record<string, any> = [],
+    name = 'hotkey-definitions',
+    saveToApi = true
+  ) {
     try {
       const definitions = this.getValidDefinitions(hotkeyDefinitions);
+
+      // Remove old localStorage entry
+      localStorage.removeItem(name);
+
+      // Save to API if enabled
+      if (saveToApi) {
+        await this.saveHotkeysToAPI(definitions);
+      }
+
+      // Save to localStorage as backup
+      localStorage.setItem(name, JSON.stringify(definitions));
+
+      // Register hotkeys
       definitions.forEach(definition => this.registerHotkeys(definition));
     } catch (error) {
+      console.error('Error while setting hotkeys:', error);
       const { uiNotificationService } = this._servicesManager.services;
-      uiNotificationService.show({
-        title: 'Hotkeys Manager',
-        message: 'Error while setting hotkeys',
-        type: 'error',
-      });
+      if (uiNotificationService) {
+        uiNotificationService.show({
+          title: 'Hotkeys Manager',
+          message: 'Error while setting hotkeys',
+          type: 'error',
+        });
+      }
     }
   }
 
@@ -129,16 +187,69 @@ export class HotkeysManager {
    * values are used in `this.restoreDefaultBindings`.
    *
    * @param {HotkeyDefinition[] | Object} [hotkeyDefinitions=[]] Contains hotkeys definitions
+   * @param {boolean} [loadFromApi=true] Whether to load hotkeys from API preferences
    */
-  setDefaultHotKeys(hotkeyDefinitions = []) {
+  async setDefaultHotKeys(hotkeyDefinitions = [], loadFromApi = true) {
     const definitions = this.getValidDefinitions(hotkeyDefinitions);
     this.hotkeyDefaults = definitions;
 
-    // Get user preferred keys from localStorage
+    let updatedDefinitions = definitions;
+
+    // Try to load hotkeys from API preferences if enabled
+    if (loadFromApi) {
+      try {
+        const apiHotkeys = await this.loadHotkeysFromAPI();
+        if (apiHotkeys && apiHotkeys.length > 0) {
+          // Merge API hotkeys with defaults, prioritizing API hotkeys
+          const apiHotkeysMap = new Map();
+          apiHotkeys.forEach(apiHotkey => {
+            const commandHash = this.generateHash(apiHotkey);
+            apiHotkeysMap.set(commandHash, apiHotkey);
+          });
+
+          // Update definitions with API hotkeys, fallback to defaults
+          updatedDefinitions = definitions.map(definition => {
+            const commandHash = this.generateHash(definition);
+            const apiHotkey = apiHotkeysMap.get(commandHash);
+
+            if (apiHotkey) {
+              // Convert API keys (array) to string format for UI display and binding
+              // API provides keys as array like ["z"] or ["ctrl", "z"], convert to string like "z" or "ctrl+z"
+              let keys: string | string[];
+              if (Array.isArray(apiHotkey.keys) && apiHotkey.keys.length > 0) {
+                // Convert array to string format for display and binding
+                keys = apiHotkey.keys.join('+');
+              } else if (typeof apiHotkey.keys === 'string') {
+                // If it's already a string, keep it as is
+                keys = apiHotkey.keys;
+              } else {
+                // Fallback to definition keys
+                keys = definition.keys;
+              }
+
+              // Use API hotkey if available
+              return {
+                ...definition,
+                keys: keys,
+                label: apiHotkey.label || definition.label,
+                isEditable:
+                  apiHotkey.isEditable !== undefined ? apiHotkey.isEditable : definition.isEditable,
+              };
+            }
+
+            return definition;
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to load hotkeys from API, using defaults:', error);
+      }
+    }
+
+    // Get user preferred keys from localStorage as fallback
     const userPreferredKeys = JSON.parse(localStorage.getItem('user-preferred-keys') || '{}');
 
     // Update definitions with user preferred keys before setting
-    const updatedDefinitions = definitions.map(definition => {
+    updatedDefinitions = updatedDefinitions.map(definition => {
       const commandHash = this.generateHash(definition);
       // If user has a preferred key binding, use it
       if (userPreferredKeys[commandHash]) {
@@ -151,7 +262,97 @@ export class HotkeysManager {
       return definition;
     });
 
-    this.setHotkeys(updatedDefinitions);
+    // Set hotkeys without saving to API (to avoid circular saves during initialization)
+    await this.setHotkeys(updatedDefinitions, 'hotkey-definitions', false);
+  }
+
+  /**
+   * Load hotkeys from API preferences
+   * @returns {Promise<HotkeyDefinition[]>} Array of hotkey definitions from API
+   */
+  async loadHotkeysFromAPI(): Promise<Array<Record<string, any>>> {
+    try {
+      const token = getTokenFromCookie();
+      if (!token) {
+        console.warn('No token found in cookie, skipping API hotkey load');
+        return [];
+      }
+
+      const backendUrl = getBackendUrl();
+      const response = await fetch(`${backendUrl}/getPreferences`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Token: token,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data && data.hotkeys && Array.isArray(data.hotkeys)) {
+        return data.hotkeys;
+      }
+
+      return [];
+    } catch (error) {
+      console.error('Error loading hotkeys from API:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Save hotkeys to API preferences
+   * @param {HotkeyDefinition[]} definitions Array of hotkey definitions to save
+   */
+  async saveHotkeysToAPI(definitions: Array<Record<string, any>>): Promise<void> {
+    try {
+      const token = getTokenFromCookie();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const backendUrl = getBackendUrl();
+
+      // Prepare hotkeys data in the format expected by API
+      const hotkeysData = definitions.map(def => {
+        // Convert keys to array format for API
+        let keysArray: string[];
+        if (Array.isArray(def.keys)) {
+          keysArray = def.keys;
+        } else if (typeof def.keys === 'string') {
+          // If keys is a string like "z" or "ctrl+z", convert to array
+          keysArray = def.keys.includes('+') ? def.keys.split('+') : [def.keys];
+        } else {
+          keysArray = [];
+        }
+
+        return {
+          commandName: def.commandName,
+          commandOptions: def.commandOptions || {},
+          label: def.label || '',
+          keys: keysArray,
+          isEditable: def.isEditable !== undefined ? def.isEditable : true,
+        };
+      });
+
+      // Use dynamic import for axios to avoid bundling issues
+      const axios = await import('axios');
+
+      const response = await axios.default.post(
+        `${backendUrl}/savePreferences`,
+        { hotkeys: hotkeysData },
+        { headers: { Token: token } }
+      );
+
+      console.log('Saved hotkeys to API:', response.data);
+    } catch (error) {
+      console.error('Error saving hotkeys to API:', error);
+      throw error;
+    }
   }
 
   /**

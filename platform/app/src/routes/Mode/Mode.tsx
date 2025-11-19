@@ -218,7 +218,8 @@ export default function ModeRoute({
 
       // Move hotkeys setup here, after onModeEnter
       const hotkeys = customizationService.getCustomization('ohif.hotkeyBindings');
-      hotkeysManager.setDefaultHotKeys(hotkeys);
+      // Load hotkeys from API preferences (will fallback to defaults if API fails)
+      await hotkeysManager.setDefaultHotKeys(hotkeys, true);
 
       /**
        * The next line should get all the query parameters provided by the URL

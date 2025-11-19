@@ -47,14 +47,14 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
     }));
   };
 
-  const onResetHandler = () => {
+  const onResetHandler = async () => {
     setState(state => ({
       ...state,
       languageValue: defaultLanguage.value,
       hotkeyDefinitions: hotkeyDefaults as HotkeyDefinitions,
     }));
 
-    hotkeysManager.restoreDefaultBindings();
+    await hotkeysManager.restoreDefaultBindings();
   };
 
   return (
@@ -117,11 +117,66 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
             {t('Cancel')}
           </FooterAction.Secondary>
           <FooterAction.Primary
-            onClick={() => {
+            onClick={async () => {
               if (state.languageValue !== currentLanguage.value) {
                 i18n.changeLanguage(state.languageValue);
               }
-              hotkeysManager.setHotkeys(state.hotkeyDefinitions);
+              // Convert hotkeyDefinitions object to array format for setHotkeys
+              // The state.hotkeyDefinitions has updated keys (as string), but we need full definition from hotkeysManager
+              const hotkeysArray = Object.entries(state.hotkeyDefinitions).map(([id, definition]) => {
+                // Get the full definition from hotkeysManager which has commandName and commandOptions
+                const fullDefinition = hotkeysManager.hotkeyDefinitions[id];
+
+                // Convert keys from string (UI format) to array (API format) if needed
+                // The UI provides keys as string like "z" or "ctrl+z"
+                let keys = definition.keys;
+                if (typeof keys === 'string') {
+                  // Convert string to array format for API
+                  keys = keys.includes('+') ? keys.split('+') : [keys];
+                } else if (!Array.isArray(keys)) {
+                  keys = [keys];
+                }
+
+                if (fullDefinition) {
+                  // Use the updated keys from state, but keep everything else from full definition
+                  return {
+                    commandName: fullDefinition.commandName,
+                    commandOptions: fullDefinition.commandOptions || {},
+                    label: fullDefinition.label || definition.label || '',
+                    keys: keys, // Use updated keys from state (converted to array)
+                    isEditable: fullDefinition.isEditable !== undefined ? fullDefinition.isEditable : true,
+                  };
+                }
+
+                // Fallback: try to find in defaults
+                const defaultDef = Array.isArray(hotkeysManager.hotkeyDefaults)
+                  ? hotkeysManager.hotkeyDefaults.find(def => {
+                      const hash = hotkeysManager.generateHash(def);
+                      return hash === id;
+                    })
+                  : null;
+
+                if (defaultDef) {
+                  return {
+                    commandName: defaultDef.commandName,
+                    commandOptions: defaultDef.commandOptions || {},
+                    label: defaultDef.label || definition.label || '',
+                    keys: keys,
+                    isEditable: defaultDef.isEditable !== undefined ? defaultDef.isEditable : true,
+                  };
+                }
+
+                // Last resort: return minimal definition
+                return {
+                  commandName: '',
+                  commandOptions: {},
+                  label: definition.label || '',
+                  keys: keys,
+                  isEditable: true,
+                };
+              });
+
+              await hotkeysManager.setHotkeys(hotkeysArray, 'hotkey-definitions', true);
               hotkeysModule.stopRecord();
               hotkeysModule.unpause();
               hide();

@@ -74,7 +74,19 @@ async function fetchPreferences() {
       console.warn('No token found in cookie');
       return null;
     }
-    const response = await fetch(`${process.env.REACT_APP_BACKEND_HOTKEY_URL}/getPreferences`, {
+
+    // Get backend URL from environment variable or use fallback
+    let backendUrl;
+    if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_BACKEND_HOTKEY_URL) {
+      backendUrl = process.env.REACT_APP_BACKEND_HOTKEY_URL;
+    } else if (typeof window !== 'undefined' && window.config && window.config.backendHotkeyUrl) {
+      backendUrl = window.config.backendHotkeyUrl;
+    } else {
+      // Fallback to default URL if environment variable is not available
+      backendUrl = 'https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences';
+    }
+
+    const response = await fetch(`${backendUrl}/getPreferences`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
