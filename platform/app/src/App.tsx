@@ -35,6 +35,7 @@ import createRoutes from './routes';
 import appInit from './appInit.js';
 import OpenIdConnectRoutes from './utils/OpenIdConnectRoutes';
 import { ShepherdJourneyProvider } from 'react-shepherd';
+import { getCookie } from './utils/cookieUtils';
 import './App.css';
 
 let commandsManager: CommandsManager,
@@ -144,6 +145,50 @@ function App({
 
   // Should there be a generic call to init on the extension manager?
   customizationService.init(extensionManager);
+
+  // Set up cookie-based authentication if OIDC is not configured
+  // This will read the token from cookies and pass it in all API request headers
+  const cookieAuth = appConfigState.cookieAuth;
+  const shouldUseCookieAuth = cookieAuth && cookieAuth.enabled && (!oidc || oidc.length === 0);
+
+  if (shouldUseCookieAuth) {
+    const getAuthorizationHeader = () => {
+      // Check if we're on a demo route and use demo token
+      // @ts-expect-error - Accessing custom property on window
+      const isDemo = window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
+      // @ts-expect-error - Accessing custom property on window
+      const demoToken = window.getDemoToken && typeof window.getDemoToken === 'function' ? window.getDemoToken() : null;
+
+      if (isDemo && demoToken) {
+        // Use Basic auth for demo token
+        return {
+          Authorization: `Basic ${demoToken}`,
+        };
+      }
+
+      // Get token from cookie - use configured cookie name or fallback to common names
+      const cookieName = cookieAuth.cookieName || 'token';
+      let token = getCookie(cookieName);
+
+      // Fallback to common cookie names if configured name not found
+      if (!token) {
+        token = getCookie('token') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt');
+      }
+
+      if (token) {
+        return {
+          Authorization: `Bearer ${token}`,
+        };
+      }
+
+      // Return empty object if no token found
+      return {};
+    };
+
+    userAuthenticationService.setServiceImplementation({
+      getAuthorizationHeader,
+    });
+  }
 
   // Use config to create routes
   const appRoutes = createRoutes({

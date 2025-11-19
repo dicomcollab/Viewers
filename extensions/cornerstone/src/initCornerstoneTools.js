@@ -52,7 +52,48 @@ import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
 
-export default function initCornerstoneTools(configuration = {}) {
+// Function to get token from cookie
+function getTokenFromCookie() {
+  const name = 'token=';
+  const decodedCookie = decodeURIComponent(document.cookie);
+  const cookies = decodedCookie.split(';');
+  for (let cookie of cookies) {
+    cookie = cookie.trim();
+    if (cookie.indexOf(name) === 0) {
+      return cookie.substring(name.length);
+    }
+  }
+  return null;
+}
+
+// Function to fetch preferences from API
+async function fetchPreferences() {
+  try {
+    const token = getTokenFromCookie();
+    if (!token) {
+      console.warn('No token found in cookie');
+      return null;
+    }
+    const response = await fetch(`${process.env.REACT_APP_BACKEND_HOTKEY_URL}/getPreferences`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Token: token,
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    //console.log('Preferences fetched successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('Error fetching preferences:', error);
+    return null;
+  }
+}
+
+export default async function initCornerstoneTools(configuration = {}) {
   CrosshairsTool.isAnnotation = false;
   LabelmapSlicePropagationTool.isAnnotation = false;
   MarkerLabelmapTool.isAnnotation = false;
@@ -60,76 +101,217 @@ export default function initCornerstoneTools(configuration = {}) {
   AdvancedMagnifyTool.isAnnotation = false;
   PlanarFreehandContourSegmentationTool.isAnnotation = false;
 
-  init({
-    addons: {
-      polySeg,
-    },
-    computeWorker: {
-      autoTerminateOnIdle: {
-        enabled: false,
+  try {
+    // Initialize Cornerstone tools with the provided configuration
+    init({
+      ...configuration,
+      addons: {
+        polySeg,
+        ...(configuration.addons || {}),
       },
-    },
-  });
-  addTool(PanTool);
-  addTool(SegmentBidirectionalTool);
-  addTool(WindowLevelTool);
-  addTool(StackScrollTool);
-  addTool(VolumeRotateTool);
-  addTool(ZoomTool);
-  addTool(ProbeTool);
-  addTool(MIPJumpToClickTool);
-  addTool(LengthTool);
-  addTool(RectangleROITool);
-  addTool(RectangleROIThresholdTool);
-  addTool(EllipticalROITool);
-  addTool(CircleROITool);
-  addTool(BidirectionalTool);
-  addTool(ArrowAnnotateTool);
-  addTool(DragProbeTool);
-  addTool(AngleTool);
-  addTool(CobbAngleTool);
-  addTool(MagnifyTool);
-  addTool(CrosshairsTool);
-  addTool(RectangleScissorsTool);
-  addTool(SphereScissorsTool);
-  addTool(CircleScissorsTool);
-  addTool(BrushTool);
-  addTool(PaintFillTool);
-  addTool(ReferenceLinesTool);
-  addTool(CalibrationLineTool);
-  addTool(TrackballRotateTool);
-  addTool(ImageOverlayViewerTool);
-  addTool(AdvancedMagnifyTool);
-  addTool(UltrasoundDirectionalTool);
-  addTool(UltrasoundPleuraBLineTool);
-  addTool(PlanarFreehandROITool);
-  addTool(SplineROITool);
-  addTool(LivewireContourTool);
-  addTool(OrientationMarkerTool);
-  addTool(WindowLevelRegionTool);
-  addTool(PlanarFreehandContourSegmentationTool);
-  addTool(SegmentSelectTool);
-  addTool(SegmentLabelTool);
-  addTool(LabelmapSlicePropagationTool);
-  addTool(MarkerLabelmapTool);
-  addTool(RegionSegmentPlusTool);
-  addTool(LivewireContourSegmentationTool);
-  addTool(SculptorTool);
-  addTool(SplineContourSegmentationTool);
-  addTool(LabelMapEditWithContourTool);
-  // Modify annotation tools to use dashed lines on SR
-  const annotationStyle = {
-    textBoxFontSize: '15px',
-    lineWidth: '1.5',
-  };
+      computeWorker: {
+        autoTerminateOnIdle: {
+          enabled: false,
+        },
+        ...(configuration.computeWorker || {}),
+      },
+    });
 
-  const defaultStyles = annotation.config.style.getDefaultToolStyles();
-  annotation.config.style.setDefaultToolStyles({
-    global: {
-      ...defaultStyles.global,
-      ...annotationStyle,
-    },
-  });
+    // Add all available tools to the Cornerstone toolset
+    addTool(PanTool);
+    addTool(SegmentBidirectionalTool);
+    addTool(WindowLevelTool);
+    addTool(StackScrollTool);
+    addTool(VolumeRotateTool);
+    addTool(ZoomTool);
+    addTool(ProbeTool);
+    addTool(MIPJumpToClickTool);
+    addTool(LengthTool);
+    addTool(RectangleROITool);
+    addTool(RectangleROIThresholdTool);
+    addTool(EllipticalROITool);
+    addTool(CircleROITool);
+    addTool(BidirectionalTool);
+    addTool(ArrowAnnotateTool);
+    addTool(DragProbeTool);
+    addTool(AngleTool);
+    addTool(CobbAngleTool);
+    addTool(MagnifyTool);
+    addTool(CrosshairsTool);
+    addTool(RectangleScissorsTool);
+    addTool(SphereScissorsTool);
+    addTool(CircleScissorsTool);
+    addTool(BrushTool);
+    addTool(PaintFillTool);
+    addTool(ReferenceLinesTool);
+    addTool(CalibrationLineTool);
+    addTool(TrackballRotateTool);
+    addTool(ImageOverlayViewerTool);
+    addTool(AdvancedMagnifyTool);
+    addTool(UltrasoundDirectionalTool);
+    addTool(UltrasoundPleuraBLineTool);
+    addTool(PlanarFreehandROITool);
+    addTool(SplineROITool);
+    addTool(LivewireContourTool);
+    addTool(OrientationMarkerTool);
+    addTool(WindowLevelRegionTool);
+    addTool(PlanarFreehandContourSegmentationTool);
+    addTool(SegmentSelectTool);
+    addTool(SegmentLabelTool);
+    addTool(LabelmapSlicePropagationTool);
+    addTool(MarkerLabelmapTool);
+    addTool(RegionSegmentPlusTool);
+    addTool(LivewireContourSegmentationTool);
+    addTool(SculptorTool);
+    addTool(SplineContourSegmentationTool);
+    addTool(LabelMapEditWithContourTool);
+
+    // Create a mapping between database tool names and Cornerstone tool names
+    const toolNameMapping = {
+      AngleTool: AngleTool.toolName,
+      LengthTool: LengthTool.toolName,
+      RectangleROITool: RectangleROITool.toolName,
+      CircleROITool: CircleROITool.toolName,
+      EllipticalROITool: EllipticalROITool.toolName,
+      BidirectionalTool: BidirectionalTool.toolName,
+      ArrowAnnotateTool: ArrowAnnotateTool.toolName,
+      ProbeTool: ProbeTool.toolName,
+      CobbAngleTool: CobbAngleTool.toolName,
+      DragProbeTool: DragProbeTool.toolName,
+      RectangleROIThresholdTool: RectangleROIThresholdTool.toolName,
+      PanTool: PanTool.toolName,
+      WindowLevelTool: WindowLevelTool.toolName,
+      StackScrollTool: StackScrollTool.toolName,
+      VolumeRotateTool: VolumeRotateTool.toolName,
+      Zoom: ZoomTool.toolName,
+      MIPJumpToClickTool: MIPJumpToClickTool.toolName,
+      MagnifyTool: MagnifyTool.toolName,
+      CrosshairsTool: CrosshairsTool.toolName,
+      BrushTool: BrushTool.toolName,
+      PaintFillTool: PaintFillTool.toolName,
+      ReferenceLinesTool: ReferenceLinesTool.toolName,
+      CalibrationLineTool: CalibrationLineTool.toolName,
+      TrackballRotateTool: TrackballRotateTool.toolName,
+      CircleScissorsTool: CircleScissorsTool.toolName,
+      RectangleScissorsTool: RectangleScissorsTool.toolName,
+      SphereScissorsTool: SphereScissorsTool.toolName,
+      ImageOverlayViewerTool: ImageOverlayViewerTool.toolName,
+      AdvancedMagnifyTool: AdvancedMagnifyTool.toolName,
+      UltrasoundDirectionalTool: UltrasoundDirectionalTool.toolName,
+      SplineROITool: SplineROITool.toolName,
+      LivewireContourTool: LivewireContourTool.toolName,
+      PlanarFreehandROITool: PlanarFreehandROITool.toolName,
+      OrientationMarkerTool: OrientationMarkerTool.toolName,
+      WindowLevelRegionTool: WindowLevelRegionTool.toolName,
+      PlanarFreehandContourSegmentationTool: PlanarFreehandContourSegmentationTool.toolName,
+      SegmentBidirectionalTool: SegmentBidirectionalTool.toolName,
+      SegmentSelectTool: SegmentSelectTool.toolName,
+      SegmentLabelTool: SegmentLabelTool.toolName,
+      LabelmapSlicePropagationTool: LabelmapSlicePropagationTool.toolName,
+      MarkerLabelmapTool: MarkerLabelmapTool.toolName,
+      RegionSegmentPlusTool: RegionSegmentPlusTool.toolName,
+      LivewireContourSegmentationTool: LivewireContourSegmentationTool.toolName,
+      SculptorTool: SculptorTool.toolName,
+      SplineContourSegmentationTool: SplineContourSegmentationTool.toolName,
+      LabelMapEditWithContourTool: LabelMapEditWithContourTool.toolName,
+      UltrasoundPleuraBLineTool: UltrasoundPleuraBLineTool.toolName,
+    };
+
+    // Fetch preferences from API
+    const preferences = await fetchPreferences();
+
+    // Get the current default styles
+    const defaultStyles = annotation.config.style.getDefaultToolStyles();
+
+    // Create a new styles object to merge with default styles
+    const newStyles = {
+      global: {
+        ...defaultStyles.global,
+      },
+    };
+
+    // Apply global colors from API preferences if available, otherwise use defaults
+    const globalLineColor =
+      preferences && preferences.globalLineColor ? preferences.globalLineColor : 'rgb(0, 220, 0)';
+    const globalTextBoxColor =
+      preferences && preferences.globalTextColor ? preferences.globalTextColor : 'rgb(0, 255, 0)';
+
+    // Apply styles from API preferences if available
+    if (preferences && preferences.tools && Array.isArray(preferences.tools)) {
+      console.log('Applying styles from API preferences...');
+
+      // Create a map of tool-specific configurations for quick lookup
+      const toolSpecificConfigs = {};
+
+      preferences.tools.forEach(toolConfig => {
+        const { toolId, lineColor, textBoxColor } = toolConfig;
+        const dbToolName = toolId.name;
+        const cornerstoneToolName = toolNameMapping[dbToolName];
+
+        if (cornerstoneToolName) {
+          toolSpecificConfigs[cornerstoneToolName] = {
+            lineColor: lineColor,
+            textBoxColor: textBoxColor,
+          };
+        }
+      });
+
+      // Apply styles to all tools with priority: tool-specific config first, then global config
+      Object.values(toolNameMapping).forEach(cornerstoneToolName => {
+        const toolSpecificConfig = toolSpecificConfigs[cornerstoneToolName];
+
+        // Use tool-specific colors if available, otherwise fall back to global colors
+        const finalLineColor = toolSpecificConfig?.lineColor || globalLineColor;
+        const finalTextBoxColor = toolSpecificConfig?.textBoxColor || globalTextBoxColor;
+
+        console.log(`Applying styles to tool: ${cornerstoneToolName}`, {
+          lineColor: finalLineColor,
+          textBoxColor: finalTextBoxColor,
+          source: toolSpecificConfig ? 'tool-specific' : 'global',
+        });
+
+        newStyles[cornerstoneToolName] = {
+          ...(defaultStyles[cornerstoneToolName] || {}),
+          textBoxFontSize: '15px',
+          lineWidth: '1.5',
+          color: finalLineColor,
+          colorHighlighted: finalLineColor,
+          colorLocked: finalLineColor,
+          colorSelected: finalLineColor,
+          textBoxColor: finalTextBoxColor,
+          textBoxColorHighlighted: finalTextBoxColor,
+          textBoxColorLocked: finalTextBoxColor,
+          textBoxColorSelected: finalTextBoxColor,
+        };
+      });
+    } else {
+      console.log('No preferences found or API call failed, applying default global colors');
+      // Apply default global colors to all tools if no preferences
+      Object.values(toolNameMapping).forEach(cornerstoneToolName => {
+        newStyles[cornerstoneToolName] = {
+          ...(defaultStyles[cornerstoneToolName] || {}),
+          textBoxFontSize: '15px',
+          lineWidth: '1.5',
+          color: globalLineColor,
+          colorHighlighted: globalLineColor,
+          colorLocked: globalLineColor,
+          colorSelected: globalLineColor,
+          textBoxColor: globalTextBoxColor,
+          textBoxColorHighlighted: globalTextBoxColor,
+          textBoxColorLocked: globalTextBoxColor,
+          textBoxColorSelected: globalTextBoxColor,
+        };
+      });
+    }
+
+    // Set the updated styles
+    annotation.config.style.setDefaultToolStyles(newStyles);
+
+    console.log('Final tool styles:', annotation.config.style.getDefaultToolStyles());
+  } catch (error) {
+    console.error('Error initializing Cornerstone tools:', error);
+    throw error;
+  }
 }
 
 const toolNames = {

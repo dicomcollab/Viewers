@@ -144,6 +144,19 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
 
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
+
+        // Check if we're on a demo route and use demo token
+        // @ts-expect-error - Accessing custom property on window
+        const isDemo = typeof window !== 'undefined' && window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
+        // @ts-expect-error - Accessing custom property on window
+        const demoToken = typeof window !== 'undefined' && window.getDemoToken && typeof window.getDemoToken === 'function' ? window.getDemoToken() : null;
+
+        if (isDemo && demoToken) {
+          // Use Basic auth for demo token
+          xhrRequestHeaders.Authorization = `Basic ${demoToken}`;
+          return xhrRequestHeaders;
+        }
+
         const authHeaders = userAuthenticationService.getAuthorizationHeader();
         if (authHeaders && authHeaders.Authorization) {
           xhrRequestHeaders.Authorization = authHeaders.Authorization;

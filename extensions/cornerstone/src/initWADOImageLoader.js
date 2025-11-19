@@ -5,6 +5,7 @@ import {
 } from '@cornerstonejs/core/loaders';
 import dicomImageLoader from '@cornerstonejs/dicom-image-loader';
 import { errorHandler, utils } from '@ohif/core';
+import { registerJPEGImageLoader } from './utils/jpegImageLoader';
 
 const { registerVolumeLoader } = volumeLoader;
 
@@ -20,15 +21,48 @@ export default function initWADOImageLoader(
     cornerstoneStreamingDynamicImageVolumeLoader
   );
 
+  // Register JPEG image loader when data source is localviewer-image-jpeg
+  const activeDataSource = extensionManager.getActiveDataSource()?.[0];
+  const dataSourceName = activeDataSource?.sourceName || appConfig.defaultDataSourceName;
+
+  if (dataSourceName === 'localviewer-image-jpeg') {
+    registerJPEGImageLoader();
+    console.log('JPEG Image Loader registered for localviewer-image-jpeg data source');
+  }
+
   dicomImageLoader.init({
     maxWebWorkers: Math.min(
       Math.max(navigator.hardwareConcurrency - 1, 1),
       appConfig.maxNumberOfWebWorkers
     ),
-    beforeSend: function (xhr) {
+    beforeSend: function () {
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};
-      const headers = userAuthenticationService.getAuthorizationHeader();
+
+      // Check if we're on a demo route and use demo token
+      const isDemo =
+        typeof window !== 'undefined' &&
+        window.isDemoRoute &&
+        typeof window.isDemoRoute === 'function'
+          ? window.isDemoRoute()
+          : false;
+      const demoToken =
+        typeof window !== 'undefined' &&
+        window.getDemoToken &&
+        typeof window.getDemoToken === 'function'
+          ? window.getDemoToken()
+          : null;
+
+      let headers;
+      if (isDemo && demoToken) {
+        // Use Basic auth for demo token
+        headers = {
+          Authorization: `Basic ${demoToken}`,
+        };
+      } else {
+        headers = userAuthenticationService.getAuthorizationHeader();
+      }
+
       const acceptHeader = utils.generateAcceptHeader(
         sourceConfig.acceptHeader,
         sourceConfig.requestTransferSyntaxUID,
@@ -36,7 +70,7 @@ export default function initWADOImageLoader(
       );
 
       const xhrRequestHeaders = {
-        Accept: acceptHeader,
+        Accept: Array.isArray(acceptHeader) ? acceptHeader.join(', ') : acceptHeader,
       };
 
       if (headers) {
@@ -45,8 +79,8 @@ export default function initWADOImageLoader(
 
       return xhrRequestHeaders;
     },
-    errorInterceptor: error => {
-      errorHandler.getHTTPErrorHandler(error);
+    errorInterceptor: () => {
+      errorHandler.getHTTPErrorHandler();
     },
   });
 }

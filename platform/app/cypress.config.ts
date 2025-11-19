@@ -18,7 +18,7 @@ export default defineConfig({
         return launchOptions;
       });
     },
-    baseUrl: 'http://localhost:3000',
+    baseUrl: 'http://localhost:3001',
     waitForAnimations: true,
     chromeWebSecurity: false,
     defaultCommandTimeout: 30000,

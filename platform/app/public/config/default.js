@@ -1,5 +1,133 @@
-/** @type {AppTypes.Config} */
+// Demo token - Set your basic token here for the demo datasource
+// This will be sent as: Authorization: Basic YOUR_TOKEN
+// Example: If token is "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV"
+// It will be sent as: Authorization: Basic QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV
+const DEMO_TOKEN = 'YOUR_DEMO_TOKEN_HERE'; // Replace with your actual token (e.g., "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV")
 
+// Demo study UID - Only this study will use the demo token
+const DEMO_STUDY_UID = '1.2.392.200036.9116.2.6.1.48.1211393243.1750146394.000030';
+
+// Helper function to check if we're on a demo route
+function isDemoRoute() {
+  if (typeof window === 'undefined' || !window.location) {
+    return false;
+  }
+  const urlParams = new URLSearchParams(window.location.search);
+  const studyUIDs = urlParams.get('StudyInstanceUIDs') || urlParams.get('studyInstanceUIDs');
+  const path = window.location.pathname;
+  // Only use demo token for the specific demo study UID on demo routes
+  return studyUIDs === DEMO_STUDY_UID && (path.includes('/viewer/demo') || path.includes('/demo'));
+}
+
+// Function to get demo token if on demo route
+function getDemoToken() {
+  if (!isDemoRoute()) {
+    return null;
+  }
+  if (DEMO_TOKEN && DEMO_TOKEN !== 'YOUR_DEMO_TOKEN_HERE') {
+    return DEMO_TOKEN;
+  }
+  return null;
+}
+
+// Make demo token globally accessible for extensions
+if (typeof window !== 'undefined') {
+  // @ts-expect-error - Adding custom property to window
+  window.DEMO_TOKEN = DEMO_TOKEN;
+  // @ts-expect-error - Adding custom property to window
+  window.DEMO_STUDY_UID = DEMO_STUDY_UID;
+  window.isDemoRoute = isDemoRoute;
+  window.getDemoToken = getDemoToken;
+}
+
+// Helper function to get token from cookie (using cookieUtils logic)
+function getTokenFromCookie() {
+  // Check for demo token first
+  const demoToken = getDemoToken();
+  if (demoToken) {
+    return demoToken;
+  }
+  // Otherwise, get token from cookie using cookieUtils logic
+  const name = 'token';
+  const nameEQ = name + '=';
+  const cookies = document.cookie.split(';');
+  for (let i = 0; i < cookies.length; i++) {
+    let cookie = cookies[i];
+    while (cookie.charAt(0) === ' ') {
+      cookie = cookie.substring(1, cookie.length);
+    }
+    if (cookie.indexOf(nameEQ) === 0) {
+      return cookie.substring(nameEQ.length, cookie.length);
+    }
+  }
+  return null;
+}
+
+// Function to fetch preferences from API
+async function fetchPreferences() {
+  try {
+    const token = getTokenFromCookie();
+    if (!token) {
+      console.warn('No token found in cookie');
+      return null;
+    }
+    const response = await fetch(
+      `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/getPreferences`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Token: token,
+        },
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching preferences:', error);
+    return null;
+  }
+}
+
+function getDefaultDataSourceName() {
+  // Check localStorage first for cached value
+  const cachedDataSource = localStorage.getItem('defaultDataSourceName');
+  if (cachedDataSource) {
+    console.log(`Using cached default data source: ${cachedDataSource}`);
+    return cachedDataSource;
+  }
+  // Fallback to default
+  const defaultName = 'localviewer-image-jpeg';
+  console.log(`Using fallback default data source: ${defaultName}`);
+  return defaultName;
+}
+
+async function updateDefaultDataSourceName() {
+  try {
+    const preferences = await fetchPreferences();
+    console.log('preferences', preferences.dataSourceFormat);
+    if (preferences && preferences.dataSourceFormat) {
+      const newDataSource = preferences.dataSourceFormat;
+      console.log(`Updating default data source to: ${newDataSource}`);
+      // Update localStorage cache
+      localStorage.setItem('defaultDataSourceName', newDataSource);
+      // Update config if it exists
+      if (window['config']) {
+        window['config'].defaultDataSourceName = newDataSource;
+      }
+      return newDataSource;
+    }
+  } catch (e) {
+    console.log('Error fetching preferences:', e);
+  }
+  return null;
+}
+
+/** @type {AppTypes.Config} */
+// @ts-expect-error - Adding custom property to window
 window.config = {
   name: 'config/default.js',
   routerBasename: null,
@@ -88,7 +216,14 @@ window.config = {
       ],
     },
   ],
-  defaultDataSourceName: 'ohif',
+  defaultDataSourceName: getDefaultDataSourceName(), // synchronous with localStorage cache
+  // Cookie-based authentication configuration
+  // Set the cookie name that contains the authentication token
+  // The token will be automatically read from cookies and passed in all API request headers
+  cookieAuth: {
+    enabled: true, // Set to false to disable cookie-based auth
+    cookieName: 'token', // Name of the cookie containing the token (common names: 'token', 'accessToken', 'authToken', 'jwt')
+  },
   /* Dynamic config allows user to pass "configUrl" query string this allows to load config without recompiling application. The regex will ensure valid configuration source */
   // dangerouslyUseDynamicConfig: {
   //   enabled: true,
@@ -126,6 +261,7 @@ window.config = {
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
         omitQuotationForMultipartRequest: true,
+        // acceptHeader: 'multipart/related; type="image/jpeg"; transfer-syntax=*',
       },
     },
 
@@ -188,6 +324,129 @@ window.config = {
 
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'dicomweb',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        wadoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoSupportsIncludeField: false,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: false,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        // whether the data source should use retrieveBulkData to grab metadata,
+        // and in case of relative path, what would it be relative to, options
+        // are in the series level or study level (some servers like series some study)
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+      },
+    },
+
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'localviewer-image-jpeg',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/wadouri',
+        qidoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        wadoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadouri',
+        thumbnailRendering: 'wadouri',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        // Transform WADO-URI URLs to use JPEG instead of DICOM
+        wadouriTransform: url =>
+          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
+        omitQuotationForMultipartRequest: true,
+        acceptHeader: '*/*',
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'localviewer-application-dicom',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/wadouri',
+        qidoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        wadoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadouri',
+        thumbnailRendering: 'wadouri',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+        acceptHeader: '*/*',
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'localviewer-raw-dicom',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        wadoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        wadouriTransform: url =>
+          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
+        omitQuotationForMultipartRequest: true,
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'local5000',
       configuration: {
         friendlyName: 'Static WADO Local Data',
@@ -207,6 +466,44 @@ window.config = {
         bulkDataURI: {
           enabled: true,
           relativeResolution: 'studies',
+        },
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'demo',
+      configuration: {
+        friendlyName: 'Demo PACS (Hardcoded Token)',
+        name: 'Demo PACS',
+        wadoUriRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        wadoRoot:
+          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        qidoSupportsIncludeField: false,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+        // Custom configuration to use hardcoded token
+        onConfiguration: config => {
+          // Store the demo token in the config so it can be accessed
+          config._demoToken = DEMO_TOKEN;
+          return config;
+        },
+        // Custom request options to inject the demo token
+        requestOptions: {
+          // This will be handled by the custom getAuthorizationHeader
         },
       },
     },
@@ -271,6 +568,7 @@ window.config = {
   ],
   httpErrorHandler: error => {
     // This is 429 when rejected from the public idc sandbox too often.
+    // @ts-expect-error - error may have status property
     console.warn(error.status);
 
     // Could use services manager here to bring up a dialog/modal if needed.
@@ -302,3 +600,8 @@ window.config = {
   //   },
   // },
 };
+
+// Update defaultDataSourceName asynchronously and cache it
+updateDefaultDataSourceName().catch(error => {
+  console.error('Failed to update default data source name:', error);
+});
