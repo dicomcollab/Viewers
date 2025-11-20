@@ -40,7 +40,7 @@ export default class PortalTooltipCard extends Component {
   margin = 15;
 
   defaultArrowStyle = {
-    color: '#090c29', // primary-dark
+    color: '#002d3a', // primary-dark
     borderColor: 'rgba(58, 63, 153, 1)', // secondary-light
   };
 

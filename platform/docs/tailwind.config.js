@@ -101,17 +101,17 @@ module.exports = {
       },
       bkg: {
         low: '#050615',
-        med: '#090C29',
-        full: '#041C4A',
+        med: '#003a4a',
+        full: '#004152',
       },
       info: {
         primary: '#FFFFFF',
         secondary: '#7BB2CE',
       },
       actions: {
-        primary: '#348CFD',
-        highlight: '#5ACCE6',
-        hover: 'rgba(52, 140, 253, 0.2)',
+        primary: '#FFFFFF',
+        highlight: '#FFFFFF',
+        hover: 'rgba(0, 123, 163, 0.2)',
       },
     },
   },

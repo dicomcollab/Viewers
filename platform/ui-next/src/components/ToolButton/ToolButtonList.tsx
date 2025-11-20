@@ -106,7 +106,7 @@ const ToolButtonListDropDown = React.forwardRef<HTMLDivElement, ToolButtonListDr
         >
           <Icons.ByName
             name="chevron-down"
-            className="text-primary h-5 w-5"
+            className="text-white h-5 w-5"
           />
         </Button>
       </DropdownMenuTrigger>

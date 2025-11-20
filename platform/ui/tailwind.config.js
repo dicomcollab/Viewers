@@ -29,10 +29,10 @@ module.exports = {
       },
 
       primary: {
-        light: '#5acce6',
-        main: '#0944b3',
-        dark: '#090c29',
-        active: '#348cfd',
+        light: '#00a3c7',
+        main: '#004152',
+        dark: '#002d3a',
+        active: '#007ba3',
       },
       inputfield: {
         main: '#3a3f99',
@@ -44,7 +44,7 @@ module.exports = {
       secondary: {
         light: '#3a3f99',
         main: '#2b166b',
-        dark: '#041c4a',
+        dark: '#004152',
         active: '#1f1f27',
       },
 
@@ -61,17 +61,17 @@ module.exports = {
       },
       bkg: {
         low: '#050615',
-        med: '#090C29',
-        full: '#041C4A',
+        med: '#003a4a',
+        full: '#004152',
       },
       info: {
         primary: '#FFFFFF',
         secondary: '#7BB2CE',
       },
       actions: {
-        primary: '#348CFD',
-        highlight: '#5ACCE6',
-        hover: 'rgba(52, 140, 253, 0.2)',
+        primary: '#007ba3',
+        highlight: '#00a3c7',
+        hover: 'rgba(0, 123, 163, 0.2)',
       },
       customgreen: {
         100: '#05D97C',
@@ -82,7 +82,7 @@ module.exports = {
         10: '#0A163F',
         20: '#0B1F54',
         30: '#09286e',
-        40: '#0E307F',
+        40: '#004152',
         50: '#0F3A94',
         80: '#1454D4',
         100: '#c4fdff',
