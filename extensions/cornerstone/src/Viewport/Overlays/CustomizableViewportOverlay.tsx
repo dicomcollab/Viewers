@@ -14,7 +14,7 @@ import './CustomizableViewportOverlay.css';
 import { useViewportRendering } from '../../hooks';
 
 const EPSILON = 1e-4;
-const { formatPN } = utils;
+const { formatPN, formatDate } = utils;
 
 type ViewportData = StackViewportData | VolumeViewportData;
 
@@ -42,11 +42,21 @@ interface OverlayItemProps {
   scale?: number;
 }
 
+// Utility function to detect iframe mode
+const isInIframe = () => {
+  try {
+    return window.self !== window.top;
+  } catch (e) {
+    return true;
+  }
+};
+
 const OverlayItemComponents = {
   'ohif.overlayItem': OverlayItem,
   'ohif.overlayItem.windowLevel': VOIOverlayItem,
   'ohif.overlayItem.zoomLevel': ZoomOverlayItem,
   'ohif.overlayItem.instanceNumber': InstanceNumberOverlayItem,
+  'ohif.overlayItem.patientInfo': PatientInfoOverlayItem,
 };
 
 /**
@@ -78,13 +88,22 @@ function CustomizableViewportOverlay({
   // the recommended functionality is to append to the default values in
   // cornerstoneOverlay rather than defining individual items.
   const topLeftCustomization = customizationService.getCustomization('viewportOverlay.topLeft');
-  const topRightCustomization = customizationService.getCustomization('viewportOverlay.topRight');
+  let topRightCustomization = customizationService.getCustomization('viewportOverlay.topRight');
   const bottomLeftCustomization = customizationService.getCustomization(
     'viewportOverlay.bottomLeft'
   );
   const bottomRightCustomization = customizationService.getCustomization(
     'viewportOverlay.bottomRight'
   );
+
+  // Add patient info to topRight overlay when in iframe mode
+  if (isInIframe()) {
+    const patientInfoItem = {
+      id: 'PatientInfo',
+      inheritsFrom: 'ohif.overlayItem.patientInfo',
+    };
+    topRightCustomization = [...(topRightCustomization || []), patientInfoItem];
+  }
 
   const instanceNumber = useMemo(
     () =>
@@ -459,6 +478,66 @@ function InstanceNumberOverlayItem({
           `${imageIndex + 1}/${numberOfSlices}`
         )}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Patient Info Overlay Item - displays patient name, ID, sex, and DOB
+ */
+function PatientInfoOverlayItem({
+  instance,
+  servicesManager,
+  customization,
+}: OverlayItemProps) {
+  const { displaySetService } = servicesManager.services;
+  const displaySets = displaySetService.getActiveDisplaySets();
+
+  if (!displaySets || displaySets.length === 0) {
+    return null;
+  }
+
+  const displaySet = displaySets[0];
+  const patientInstance = displaySet?.instances?.[0] || displaySet?.instance;
+
+  if (!patientInstance) {
+    return null;
+  }
+
+  const formatWithEllipsis = (str: string, maxLength: number) => {
+    if (!str) return '';
+    if (str.length > maxLength) {
+      return str.substring(0, maxLength) + '...';
+    }
+    return str;
+  };
+
+  const patientName = patientInstance.PatientName
+    ? formatPN(patientInstance.PatientName)
+    : '';
+  const patientID = patientInstance.PatientID || '';
+  const patientSex = patientInstance.PatientSex || '';
+  // Use formatDate from utils (same as HeaderPatientInfo) to handle dates correctly
+  const patientDOB = patientInstance.PatientBirthDate
+    ? formatDate(patientInstance.PatientBirthDate)
+    : '';
+
+  const formattedPatientName = formatWithEllipsis(patientName, 27);
+  const formattedPatientID = formatWithEllipsis(patientID, 15);
+
+  return (
+    <div
+      className="overlay-item flex flex-col"
+      style={{ color: (customization && customization.color) || undefined }}
+    >
+      <div className="text-[10px] font-bold leading-tight">
+        {formattedPatientName}
+      </div>
+      <div className="flex gap-1.5 text-[9px] leading-tight opacity-[0.85]">
+        {formattedPatientID && <span>{formattedPatientID}</span>}
+        {patientSex && <span>{patientSex}</span>}
+        {patientDOB && <span>{patientDOB}</span>}
+      </div>
     </div>
   );
 }

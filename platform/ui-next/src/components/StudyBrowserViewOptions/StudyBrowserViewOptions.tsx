@@ -12,6 +12,9 @@ export function StudyBrowserViewOptions({ tabs, onSelectTab, activeTabName }: wi
     onSelectTab(tabName);
   };
 
+  console.log('tabs', tabs);
+  console.log('activeTabName', activeTabName);
+
   const activeTab = tabs.find(tab => tab.name === activeTabName);
 
   return (

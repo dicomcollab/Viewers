@@ -8,8 +8,18 @@ import ViewerHeader from './ViewerHeader';
 import SidePanelWithServices from '../Components/SidePanelWithServices';
 import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@ohif/ui-next';
 import useResizablePanels from './ResizablePanelsHook';
+import './ViewerLayout.css';
 
 const resizableHandleClassName = 'mt-[1px] bg-black';
+
+// Utility function to detect iframe mode
+const isInIframe = () => {
+  try {
+    return window.self !== window.top;
+  } catch (e) {
+    return true;
+  }
+};
 
 function ViewerLayout({
   // From Extension Module Params
@@ -34,6 +44,10 @@ function ViewerLayout({
   const { panelService, hangingProtocolService, customizationService } = servicesManager.services;
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(appConfig.showLoadingIndicator);
 
+  // Detect iframe mode and close left panel by default
+  const isIframeMode = isInIframe();
+  const effectiveLeftPanelClosed = isIframeMode ? true : leftPanelClosed;
+
   const hasPanels = useCallback(
     (side): boolean => !!panelService.getPanels(side).length,
     [panelService]
@@ -41,7 +55,7 @@ function ViewerLayout({
 
   const [hasRightPanels, setHasRightPanels] = useState(hasPanels('right'));
   const [hasLeftPanels, setHasLeftPanels] = useState(hasPanels('left'));
-  const [leftPanelClosedState, setLeftPanelClosed] = useState(leftPanelClosed);
+  const [leftPanelClosedState, setLeftPanelClosed] = useState(effectiveLeftPanelClosed);
   const [rightPanelClosedState, setRightPanelClosed] = useState(rightPanelClosed);
 
   const [
@@ -53,7 +67,7 @@ function ViewerLayout({
     resizableRightPanelProps,
     onHandleDragging,
   ] = useResizablePanels(
-    leftPanelClosed,
+    effectiveLeftPanelClosed,
     setLeftPanelClosed,
     rightPanelClosed,
     setRightPanelClosed,
@@ -156,6 +170,7 @@ function ViewerLayout({
         extensionManager={extensionManager}
         servicesManager={servicesManager}
         appConfig={appConfig}
+        isIframeMode={isIframeMode}
       />
       <div
         className="relative flex w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
@@ -184,7 +199,7 @@ function ViewerLayout({
             ) : null}
             {/* TOOLBAR + GRID */}
             <ResizablePanel {...resizableViewportGridPanelProps}>
-              <div className="flex h-full flex-1 flex-col">
+              <div className={`flex h-full flex-1 flex-col ${isIframeMode ? 'iframe-mode' : ''}`}>
                 <div
                   className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-black"
                   onMouseEnter={handleMouseEnter}

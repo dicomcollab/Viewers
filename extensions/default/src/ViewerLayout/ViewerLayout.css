@@ -1,0 +1,24 @@
+/* Compact toolbar styles for iframe mode */
+.iframe-toolbar-compact button,
+.iframe-toolbar-compact [data-tool] button {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  min-width: 1.75rem !important;
+  min-height: 1.75rem !important;
+  padding: 0.25rem !important;
+}
+
+.iframe-toolbar-compact svg,
+.iframe-toolbar-compact [data-tool] svg {
+  width: 1rem !important;
+  height: 1rem !important;
+}
+
+.iframe-toolbar-compact .gap-\\[4px\\] {
+  gap: 0.125rem !important;
+}
+
+/* Compact spacing for toolbar items */
+.iframe-toolbar-compact > * {
+  margin: 0 0.125rem;
+}

@@ -10,7 +10,7 @@ import { PatientInfoVisibility } from './HeaderPatientInfo/HeaderPatientInfo';
 import { preserveQueryParameters } from '@ohif/app';
 import { Types } from '@ohif/core';
 
-function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }>) {
+function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appConfig: AppTypes.Config; isIframeMode?: boolean }>) {
   const { servicesManager, extensionManager, commandsManager } = useSystem();
   const { customizationService } = servicesManager.services;
 
@@ -89,7 +89,7 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
       WhiteLabeling={appConfig.whiteLabeling}
       Secondary={<Toolbar buttonSection="secondary" />}
       PatientInfo={
-        appConfig.showPatientInfo !== PatientInfoVisibility.DISABLED && (
+        !isIframeMode && appConfig.showPatientInfo !== PatientInfoVisibility.DISABLED && (
           <HeaderPatientInfo
             servicesManager={servicesManager}
             appConfig={appConfig}
@@ -119,7 +119,7 @@ function ViewerHeader({ appConfig }: withAppTypes<{ appConfig: AppTypes.Config }
         </div>
       }
     >
-      <div className="relative flex justify-center gap-[4px]">
+      <div className={`relative flex justify-center gap-[4px] ${isIframeMode ? 'iframe-toolbar-compact' : ''}`}>
         <Toolbar buttonSection="primary" />
       </div>
     </Header>
