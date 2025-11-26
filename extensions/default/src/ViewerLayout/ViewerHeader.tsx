@@ -54,7 +54,7 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
       onClick: () =>
         show({
           content: AboutModal,
-          title: AboutModal?.title ?? t('AboutModal:About OHIF Viewer'),
+          title: AboutModal?.title ?? t('AboutModal:About MedPacs'),
           containerClassName: AboutModal?.containerClassName ?? 'max-w-md',
         }),
     },

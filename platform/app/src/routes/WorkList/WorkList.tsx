@@ -33,7 +33,6 @@ import {
   useSessionStorage,
   Onboarding,
   ScrollArea,
-  InvestigationalUseDialog,
 } from '@ohif/ui-next';
 
 import { Types } from '@ohif/ui';
@@ -488,7 +487,7 @@ function WorkList({
       onClick: () =>
         show({
           content: AboutModal,
-          title: AboutModal?.title ?? t('AboutModal:About OHIF Viewer'),
+          title: AboutModal?.title ?? t('AboutModal:About MedPacs'),
           containerClassName: AboutModal?.containerClassName ?? 'max-w-md',
         }),
     },
@@ -560,7 +559,6 @@ function WorkList({
         showPatientInfo={PatientInfoVisibility.DISABLED}
       />
       <Onboarding />
-      <InvestigationalUseDialog dialogConfiguration={appConfig?.investigationalUseDialog} />
       <div className="flex h-full flex-col overflow-y-auto">
         <ScrollArea>
           <div className="flex grow flex-col">

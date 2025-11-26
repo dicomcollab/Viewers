@@ -1,35 +1,25 @@
 import React from 'react';
 import { AboutModal } from '@ohif/ui-next';
-import detect from 'browser-detect';
 
 function AboutModalDefault() {
-  const { os, version, name } = detect();
-  const browser = `${name[0].toUpperCase()}${name.substr(1)} ${version}`;
-  const versionNumber = process.env.VERSION_NUMBER;
-  const commitHash = process.env.COMMIT_HASH;
-
-  const [main, beta] = versionNumber.split('-');
-
   return (
     <AboutModal className="w-[400px]">
-      <AboutModal.ProductName>OHIF Viewer</AboutModal.ProductName>
-      <AboutModal.ProductVersion>{main}</AboutModal.ProductVersion>
-      {beta && <AboutModal.ProductBeta>{beta}</AboutModal.ProductBeta>}
+      <AboutModal.ProductName>MedPacs</AboutModal.ProductName>
 
       <AboutModal.Body>
-        <AboutModal.DetailItem
-          label="Commit Hash"
-          value={commitHash}
-        />
-        <AboutModal.DetailItem
-          label="Current Browser & OS"
-          value={`${browser}, ${os}`}
-        />
-        <AboutModal.SocialItem
-          icon="SocialGithub"
-          url="OHIF/Viewers"
-          text="github.com/OHIF/Viewers"
-        />
+        <div className="text-muted-foreground px-4 py-2 text-sm leading-relaxed">
+          MedPacs was developed primarily to aid the radiology community, and replace outdated paper-based workflows. Recognizing the challenges within this sector, we dedicated ourselves to curating an affordable, accessible, and high-quality software solution.
+        </div>
+        <div className="mt-4">
+          <a
+            href="https://med-pacs.com/about"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary-active hover:text-primary-light text-sm underline"
+          >
+            https://med-pacs.com/about
+          </a>
+        </div>
       </AboutModal.Body>
     </AboutModal>
   );
