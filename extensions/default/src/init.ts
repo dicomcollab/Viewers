@@ -5,6 +5,10 @@ import getPTImageIdInstanceMetadata from './getPTImageIdInstanceMetadata';
 import { registerHangingProtocolAttributes } from './hangingprotocols';
 import { HotkeysManager } from '@ohif/core';
 
+// Import image cache module to ensure it initializes early
+// This sets up window.__OHIF_IMAGE_CACHE__ before image loading starts
+import './DicomWebDataSource/utils/imageCache.js';
+
 const metadataProvider = classes.MetadataProvider;
 
 /**

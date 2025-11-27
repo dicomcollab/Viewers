@@ -5,6 +5,7 @@ import PropTypes from 'prop-types';
 import i18n from '@ohif/i18n';
 import { I18nextProvider } from 'react-i18next';
 import { BrowserRouter, type BrowserRouterProps } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
 
 import Compose from './routes/Mode/Compose';
 import {
@@ -36,6 +37,7 @@ import appInit from './appInit.js';
 import OpenIdConnectRoutes from './utils/OpenIdConnectRoutes';
 import { ShepherdJourneyProvider } from 'react-shepherd';
 import { getCookie } from './utils/cookieUtils';
+import { queryClient } from './utils/queryClient';
 import './App.css';
 
 let commandsManager: CommandsManager,
@@ -115,6 +117,7 @@ function App({
   } = servicesManager.services;
 
   const providers = [
+    [QueryClientProvider, { client: queryClient } as any],
     [AppConfigProvider, { value: appConfigState }],
     [UserAuthenticationProvider, { service: userAuthenticationService }],
     [I18nextProvider, { i18n }],
@@ -154,9 +157,9 @@ function App({
   if (shouldUseCookieAuth) {
     const getAuthorizationHeader = () => {
       // Check if we're on a demo route and use demo token
-      // @ts-expect-error - Accessing custom property on window
+      // @ts-ignore - Accessing custom property on window
       const isDemo = window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
-      // @ts-expect-error - Accessing custom property on window
+      // @ts-ignore - Accessing custom property on window
       const demoToken = window.getDemoToken && typeof window.getDemoToken === 'function' ? window.getDemoToken() : null;
 
       if (isDemo && demoToken) {

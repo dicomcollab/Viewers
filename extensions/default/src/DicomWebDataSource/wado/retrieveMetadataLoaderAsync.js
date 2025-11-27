@@ -1,6 +1,7 @@
 import dcmjs from 'dcmjs';
 import { sortStudySeries } from '@ohif/core/src/utils/sortStudy';
 import RetrieveMetadataLoader from './retrieveMetadataLoader';
+import { getCachedSeriesMetadata } from '../utils/seriesMetadataCache.js';
 
 // Series Date, Series Time, Series Description and Series Number to be included
 // in the series metadata query result
@@ -62,7 +63,7 @@ export class DeferredPromise {
  *
  * @returns {Object} Returns an object which supports loading of instances from each of given Series Instance UID
  */
-function makeSeriesAsyncLoader(client, studyInstanceUID, seriesInstanceUIDList) {
+function makeSeriesAsyncLoader(client, studyInstanceUID, seriesInstanceUIDList, dataSourceName) {
   return Object.freeze({
     hasNext() {
       return seriesInstanceUIDList.length > 0;
@@ -72,10 +73,21 @@ function makeSeriesAsyncLoader(client, studyInstanceUID, seriesInstanceUIDList) 
       const promise = new DeferredPromise();
       promise.setMetadata(metadata);
       promise.setProcessFunction(() => {
-        return client.retrieveSeriesMetadata({
+        // Wrap with caching
+        const fetchSeriesMetadata = () => {
+          return client.retrieveSeriesMetadata({
+            studyInstanceUID,
+            seriesInstanceUID,
+          });
+        };
+
+        // Use cached series metadata if available
+        return getCachedSeriesMetadata(
+          fetchSeriesMetadata,
+          dataSourceName || 'default',
           studyInstanceUID,
-          seriesInstanceUID,
-        });
+          seriesInstanceUID
+        );
       });
       return promise;
     },
@@ -89,6 +101,11 @@ function makeSeriesAsyncLoader(client, studyInstanceUID, seriesInstanceUIDList) 
  * It loads the one series and then append to seriesLoader the others to be consumed/loaded
  */
 export default class RetrieveMetadataLoaderAsync extends RetrieveMetadataLoader {
+  constructor(client, studyInstanceUID, filters = {}, sortCriteria = undefined, sortFunction = undefined, dataSourceName = undefined) {
+    super(client, studyInstanceUID, filters, sortCriteria, sortFunction);
+    this.dataSourceName = dataSourceName;
+  }
+
   /**
    * @returns {Array} Array of preLoaders. To be consumed as queue
    */
@@ -117,8 +134,42 @@ export default class RetrieveMetadataLoaderAsync extends RetrieveMetadataLoader 
   }
 
   async preLoad() {
+    const { studyInstanceUID, dataSourceName, client } = this;
+
+    // Try to get cached raw series data first (for preLoad we need raw data before naturalization)
+    const queryClient = typeof window !== 'undefined' && window.__OHIF_QUERY_CLIENT__
+      ? window.__OHIF_QUERY_CLIENT__
+      : null;
+
+    if (queryClient) {
+      // Cache key for raw series data (before processing)
+      const queryKey = ['seriesSearchRaw', dataSourceName || 'default', studyInstanceUID];
+      const cachedRawData = queryClient.getQueryData(queryKey);
+
+      if (cachedRawData) {
+        console.log(`[Series Search Cache] ✅ CACHE HIT in preLoad (raw) - Study: ${studyInstanceUID.substring(0, 20)}...`);
+        const sortCriteria = this.sortCriteria;
+        const sortFunction = this.sortFunction;
+        const { naturalizeDataset } = dcmjs.data.DicomMetaDictionary;
+        const naturalized = cachedRawData.map(naturalizeDataset);
+        return sortStudySeries(naturalized, sortCriteria, sortFunction);
+      }
+    }
+
+    // If not cached, proceed with normal loading
     const preLoaders = this.getPreLoaders();
     const result = await this.runLoaders(preLoaders);
+
+    // Cache the raw result for future use
+    if (queryClient && result && result.length > 0) {
+      const queryKey = ['seriesSearchRaw', dataSourceName || 'default', studyInstanceUID];
+      queryClient.setQueryData(queryKey, result, {
+        staleTime: 60 * 60 * 1000, // 1 hour
+        gcTime: 24 * 60 * 60 * 1000, // 24 hours
+      });
+      console.log(`[Series Search Cache] ✅ Cached raw series data for preLoad: ${studyInstanceUID.substring(0, 20)}...`);
+    }
+
     const sortCriteria = this.sortCriteria;
     const sortFunction = this.sortFunction;
 
@@ -129,13 +180,13 @@ export default class RetrieveMetadataLoaderAsync extends RetrieveMetadataLoader 
   }
 
   async load(preLoadData) {
-    const { client, studyInstanceUID } = this;
+    const { client, studyInstanceUID, dataSourceName } = this;
 
     const seriesInstanceUIDs = preLoadData.map(seriesMetadata => {
       return { seriesInstanceUID: seriesMetadata.SeriesInstanceUID, metadata: seriesMetadata };
     });
 
-    const seriesAsyncLoader = makeSeriesAsyncLoader(client, studyInstanceUID, seriesInstanceUIDs);
+    const seriesAsyncLoader = makeSeriesAsyncLoader(client, studyInstanceUID, seriesInstanceUIDs, dataSourceName);
 
     const promises = [];
 

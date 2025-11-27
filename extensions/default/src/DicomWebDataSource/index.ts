@@ -17,6 +17,7 @@ import StaticWadoClient from './utils/StaticWadoClient';
 import getDirectURL from '../utils/getDirectURL';
 import { fixBulkDataURI } from './utils/fixBulkDataURI';
 import {HeadersInterface} from '@ohif/core/src/types/RequestHeaders';
+import { getCachedStudiesSearch } from './utils/studiesQueryCache.js';
 
 const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 
@@ -225,26 +226,76 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       studies: {
         mapParams: mapParams.bind(),
         search: async function (origParams) {
-          qidoDicomWebClient.headers = getAuthorizationHeader();
-          const { studyInstanceUid, seriesInstanceUid, ...mappedParams } =
-            mapParams(origParams, {
-              supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
-              supportsWildcard: dicomWebConfig.supportsWildcard,
-            }) || {};
+          const fetchStudies = async () => {
+            qidoDicomWebClient.headers = getAuthorizationHeader();
+            const { studyInstanceUid, seriesInstanceUid, ...mappedParams } =
+              mapParams(origParams, {
+                supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
+                supportsWildcard: dicomWebConfig.supportsWildcard,
+              }) || {};
 
-          const results = await qidoSearch(qidoDicomWebClient, undefined, undefined, mappedParams);
+            const results = await qidoSearch(qidoDicomWebClient, undefined, undefined, mappedParams);
 
-          return processResults(results);
+            return processResults(results);
+          };
+
+          // Use cached studies search if available
+          return getCachedStudiesSearch(
+            fetchStudies,
+            dicomWebConfig.name || 'default',
+            origParams
+          );
         },
         processResults: processResults.bind(),
       },
       series: {
         // mapParams: mapParams.bind(),
         search: async function (studyInstanceUid) {
-          qidoDicomWebClient.headers = getAuthorizationHeader();
-          const results = await seriesInStudy(qidoDicomWebClient, studyInstanceUid);
+          const { getCachedStudiesSearch } = require('./utils/studiesQueryCache.js');
 
-          return processSeriesResults(results);
+          const fetchSeries = async () => {
+            qidoDicomWebClient.headers = getAuthorizationHeader();
+            const results = await seriesInStudy(qidoDicomWebClient, studyInstanceUid);
+            return processSeriesResults(results);
+          };
+
+          // Create a query key for series search (different from studies search)
+          const queryClient = typeof window !== 'undefined' && window.__OHIF_QUERY_CLIENT__
+            ? window.__OHIF_QUERY_CLIENT__
+            : null;
+
+          if (queryClient) {
+            const queryKey = ['seriesSearch', dicomWebConfig.name || 'default', studyInstanceUid];
+
+            try {
+              const cachedData = queryClient.getQueryData(queryKey);
+              if (cachedData) {
+                console.log(`[Series Search Cache] ✅ CACHE HIT - Study: ${studyInstanceUid.substring(0, 20)}...`);
+                return cachedData;
+              }
+
+              console.log(`[Series Search Cache] ❌ CACHE MISS - Fetching series for study: ${studyInstanceUid.substring(0, 20)}...`);
+
+              const data = await queryClient.fetchQuery({
+                queryKey,
+                queryFn: async () => {
+                  console.log(`[Series Search Cache] 🔄 Fetching series from API: ${studyInstanceUid.substring(0, 20)}...`);
+                  const result = await fetchSeries();
+                  console.log(`[Series Search Cache] ✅ Cached series (${result?.length || 0} series)`);
+                  return result;
+                },
+                staleTime: 60 * 60 * 1000, // 1 hour
+                gcTime: 24 * 60 * 60 * 1000, // 24 hours
+              });
+
+              return data;
+            } catch (error) {
+              console.warn('[Series Search Cache] Error, falling back to direct fetch:', error);
+              return fetchSeries();
+            }
+          }
+
+          return fetchSeries();
         },
         // processResults: processResults.bind(),
       },

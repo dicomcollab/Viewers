@@ -24,6 +24,17 @@ import RequestTypes from '@cornerstonejs/core/enums/RequestType';
 import initWADOImageLoader from './initWADOImageLoader';
 import initCornerstoneTools from './initCornerstoneTools';
 
+// Import image cache module to ensure it initializes early
+// This sets up window.__OHIF_IMAGE_CACHE__ before image loading starts
+try {
+  // Dynamic import to avoid breaking if module doesn't exist
+  import('../../default/src/DicomWebDataSource/utils/imageCache.js').catch(() => {
+    // Silently fail - image cache is optional
+  });
+} catch (e) {
+  // Ignore import errors
+}
+
 import { connectToolsToMeasurementService } from './initMeasurementService';
 import initCineService from './initCineService';
 import initStudyPrefetcherService from './initStudyPrefetcherService';

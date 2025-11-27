@@ -21,18 +21,28 @@ async function RetrieveMetadata(
   enableStudyLazyLoad,
   filters = {},
   sortCriteria,
-  sortFunction
+  sortFunction,
+  dataSourceName = undefined
 ) {
   const RetrieveMetadataLoader =
     enableStudyLazyLoad !== false ? RetrieveMetadataLoaderAsync : RetrieveMetadataLoaderSync;
 
-  const retrieveMetadataLoader = new RetrieveMetadataLoader(
-    dicomWebClient,
-    StudyInstanceUID,
-    filters,
-    sortCriteria,
-    sortFunction
-  );
+  const retrieveMetadataLoader = enableStudyLazyLoad !== false
+    ? new RetrieveMetadataLoaderAsync(
+        dicomWebClient,
+        StudyInstanceUID,
+        filters,
+        sortCriteria,
+        sortFunction,
+        dataSourceName
+      )
+    : new RetrieveMetadataLoader(
+        dicomWebClient,
+        StudyInstanceUID,
+        filters,
+        sortCriteria,
+        sortFunction
+      );
   const data = await retrieveMetadataLoader.execLoad();
 
   return data;

@@ -44,8 +44,45 @@ const getImageInstanceId = imageInstance => {
   return getImageId(imageInstance);
 };
 
-const fetchIt = (url, headers = DICOMWeb.getAuthorizationHeader()) => {
-  return fetch(url, headers).then(response => response.arrayBuffer());
+// Get image cache utilities from global window object (set by imageCache.js)
+const getImageCache = () => {
+  if (typeof window !== 'undefined' && window.__OHIF_IMAGE_CACHE__) {
+    return window.__OHIF_IMAGE_CACHE__;
+  }
+  return null;
+};
+
+const fetchIt = async (url, headers = DICOMWeb.getAuthorizationHeader()) => {
+  const imageCache = getImageCache();
+
+  // Try to get from cache first
+  if (imageCache) {
+    try {
+      const cachedData = await imageCache.getCachedImage(url);
+      if (cachedData) {
+        // Return cached data immediately - this is FAST!
+        return cachedData;
+      }
+    } catch (error) {
+      // If cache fails, continue with network fetch
+    }
+  }
+
+  const response = await fetch(url, headers);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+
+  // Store in cache asynchronously (don't wait for it to complete)
+  if (imageCache && arrayBuffer) {
+    imageCache.setCachedImage(url, arrayBuffer).catch(() => {
+      // Silently fail - don't break image loading if cache write fails
+    });
+  }
+
+  return arrayBuffer;
 };
 
 const cornerstoneRetriever = imageId => {
