@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import i18n from '@ohif/i18n';
 import { I18nextProvider } from 'react-i18next';
-import { BrowserRouter, type BrowserRouterProps } from 'react-router-dom';
+import { BrowserRouter, type BrowserRouterProps, useNavigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 
 import Compose from './routes/Mode/Compose';
@@ -188,9 +188,24 @@ function App({
       return {};
     };
 
+    const handleUnauthenticated = () => {
+      // Redirect to login route when token expires or user is unauthenticated
+      if (typeof window !== 'undefined') {
+        // Use configured login URL or default to full URL
+        let loginUrl = cookieAuth.loginUrl || 'https://synapse.med-pacs.com/login';
+        // If it's a relative URL, make it absolute
+        if (loginUrl.startsWith('/')) {
+          loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
+        }
+        window.location.href = loginUrl;
+      }
+      return null;
+    };
+
     userAuthenticationService.setServiceImplementation({
       getAuthorizationHeader,
-    });
+      handleUnauthenticated,
+    } as any);
   }
 
   // Use config to create routes
@@ -203,6 +218,7 @@ function App({
     hotkeysManager,
     routerBasename,
     showStudyList,
+    appConfig: appConfigState,
   });
 
   if (oidc) {

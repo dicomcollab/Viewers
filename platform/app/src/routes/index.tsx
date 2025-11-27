@@ -8,6 +8,7 @@ import WorkList from './WorkList';
 import Local from './Local';
 import Debug from './Debug';
 import NotFound from './NotFound';
+import RootRedirect from './RootRedirect';
 import buildModeRoutes from './buildModeRoutes';
 import PrivateRoute from './PrivateRoute';
 import PropTypes from 'prop-types';
@@ -90,6 +91,7 @@ const createRoutes = ({
   commandsManager,
   hotkeysManager,
   showStudyList,
+  appConfig,
 }: withAppTypes) => {
   const routes =
     buildModeRoutes({
@@ -110,6 +112,34 @@ const createRoutes = ({
 
   console.log('Registering worklist route', routerBasename, path);
 
+  // Get redirect configuration from appConfig
+  // Default to true if risWorklistUrl is provided, otherwise false
+  const risWorklistUrl = (appConfig as any)?.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
+  const redirectRootToRis = (appConfig as any)?.redirectRootToRis !== undefined
+    ? (appConfig as any).redirectRootToRis
+    : risWorklistUrl ? true : false; // Default to true if risWorklistUrl exists
+
+  console.log('Root redirect configuration:', {
+    redirectRootToRis,
+    risWorklistUrl,
+    appConfigKeys: appConfig ? Object.keys(appConfig) : 'no appConfig',
+  });
+
+  // Create root route - either redirect to RIS or show worklist
+  const RootRoute = redirectRootToRis
+    ? {
+        path: '/',
+        children: RootRedirect,
+        private: false,
+        props: { risWorklistUrl, redirectRootToRis },
+      }
+    : {
+        path: '/',
+        children: DataSourceWrapper,
+        private: true,
+        props: { children: WorkList, servicesManager, extensionManager },
+      };
+
   const WorkListRoute = {
     path: '/',
     children: DataSourceWrapper,
@@ -121,11 +151,13 @@ const createRoutes = ({
 
   const allRoutes = [
     ...routes,
-    ...(showStudyList ? [WorkListRoute] : []),
+    // Add root route (either redirect to RIS or show worklist based on config)
+    // Always add RootRoute first if redirectRootToRis is true, otherwise add WorkListRoute if showStudyList is true
+    ...(redirectRootToRis ? [RootRoute] : showStudyList ? [WorkListRoute] : []),
     ...(customRoutes?.routes || []),
     ...bakedInRoutes,
     customRoutes?.notFoundRoute || notFoundRoute,
-  ];
+  ].flat();
 
   function RouteWithErrorBoundary({ route, ...rest }) {
     const [appConfig] = useAppConfig();
@@ -141,7 +173,7 @@ const createRoutes = ({
       >
         <route.children
           {...rest}
-          {...route.props}
+          {...(route.props || {})}
           route={route}
           servicesManager={servicesManager}
           extensionManager={extensionManager}

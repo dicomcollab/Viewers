@@ -80,10 +80,51 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
     [StudyPrefetcherService.REGISTRATION, appConfig.studyPrefetcher],
   ]);
 
+  // Store servicesManager reference in errorHandler for later access
+  errorHandler.setServicesManager(servicesManager);
+
+  // Create enhanced error handler that checks for 401 (unauthorized) errors
+  // and redirects to login if token expires
+  const createEnhancedErrorHandler = (originalHandler) => {
+    return (error) => {
+      // Check if error is a 401 (Unauthorized) - token expired
+      if (error && (error.status === 401 || error.statusCode === 401)) {
+        // Get userAuthenticationService from stored servicesManager
+        const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
+
+        // Check if userAuthenticationService has handleUnauthenticated method
+        if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
+          userAuthenticationService.handleUnauthenticated();
+          return;
+        }
+        // Fallback: redirect to login if no handler is available
+        // Try to get login URL from appConfig or default to full URL
+        if (typeof window !== 'undefined') {
+          const appConfig = errorHandler._servicesManager?.extensionManager?.appConfig;
+          let loginUrl = appConfig?.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
+          // If it's a relative URL, make it absolute
+          if (loginUrl.startsWith('/')) {
+            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
+          }
+          window.location.href = loginUrl;
+        }
+        return;
+      }
+
+      // Call original error handler if provided
+      if (typeof originalHandler === 'function') {
+        return originalHandler(error);
+      }
+    };
+  };
+
   errorHandler.getHTTPErrorHandler = () => {
-    if (typeof appConfig.httpErrorHandler === 'function') {
-      return appConfig.httpErrorHandler;
-    }
+    const originalHandler = typeof appConfig.httpErrorHandler === 'function'
+      ? appConfig.httpErrorHandler
+      : null;
+
+    // Return enhanced handler that checks for 401 errors
+    return createEnhancedErrorHandler(originalHandler);
   };
 
   /**
