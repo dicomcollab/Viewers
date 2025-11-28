@@ -42,15 +42,6 @@ interface OverlayItemProps {
   scale?: number;
 }
 
-// Utility function to detect iframe mode
-const isInIframe = () => {
-  try {
-    return window.self !== window.top;
-  } catch (e) {
-    return true;
-  }
-};
-
 const OverlayItemComponents = {
   'ohif.overlayItem': OverlayItem,
   'ohif.overlayItem.windowLevel': VOIOverlayItem,
@@ -96,14 +87,12 @@ function CustomizableViewportOverlay({
     'viewportOverlay.bottomRight'
   );
 
-  // Add patient info to topRight overlay when in iframe mode
-  if (isInIframe()) {
-    const patientInfoItem = {
-      id: 'PatientInfo',
-      inheritsFrom: 'ohif.overlayItem.patientInfo',
-    };
-    topRightCustomization = [...(topRightCustomization || []), patientInfoItem];
-  }
+  // Always add patient info to topRight overlay on canvas
+  const patientInfoItem = {
+    id: 'PatientInfo',
+    inheritsFrom: 'ohif.overlayItem.patientInfo',
+  };
+  topRightCustomization = [...(topRightCustomization || []), patientInfoItem];
 
   const instanceNumber = useMemo(
     () =>

@@ -28,7 +28,6 @@ interface HeaderProps {
   WhiteLabeling?: {
     createLogoComponentFn?: (React: any, props: any) => ReactNode;
   };
-  PatientInfo?: ReactNode;
   Secondary?: ReactNode;
   UndoRedo?: ReactNode;
 }
@@ -40,7 +39,6 @@ function Header({
   onClickReturnButton,
   isSticky = false,
   WhiteLabeling,
-  PatientInfo,
   UndoRedo,
   Secondary,
   ...props
@@ -82,8 +80,6 @@ function Header({
           </div>
           <div className="absolute right-0 top-1/2 flex -translate-y-1/2 select-none items-center">
             {UndoRedo}
-            <div className="border-primary-dark mx-1.5 h-[25px] border-r"></div>
-            {PatientInfo}
             <div className="border-primary-dark mx-1.5 h-[25px] border-r"></div>
             <div className="flex-shrink-0">
               <DropdownMenu>
