@@ -39,13 +39,14 @@ function PanelStudyBrowserHeader({
                   const selectedViewPreset = viewPresets.find(preset => preset.id === value);
                   updateViewPresetValue(selectedViewPreset);
                 }}
+                className="bg-black/30 border border-white/20"
               >
                 {viewPresets.map((viewPreset: viewPreset, index) => (
                   <ToggleGroupItem
                     key={index}
                     aria-label={viewPreset.id}
                     value={viewPreset.id}
-                    className="text-actions-primary"
+                    className="text-white hover:bg-white/20 hover:text-white data-[state=on]:bg-white/30 data-[state=on]:text-white"
                   >
                     {React.createElement(Icons[viewPreset.iconName] || Icons.MissingIcon)}
                   </ToggleGroupItem>

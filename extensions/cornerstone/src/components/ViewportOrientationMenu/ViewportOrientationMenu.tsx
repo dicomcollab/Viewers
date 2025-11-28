@@ -161,7 +161,7 @@ function ViewportOrientationMenu({
         >
           <div className="mr-1 flex w-6 items-center justify-start">
             {currentOrientation === 'axial' ? (
-              <Icons.Checked className="text-primary h-6 w-6" />
+              <Icons.Checked className=" h-6 w-6" />
             ) : null}
           </div>
           <div className="flex-1 text-left">Axial</div>
@@ -173,7 +173,7 @@ function ViewportOrientationMenu({
         >
           <div className="mr-1 flex w-6 items-center justify-start">
             {currentOrientation === 'sagittal' ? (
-              <Icons.Checked className="text-primary h-6 w-6" />
+              <Icons.Checked className=" h-6 w-6" />
             ) : null}
           </div>
           <div className="flex-1 text-left">Sagittal</div>
@@ -185,7 +185,7 @@ function ViewportOrientationMenu({
         >
           <div className="mr-1 flex w-6 items-center justify-start">
             {currentOrientation === 'coronal' ? (
-              <Icons.Checked className="text-primary h-6 w-6" />
+              <Icons.Checked className=" h-6 w-6" />
             ) : null}
           </div>
           <div className="flex-1 text-left">Coronal</div>
@@ -197,7 +197,7 @@ function ViewportOrientationMenu({
         >
           <div className="mr-1 flex w-6 items-center justify-start">
             {currentOrientation === 'acquisition' ? (
-              <Icons.Checked className="text-primary h-6 w-6" />
+              <Icons.Checked className=" h-6 w-6" />
             ) : null}
           </div>
           <div className="flex-1 text-left">Acquisition</div>
@@ -211,7 +211,7 @@ function ViewportOrientationMenu({
         >
           <div className="mr-1 flex w-6 items-center justify-start">
             {currentOrientation === 'reformat' ? (
-              <Icons.Checked className="text-primary h-6 w-6" />
+              <Icons.Checked className=" h-6 w-6" />
             ) : null}
           </div>
           <div className="flex-1 text-left">Reformat</div>

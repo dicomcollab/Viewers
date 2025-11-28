@@ -83,8 +83,18 @@ function initDefaultToolGroup(extensionManager, toolGroupService, commandsManage
       { toolName: toolNames.WindowLevelRegion },
     ],
     enabled: [
-      { toolName: toolNames.ImageOverlayViewer },
-      { toolName: toolNames.ReferenceLines },
+      {
+        toolName: toolNames.ImageOverlayViewer,
+        configuration: {
+          fillColor: [255, 255, 255, 255],
+        },
+      },
+      {
+        toolName: toolNames.ReferenceLines,
+        configuration: {
+          color: 'rgb(255, 255, 255)',
+        },
+      },
     ],
     disabled: [
       {

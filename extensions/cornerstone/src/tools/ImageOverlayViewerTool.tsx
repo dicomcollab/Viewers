@@ -39,7 +39,7 @@ class ImageOverlayViewerTool extends AnnotationDisplayTool {
     defaultToolProps = {
       supportedInteractionTypes: [],
       configuration: {
-        fillColor: [255, 127, 127, 255],
+        fillColor: [255, 255, 255, 255],
       },
     }
   ) {

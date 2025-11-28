@@ -143,7 +143,7 @@ function Local({ modePath }: LocalProps) {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <p className="text-primary pt-0 text-xl">
+                    <p className="text-white pt-0 text-xl">
                       Drag and drop your DICOM files & folders here <br />
                       to load them locally.
                     </p>
