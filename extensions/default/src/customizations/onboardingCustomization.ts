@@ -1,5 +1,5 @@
 function waitForElement(selector, maxAttempts = 20, interval = 25) {
-  return new Promise(resolve => {
+  return new Promise<void>(resolve => {
     let attempts = 0;
 
     const checkForElement = setInterval(() => {
@@ -21,20 +21,6 @@ export default {
       id: 'basicViewerTour',
       route: '/viewer',
       steps: [
-        {
-          id: 'scroll',
-          title: 'Scrolling Through Images',
-          text: 'You can scroll through the images using the mouse wheel or scrollbar.',
-          attachTo: {
-            element: '.viewport-element',
-            on: 'top',
-          },
-          advanceOn: {
-            selector: '.cornerstone-viewport-element',
-            event: 'CORNERSTONE_TOOLS_MOUSE_WHEEL',
-          },
-          beforeShowPromise: () => waitForElement('.viewport-element'),
-        },
         {
           id: 'zoom',
           title: 'Zooming In and Out',
