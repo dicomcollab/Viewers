@@ -4,7 +4,7 @@ import { AboutModal } from '@ohif/ui-next';
 function AboutModalDefault() {
   return (
     <AboutModal className="w-[400px]">
-      <AboutModal.ProductName>MedPacs</AboutModal.ProductName>
+      <AboutModal.ProductName className="text-white">MedPacs</AboutModal.ProductName>
 
       <AboutModal.Body>
         <div className="text-muted-foreground px-4 py-2 text-sm leading-relaxed">
@@ -15,7 +15,7 @@ function AboutModalDefault() {
             href="https://med-pacs.com/about"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary-active hover:text-primary-light text-sm underline"
+            className="text-white hover:text-white text-sm underline"
           >
             https://med-pacs.com/about
           </a>
