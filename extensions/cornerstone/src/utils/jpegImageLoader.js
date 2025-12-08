@@ -264,26 +264,20 @@ function loadJPEGImage(imageId) {
         });
 
         // Handle 401 (Unauthorized) - token expired
+        // Do not redirect - just reject with error
         if (jpegResponse.status === 401) {
+          console.warn('401 Unauthorized error when loading JPEG image - No redirect configured');
           // Try to get userAuthenticationService from global errorHandler
           const errorHandler = window.__OHIF_ERROR_HANDLER__;
           if (errorHandler && errorHandler._servicesManager) {
             const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
             if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
               userAuthenticationService.handleUnauthenticated();
-              return; // Don't reject, just redirect
             }
           }
-
-          // Fallback: redirect to login
-          const appConfig = window.config || {};
-          let loginUrl = appConfig.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
-          // If it's a relative URL, make it absolute
-          if (loginUrl.startsWith('/')) {
-            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-          }
-          window.location.href = loginUrl;
-          return; // Don't reject, just redirect
+          // Reject with error instead of redirecting
+          reject(new Error('401 Unauthorized: Authentication failed'));
+          return;
         }
 
         if (!jpegResponse.ok) {
@@ -297,25 +291,18 @@ function loadJPEGImage(imageId) {
       } catch (error) {
         // Check if error is 401 related
         if (error.message && error.message.includes('401')) {
+          console.warn('401 Unauthorized error when loading JPEG image - No redirect configured');
           // Try to get userAuthenticationService from global errorHandler
           const errorHandler = window.__OHIF_ERROR_HANDLER__;
           if (errorHandler && errorHandler._servicesManager) {
             const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
             if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
               userAuthenticationService.handleUnauthenticated();
-              return; // Don't reject, just redirect
             }
           }
-
-          // Fallback: redirect to login
-          const appConfig = window.config || {};
-          let loginUrl = appConfig.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
-          // If it's a relative URL, make it absolute
-          if (loginUrl.startsWith('/')) {
-            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-          }
-          window.location.href = loginUrl;
-          return; // Don't reject, just redirect
+          // Reject with error instead of redirecting
+          reject(new Error(`401 Unauthorized: Authentication failed - ${error.message}`));
+          return;
         }
 
         reject(new Error(`Failed to load JPEG image: ${error.message}`));

@@ -16,7 +16,7 @@ const RootRedirect = ({ risWorklistUrl: propRisWorklistUrl, redirectRootToRis: p
       ? propRedirectRootToRis
       : appConfig.redirectRootToRis !== undefined
       ? appConfig.redirectRootToRis
-      : true; // Default to true if not specified
+      : false; // Default to false - no redirect to RIS
     const risWorklistUrl = propRisWorklistUrl || appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
 
     // Only redirect if we're on the root path and redirect is enabled

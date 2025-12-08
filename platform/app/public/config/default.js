@@ -1,3 +1,25 @@
+// Azure PACS Token - Set your Azure DICOM service token here
+// This token will be used globally for all Azure DICOM API requests
+// Replace 'YOUR_AZURE_DICOM_TOKEN_HERE' with your actual Azure DICOM service token
+const AZURE_PACS_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL2RpY29tLmhlYWx0aGNhcmVhcGlzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzhmNmE3ODg0LTA2ZjItNDJjMC05MzhhLWE3OTJmNWM1YTk1Zi8iLCJpYXQiOjE3NjUxODQ1NjAsIm5iZiI6MTc2NTE4NDU2MCwiZXhwIjoxNzY1MTg4Njc3LCJhY3IiOiIxIiwiYWlvIjoiQVVRQXUvOGFBQUFBU29KT2tmOGlsa3dwSkQydDJVd3ZMN240b1ErSzd3VjliMGt1dnB0Y1RtMVhianl3Q2hFU3VwSkRTNDZ1eEJFdUliWStFZFo0bzAwUVhmMTQ5K0tuVlE9PSIsImFtciI6WyJwd2QiLCJyc2EiXSwiYXBwaWQiOiIwNGIwNzc5NS04ZGRiLTQ2MWEtYmJlZS0wMmY5ZTFiZjdiNDYiLCJhcHBpZGFjciI6IjAiLCJkZXZpY2VpZCI6Ijk4ODYxMTQ4LTA0YmItNGU0NC1hYjdjLWFmOGQxOTU4ODM1NyIsImZhbWlseV9uYW1lIjoiQCBTb2Z0ZWNoIiwiZ2l2ZW5fbmFtZSI6IkRpY29tIiwiaWR0eXAiOiJ1c2VyIiwiaXBhZGRyIjoiMTA2LjIwMS4xNDYuMTg1IiwibmFtZSI6IkRpY29tIEAgU29mdGVjaCIsIm9pZCI6Ijg3M2Y5M2RlLTNhZjQtNDcyOC1hZDMzLTExYjRmZTQwNDEwNiIsInB1aWQiOiIxMDAzMjAwMzZENjg4OTFFIiwicHdkX3VybCI6Imh0dHBzOi8vZ28ubWljcm9zb2Z0LmNvbS9md2xpbmsvP2xpbmtpZD0yMjI0MTk4IiwicmgiOiIxLkFUMEFoSGhxal9JR3dFS1RpcWVTOWNXcFg3OGw1M1hPWnVwTW01cGNUS3JsZnpPaEFLWTlBQS4iLCJzY3AiOiJ1c2VyX2ltcGVyc29uYXRpb24iLCJzaWQiOiIwMGFiYjEzOS02MzEzLTZjOGMtNDM2MS00YzU5OGRlYWY0YjgiLCJzdWIiOiJ1bW5HNEZjUmJCN2wwVm9ibzJlelJWVkVwd3QyV0hDUHlqd0tlanZ2QS1JIiwidGlkIjoiOGY2YTc4ODQtMDZmMi00MmMwLTkzOGEtYTc5MmY1YzVhOTVmIiwidW5pcXVlX25hbWUiOiJkaWNvbUBjb2xsYWJzb2Z0ZWNoLmNvbS5hdSIsInVwbiI6ImRpY29tQGNvbGxhYnNvZnRlY2guY29tLmF1IiwidXRpIjoib2hWenBEd0J1a0M4dnoxcmthc1dBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiNSAzIiwieG1zX2Z0ZCI6IkowOTlEVk96QjNRVlg4NHQ0MkxkRDN5MC1yM01zcWVkYzlpVnowOVpsbTBCYTI5eVpXRmpaVzUwY21Gc0xXUnpiWE0iLCJ4bXNfaWRyZWwiOiI2IDEiLCJ4bXNfc3ViX2ZjdCI6IjMgNiJ9.M0KftPL9Kwr1X7jVZtZYmdndVfgijtb7uy16v9lAQN4sr4QRRlRx7bLONm2EIUzTbXoRDSaqCcRei56YZ_kVQ7vATrpCGOSW1uY5WAesQg32nEW7S3RXLfcWYrqisxv1-6o-pmBt7-H8C2o3XBg-K_WZXgkFa8CfydXtWdy8L_jd4qrpuazDok4XR9Wa76f0kZ-ZIsWuLnJQMSUCPM-7IZR5hKqOP7Yibzoo7u1Yd1aGgSe9mprSoJF7SSDFTOH01-WimqbWgxKckDG4v1QX9wsC9BTIb14SrdFvgeeGE36JToBbMVPfD3c4dQjgyjoC3WhY3SppQT51Y6zemWlaRw';
+
+// Azure DICOM Service Base URL
+// Replace with your Azure DICOM service URL (without /v2/ suffix)
+const AZURE_DICOM_SERVICE_URL = 'https://hdsdemows-dicomdemo.dicom.azurehealthcareapis.com';
+
+// Helper function to get Azure DICOM v2 base URL
+// Azure DICOM v2 requires /v2/ prefix in the URL as per Azure DICOM Conformance Statement v2
+function getAzureDicomV2BaseUrl() {
+  const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
+  return `${baseUrl}/v2`;
+}
+
+// Make Azure token globally accessible
+if (typeof window !== 'undefined') {
+  window.AZURE_PACS_TOKEN = AZURE_PACS_TOKEN;
+  window.getAzureDicomV2BaseUrl = getAzureDicomV2BaseUrl;
+}
+
 // Demo token - Set your basic token here for the demo datasource
 // This will be sent as: Authorization: Basic YOUR_TOKEN
 // Example: If token is "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV"
@@ -224,6 +246,10 @@ window.config = {
     enabled: true, // Set to false to disable cookie-based auth
     cookieName: 'token', // Name of the cookie containing the token (common names: 'token', 'accessToken', 'authToken', 'jwt')
   },
+  // RIS Worklist redirect configuration
+  // Set to false to disable redirecting root path (/) to RIS worklist
+  redirectRootToRis: false, // Disabled - root path will show OHIF worklist instead of redirecting to RIS
+  risWorklistUrl: 'https://synapse.med-pacs.com/worklist', // RIS worklist URL (not used when redirectRootToRis is false)
   /* Dynamic config allows user to pass "configUrl" query string this allows to load config without recompiling application. The regex will ensure valid configuration source */
   // dangerouslyUseDynamicConfig: {
   //   enabled: true,
@@ -326,21 +352,24 @@ window.config = {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'dicomweb',
       configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: false,
+        friendlyName: 'Azure PACS DICOM v2',
+        name: 'azure-pacs-v2',
+        // Azure DICOM v2 requires /v2/ prefix in the URL
+        // Format: https://<service_url>/v2/studies
+        // Note: Azure DICOM v2 does NOT support WADO-URI, only WADO-RS
+        // WADO-RS format: /v2/studies/{study}/series/{series}/instances/{instance}/frames/{frame}
+        wadoUriRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoRoot: `${getAzureDicomV2BaseUrl()}`,
+        wadoRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoSupportsIncludeField: true, // Azure DICOM v2 supports includefield parameter
+        // Azure DICOM v2 only supports WADO-RS, not WADO-URI
+        // WADO-RS retrieves instances as application/octet-stream
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: false,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
+        supportsFuzzyMatching: true, // Azure DICOM v2 supports fuzzy matching for Person Name (PN) attributes
+        supportsWildcard: true, // Azure DICOM v2 supports wildcard matching
+        staticWado: false, // Azure DICOM is not static WADO
         singlepart: 'bulkdata,video',
         // whether the data source should use retrieveBulkData to grab metadata,
         // and in case of relative path, what would it be relative to, options
@@ -350,7 +379,17 @@ window.config = {
           relativeResolution: 'studies',
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
-        omitQuotationForMultipartRequest: true,
+        omitQuotationForMultipartRequest: false, // Set to false to include quotes in multipart/related header
+        // For WADO-RS instance retrieval, use multipart/related with JP2 transfer syntax
+        // Azure PACS supports: multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90
+        acceptHeader: ['multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90'],
+        // Alternative: Use requestTransferSyntaxUID to auto-generate the header
+        // requestTransferSyntaxUID: '1.2.840.10008.1.2.4.90',
+        // Azure DICOM v2 specific configuration
+        // For QIDO-RS search endpoints, Azure DICOM v2 requires Accept: */*
+        // This is set automatically in DicomWebDataSource for Azure DICOM v2
+        isAzureDicomV2: true, // Flag to identify Azure DICOM v2
+        azureToken: AZURE_PACS_TOKEN, // Store token in config for access
       },
     },
 
@@ -358,53 +397,58 @@ window.config = {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'localviewer-image-jpeg',
       configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/wadouri',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        friendlyName: 'Azure PACS DICOM v2 (WADO-RS)',
+        name: 'azure-pacs-v2-wadors',
+        // Azure DICOM v2 requires /v2/ prefix in the URL
+        // Note: Azure DICOM v2 does NOT support WADO-URI, only WADO-RS
+        // Use WADO-RS format: /v2/studies/{study}/series/{series}/instances/{instance}/frames/{frame}
+        wadoUriRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoRoot: `${getAzureDicomV2BaseUrl()}`,
+        wadoRoot: `${getAzureDicomV2BaseUrl()}`,
         qidoSupportsIncludeField: true,
-        imageRendering: 'wadouri',
-        thumbnailRendering: 'wadouri',
+        // Azure DICOM v2 only supports WADO-RS, not WADO-URI
+        // WADO-RS retrieves instances as application/octet-stream
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
+        supportsFuzzyMatching: true,
         supportsWildcard: true,
-        staticWado: true,
+        staticWado: false,
         singlepart: 'bulkdata,video',
         bulkDataURI: {
           enabled: true,
           relativeResolution: 'studies',
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
-        // Transform WADO-URI URLs to use JPEG instead of DICOM
-        wadouriTransform: url =>
-          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
         omitQuotationForMultipartRequest: true,
+        // For WADO-RS instance retrieval, use */*
         acceptHeader: '*/*',
+        // Azure DICOM v2 specific configuration
+        isAzureDicomV2: true,
+        azureToken: AZURE_PACS_TOKEN,
       },
     },
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'localviewer-application-dicom',
       configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/wadouri',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        friendlyName: 'Azure PACS DICOM v2 (WADO-RS)',
+        name: 'azure-pacs-v2-wadors',
+        // Azure DICOM v2 requires /v2/ prefix in the URL
+        // Note: Azure DICOM v2 does NOT support WADO-URI, only WADO-RS
+        // Use WADO-RS format: /v2/studies/{study}/series/{series}/instances/{instance}/frames/{frame}
+        wadoUriRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoRoot: `${getAzureDicomV2BaseUrl()}`,
+        wadoRoot: `${getAzureDicomV2BaseUrl()}`,
         qidoSupportsIncludeField: true,
-        imageRendering: 'wadouri',
-        thumbnailRendering: 'wadouri',
+        // Azure DICOM v2 only supports WADO-RS, not WADO-URI
+        // WADO-RS retrieves instances as application/octet-stream
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
+        supportsFuzzyMatching: true,
         supportsWildcard: true,
-        staticWado: true,
+        staticWado: false,
         singlepart: 'bulkdata,video',
         bulkDataURI: {
           enabled: true,
@@ -412,37 +456,46 @@ window.config = {
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
         omitQuotationForMultipartRequest: true,
+        // For WADO-RS instance retrieval, use */*
         acceptHeader: '*/*',
+        // Azure DICOM v2 specific configuration
+        isAzureDicomV2: true,
+        azureToken: AZURE_PACS_TOKEN,
       },
     },
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'localviewer-raw-dicom',
       configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+        friendlyName: 'Azure PACS DICOM v2 (WADO-RS)',
+        name: 'azure-pacs-v2-wadors',
+        // Azure DICOM v2 requires /v2/ prefix in the URL
+        // Note: Azure DICOM v2 does NOT support WADO-URI, only WADO-RS
+        // WADO-RS format: /v2/studies/{study}/series/{series}/instances/{instance}/frames/{frame}
+        wadoUriRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoRoot: `${getAzureDicomV2BaseUrl()}`,
+        wadoRoot: `${getAzureDicomV2BaseUrl()}`,
         qidoSupportsIncludeField: true,
+        // Azure DICOM v2 only supports WADO-RS, not WADO-URI
+        // WADO-RS retrieves instances as application/octet-stream
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
+        supportsFuzzyMatching: true,
         supportsWildcard: true,
-        staticWado: true,
+        staticWado: false,
         singlepart: 'bulkdata,video',
         bulkDataURI: {
           enabled: true,
           relativeResolution: 'studies',
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
-        wadouriTransform: url =>
-          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
         omitQuotationForMultipartRequest: true,
+        // For WADO-RS instance retrieval, use */*
+        acceptHeader: '*/*',
+        // Azure DICOM v2 specific configuration
+        isAzureDicomV2: true,
+        azureToken: AZURE_PACS_TOKEN,
       },
     },
     {
@@ -473,21 +526,23 @@ window.config = {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'demo',
       configuration: {
-        friendlyName: 'Demo PACS (Hardcoded Token)',
-        name: 'Demo PACS',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: false,
+        friendlyName: 'Azure PACS DICOM v2 (Demo)',
+        name: 'azure-pacs-v2-demo',
+        // Azure DICOM v2 requires /v2/ prefix in the URL
+        // Note: Azure DICOM v2 does NOT support WADO-URI, only WADO-RS
+        // WADO-RS format: /v2/studies/{study}/series/{series}/instances/{instance}/frames/{frame}
+        wadoUriRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoRoot: `${getAzureDicomV2BaseUrl()}`,
+        wadoRoot: `${getAzureDicomV2BaseUrl()}`,
+        qidoSupportsIncludeField: true,
+        // Azure DICOM v2 only supports WADO-RS, not WADO-URI
+        // WADO-RS retrieves instances as application/octet-stream
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
+        supportsFuzzyMatching: true,
         supportsWildcard: true,
-        staticWado: true,
+        staticWado: false,
         singlepart: 'bulkdata,video',
         bulkDataURI: {
           enabled: true,
@@ -495,6 +550,11 @@ window.config = {
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
         omitQuotationForMultipartRequest: true,
+        // For WADO-RS instance retrieval, use */*
+        acceptHeader: '*/*',
+        // Azure DICOM v2 specific configuration
+        isAzureDicomV2: true,
+        azureToken: AZURE_PACS_TOKEN,
         // Custom configuration to use hardcoded token
         onConfiguration: config => {
           // Store the demo token in the config so it can be accessed

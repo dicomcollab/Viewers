@@ -84,31 +84,22 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
   errorHandler.setServicesManager(servicesManager);
 
   // Create enhanced error handler that checks for 401 (unauthorized) errors
-  // and redirects to login if token expires
+  // Do not redirect - just log the error
   const createEnhancedErrorHandler = (originalHandler) => {
     return (error) => {
       // Check if error is a 401 (Unauthorized) - token expired
       if (error && (error.status === 401 || error.statusCode === 401)) {
+        // Log the error but do not redirect
+        console.warn('401 Unauthorized error detected - No redirect configured', error);
         // Get userAuthenticationService from stored servicesManager
         const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
 
         // Check if userAuthenticationService has handleUnauthenticated method
+        // Call it but it won't redirect (we disabled redirects in App.tsx)
         if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
           userAuthenticationService.handleUnauthenticated();
-          return;
         }
-        // Fallback: redirect to login if no handler is available
-        // Try to get login URL from appConfig or default to full URL
-        if (typeof window !== 'undefined') {
-          const appConfig = errorHandler._servicesManager?.extensionManager?.appConfig;
-          let loginUrl = appConfig?.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
-          // If it's a relative URL, make it absolute
-          if (loginUrl.startsWith('/')) {
-            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-          }
-          window.location.href = loginUrl;
-        }
-        return;
+        // Do not redirect - just return and let the original handler process the error
       }
 
       // Call original error handler if provided

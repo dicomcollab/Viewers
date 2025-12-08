@@ -156,6 +156,16 @@ function App({
 
   if (shouldUseCookieAuth) {
     const getAuthorizationHeader = () => {
+      // Check for Azure PACS token first (highest priority for Azure DICOM v2)
+      // @ts-ignore - Accessing custom property on window
+      const azureToken = typeof window !== 'undefined' && (window as any).AZURE_PACS_TOKEN;
+      if (azureToken && azureToken !== 'YOUR_AZURE_DICOM_TOKEN_HERE') {
+        // Azure DICOM uses Bearer token authentication
+        return {
+          Authorization: `Bearer ${azureToken}`,
+        };
+      }
+
       // Check if we're on a demo route and use demo token
       // @ts-ignore - Accessing custom property on window
       const isDemo = window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
@@ -189,16 +199,9 @@ function App({
     };
 
     const handleUnauthenticated = () => {
-      // Redirect to login route when token expires or user is unauthenticated
-      if (typeof window !== 'undefined') {
-        // Use configured login URL or default to full URL
-        let loginUrl = cookieAuth.loginUrl || 'https://synapse.med-pacs.com/login';
-        // If it's a relative URL, make it absolute
-        if (loginUrl.startsWith('/')) {
-          loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-        }
-        window.location.href = loginUrl;
-      }
+      // Do not redirect on 401 - just log the error
+      console.warn('Authentication failed (401) - No redirect configured');
+      // Return null without redirecting
       return null;
     };
 

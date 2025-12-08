@@ -315,9 +315,15 @@ export default function initWADOImageLoader(
       Math.max(navigator.hardwareConcurrency - 1, 1),
       appConfig.maxNumberOfWebWorkers
     ),
-    beforeSend: function () {
+    beforeSend: function (xhr, imageId) {
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};
+
+      // Check if this is Azure DICOM v2 configuration
+      const isAzureDicomV2 = sourceConfig.isAzureDicomV2 === true;
+
+      // Check if this is a WADO-RS request (wadors: protocol)
+      const isWadoRS = typeof imageId === 'string' && imageId.startsWith('wadors:');
 
       // Check if we're on a demo route and use demo token
       const isDemo =
@@ -333,8 +339,18 @@ export default function initWADOImageLoader(
           ? window.getDemoToken()
           : null;
 
+      // Check for Azure PACS token first (highest priority for Azure DICOM v2)
+      // @ts-ignore - Accessing custom property on window
+      const azureToken = sourceConfig.azureToken ||
+        (typeof window !== 'undefined' && window.AZURE_PACS_TOKEN ? window.AZURE_PACS_TOKEN : null);
+
       let headers;
-      if (isDemo && demoToken) {
+      if (isAzureDicomV2 && azureToken && azureToken !== 'YOUR_AZURE_DICOM_TOKEN_HERE') {
+        // Azure DICOM uses Bearer token authentication
+        headers = {
+          Authorization: `Bearer ${azureToken}`,
+        };
+      } else if (isDemo && demoToken) {
         // Use Basic auth for demo token
         headers = {
           Authorization: `Basic ${demoToken}`,
@@ -343,18 +359,128 @@ export default function initWADOImageLoader(
         headers = userAuthenticationService.getAuthorizationHeader();
       }
 
-      const acceptHeader = utils.generateAcceptHeader(
-        sourceConfig.acceptHeader,
-        sourceConfig.requestTransferSyntaxUID,
-        sourceConfig.omitQuotationForMultipartRequest
-      );
+      // For Azure DICOM v2 WADO-RS requests, use configured acceptHeader or generate it
+      let acceptHeader;
+      if (isAzureDicomV2 && isWadoRS) {
+        // Azure DICOM v2 WADO-RS - use configured acceptHeader or generate from transfer syntax
+        console.log('[WADO Image Loader] Config check:', {
+          hasAcceptHeader: !!sourceConfig.acceptHeader,
+          acceptHeaderType: typeof sourceConfig.acceptHeader,
+          acceptHeaderValue: sourceConfig.acceptHeader,
+          isArray: Array.isArray(sourceConfig.acceptHeader),
+          arrayLength: Array.isArray(sourceConfig.acceptHeader) ? sourceConfig.acceptHeader.length : 'N/A',
+        });
+
+        // Check for acceptHeader in config - prioritize it over fallback
+        const hasAcceptHeader = sourceConfig.acceptHeader !== undefined &&
+                                sourceConfig.acceptHeader !== null &&
+                                !(Array.isArray(sourceConfig.acceptHeader) && sourceConfig.acceptHeader.length === 0);
+
+        if (hasAcceptHeader) {
+          if (typeof sourceConfig.acceptHeader === 'string') {
+            acceptHeader = sourceConfig.acceptHeader;
+            console.log('[WADO Image Loader] Using string acceptHeader:', acceptHeader);
+          } else if (Array.isArray(sourceConfig.acceptHeader)) {
+            // Use the first element if array has one element, otherwise join
+            if (sourceConfig.acceptHeader.length === 1) {
+              acceptHeader = sourceConfig.acceptHeader[0];
+            } else {
+              acceptHeader = sourceConfig.acceptHeader.join(', ');
+            }
+            console.log('[WADO Image Loader] Using array acceptHeader:', acceptHeader, '(from array of', sourceConfig.acceptHeader.length, 'elements)');
+          } else {
+            // Generate accept header using default logic
+            const generatedHeader = utils.generateAcceptHeader(
+              sourceConfig.acceptHeader,
+              sourceConfig.requestTransferSyntaxUID,
+              sourceConfig.omitQuotationForMultipartRequest
+            );
+            acceptHeader = Array.isArray(generatedHeader) ? generatedHeader.join(', ') : generatedHeader;
+            console.log('[WADO Image Loader] Generated acceptHeader:', acceptHeader);
+          }
+        } else {
+          // Fallback to */* if no acceptHeader configured
+          acceptHeader = '*/*';
+          console.warn('[WADO Image Loader] No acceptHeader found in config, using fallback */*');
+        }
+        console.log('[WADO Image Loader] Azure DICOM v2 WADO-RS request:', {
+          imageId: typeof imageId === 'string' ? imageId.substring(0, 100) : imageId,
+          acceptHeader,
+          hasAuth: !!headers?.Authorization,
+        });
+      } else if (sourceConfig.acceptHeader && typeof sourceConfig.acceptHeader === 'string') {
+        // Use configured acceptHeader if it's a string
+        acceptHeader = sourceConfig.acceptHeader;
+      } else {
+        // Generate accept header using default logic
+        const generatedHeader = utils.generateAcceptHeader(
+          sourceConfig.acceptHeader,
+          sourceConfig.requestTransferSyntaxUID,
+          sourceConfig.omitQuotationForMultipartRequest
+        );
+        acceptHeader = Array.isArray(generatedHeader) ? generatedHeader.join(', ') : generatedHeader;
+      }
 
       const xhrRequestHeaders = {
-        Accept: Array.isArray(acceptHeader) ? acceptHeader.join(', ') : acceptHeader,
+        Accept: acceptHeader,
       };
 
       if (headers) {
         Object.assign(xhrRequestHeaders, headers);
+      }
+
+      // Log headers for debugging (only for Azure DICOM v2 WADO-RS)
+      if (isAzureDicomV2 && isWadoRS) {
+        console.log('[WADO Image Loader] Request headers:', {
+          Accept: xhrRequestHeaders.Accept,
+          Authorization: xhrRequestHeaders.Authorization ? 'Bearer ***' : 'none',
+        });
+
+        // Add response logging to see what comes back from Azure PACS
+        const originalOnLoad = xhr.onload;
+        const originalOnReadyStateChange = xhr.onreadystatechange;
+
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4) {
+            // Request completed
+            const contentType = xhr.getResponseHeader('Content-Type') || 'not set';
+            const contentLength = xhr.getResponseHeader('Content-Length') || 'not set';
+            const status = xhr.status;
+            const responseType = xhr.responseType;
+            const responseSize = xhr.response ? (xhr.response.byteLength || xhr.response.length || 'unknown') : 'no response';
+
+            console.log('[WADO Image Loader] Azure DICOM v2 Response:', {
+              status,
+              statusText: xhr.statusText,
+              contentType,
+              contentLength,
+              responseType,
+              responseSize,
+              responseURL: xhr.responseURL || 'not set',
+              imageId: typeof imageId === 'string' ? imageId.substring(0, 100) : imageId,
+              requestedAccept: acceptHeader,
+            });
+
+            // Log first few bytes of response if it's an ArrayBuffer (for debugging)
+            if (xhr.response instanceof ArrayBuffer && xhr.response.byteLength > 0) {
+              const firstBytes = new Uint8Array(xhr.response.slice(0, Math.min(32, xhr.response.byteLength)));
+              console.log('[WADO Image Loader] Response first bytes (hex):',
+                Array.from(firstBytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            }
+          }
+
+          // Call original handlers
+          if (originalOnReadyStateChange) {
+            originalOnReadyStateChange.call(xhr);
+          }
+        };
+
+        xhr.onload = function() {
+          // Call original onload if it exists
+          if (originalOnLoad) {
+            originalOnLoad.call(xhr);
+          }
+        };
       }
 
       return xhrRequestHeaders;

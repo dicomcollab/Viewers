@@ -113,11 +113,11 @@ const createRoutes = ({
   console.log('Registering worklist route', routerBasename, path);
 
   // Get redirect configuration from appConfig
-  // Default to true if risWorklistUrl is provided, otherwise false
+  // Default to false to disable redirects to RIS worklist
   const risWorklistUrl = (appConfig as any)?.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
   const redirectRootToRis = (appConfig as any)?.redirectRootToRis !== undefined
     ? (appConfig as any).redirectRootToRis
-    : risWorklistUrl ? true : false; // Default to true if risWorklistUrl exists
+    : false; // Default to false - no redirect to RIS
 
   console.log('Root redirect configuration:', {
     redirectRootToRis,
