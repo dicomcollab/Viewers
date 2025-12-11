@@ -119,6 +119,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
                   <Numeric.NumberStepper
                     direction="horizontal"
                     inputWidth="w-7 max-w-7"
+                    buttonColor="white"
                   >
                     <div className="flex items-center justify-center gap-1">
                       <div className="text-foreground flex-shrink-0 text-center text-sm leading-[22px]">
@@ -149,6 +150,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
                 <Numeric.SingleRange
                   showNumberInput={false}
                   sliderClassName="w-40"
+                  sliderVariant="white"
                 />
               </Numeric.Container>
             </PopoverContent>
@@ -175,7 +177,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
           onChange={val => handleDimensionGroupNumberChange(val as number)}
           className="pointer-events-auto mt-3 w-full"
         >
-          <Numeric.SingleRange showNumberInput={false} />
+          <Numeric.SingleRange showNumberInput={false} sliderVariant="white" />
         </Numeric.Container>
       )}
     </div>

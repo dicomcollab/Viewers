@@ -166,9 +166,10 @@ interface SingleRangeProps {
   showNumberInput?: boolean;
   sliderClassName?: string;
   numberInputClassName?: string;
+  sliderVariant?: 'primary' | 'white';
 }
 
-function SingleRange({ showNumberInput, sliderClassName, numberInputClassName }: SingleRangeProps) {
+function SingleRange({ showNumberInput, sliderClassName, numberInputClassName, sliderVariant }: SingleRangeProps) {
   const ctx = useContext(NumericMetaContext);
   if (!ctx) {
     throw new Error('SingleRange must be used inside <Numeric.Container>.');
@@ -206,6 +207,7 @@ function SingleRange({ showNumberInput, sliderClassName, numberInputClassName }:
         max={max}
         step={step}
         onValueChange={handleSliderChange}
+        variant={sliderVariant}
       />
       {showNumberInput && (
         <Input
@@ -313,10 +315,11 @@ interface NumberStepperProps {
   children?: React.ReactNode;
   direction?: 'horizontal' | 'vertical';
   inputWidth?: string;
+  buttonColor?: 'primary' | 'white';
 }
 
 // Modified NumberStepper component to properly position left/right controls
-function NumberStepper({ className, children, direction, inputWidth }: NumberStepperProps) {
+function NumberStepper({ className, children, direction, inputWidth, buttonColor = 'primary' }: NumberStepperProps) {
   const ctx = useContext(NumericMetaContext);
   if (!ctx) {
     throw new Error('NumberStepper must be used inside <Numeric.Container>.');
@@ -374,6 +377,7 @@ function NumberStepper({ className, children, direction, inputWidth }: NumberSte
           step={step}
           value={singleValue}
           setValue={setSingleValue}
+          buttonColor={buttonColor}
         />
         <Input
           type="text"
@@ -391,6 +395,7 @@ function NumberStepper({ className, children, direction, inputWidth }: NumberSte
           step={step}
           value={singleValue}
           setValue={setSingleValue}
+          buttonColor={buttonColor}
         />
       </div>
     );
@@ -438,7 +443,7 @@ function NumberStepper({ className, children, direction, inputWidth }: NumberSte
 }
 
 // New components for left and right controls
-function LeftControl({ min, step, value, setValue }) {
+function LeftControl({ min, step, value, setValue, buttonColor = 'primary' }) {
   const decrement = useCallback(() => {
     const newValue = Math.max(value - step, min);
     setValue(newValue);
@@ -449,14 +454,17 @@ function LeftControl({ min, step, value, setValue }) {
       variant="ghost"
       size="icon"
       onClick={decrement}
-      className="text-primary h-full w-4 cursor-pointer p-0"
+      className={cn(
+        buttonColor === 'white' ? 'text-white' : 'text-primary',
+        'h-full w-4 cursor-pointer p-0'
+      )}
     >
       <ChevronLeft className="h-4 w-4" />
     </Button>
   );
 }
 
-function RightControl({ max, step, value, setValue }) {
+function RightControl({ max, step, value, setValue, buttonColor = 'primary' }) {
   const increment = useCallback(() => {
     const newValue = Math.min(value + step, max);
     setValue(newValue);
@@ -467,7 +475,10 @@ function RightControl({ max, step, value, setValue }) {
       variant="ghost"
       size="icon"
       onClick={increment}
-      className="text-primary h-full w-4 cursor-pointer p-0"
+      className={cn(
+        buttonColor === 'white' ? 'text-white' : 'text-primary',
+        'h-full w-4 cursor-pointer p-0'
+      )}
     >
       <ChevronRight className="h-4 w-4" />
     </Button>
