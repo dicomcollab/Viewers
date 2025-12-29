@@ -1,6 +1,7 @@
 import { utils } from '@ohif/ui-next';
 
 import ToolbarLayoutSelectorWithServices from './Toolbar/ToolbarLayoutSelector';
+import HangingProtocolSelectorWithServices from './Toolbar/HangingProtocolSelector';
 
 // legacy
 import { ProgressDropdownWithService } from './Components/ProgressDropdownWithService';
@@ -41,6 +42,11 @@ export default function getToolbarModule({ commandsManager, servicesManager }: w
       name: 'ohif.layoutSelector',
       defaultComponent: props =>
         ToolbarLayoutSelectorWithServices({ ...props, commandsManager, servicesManager }),
+    },
+    {
+      name: 'ohif.hangingProtocolSelector',
+      defaultComponent: props =>
+        HangingProtocolSelectorWithServices({ ...props, commandsManager, servicesManager }),
     },
     {
       name: 'ohif.progressDropdown',

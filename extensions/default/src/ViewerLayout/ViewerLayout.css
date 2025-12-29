@@ -22,3 +22,40 @@
 .iframe-toolbar-compact > * {
   margin: 0 0.125rem;
 }
+
+/* Responsive toolbar for small screens and iframe */
+@media (max-width: 768px), (max-height: 600px) {
+  .iframe-toolbar-compact button,
+  .iframe-toolbar-compact [data-tool] button {
+    width: 1.5rem !important;
+    height: 1.5rem !important;
+    min-width: 1.5rem !important;
+    min-height: 1.5rem !important;
+    padding: 0.125rem !important;
+  }
+
+  .iframe-toolbar-compact svg,
+  .iframe-toolbar-compact [data-tool] svg {
+    width: 0.875rem !important;
+    height: 0.875rem !important;
+  }
+
+  .iframe-toolbar-compact .gap-\\[4px\\] {
+    gap: 0.0625rem !important;
+  }
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Ensure toolbar items don't wrap */
+.iframe-toolbar-compact .whitespace-nowrap {
+  white-space: nowrap;
+}

@@ -30,6 +30,7 @@ interface HeaderProps {
   };
   Secondary?: ReactNode;
   UndoRedo?: ReactNode;
+  isIframeMode?: boolean;
 }
 
 function Header({
@@ -41,6 +42,7 @@ function Header({
   WhiteLabeling,
   UndoRedo,
   Secondary,
+  isIframeMode = false,
   ...props
 }: HeaderProps): ReactNode {
   const onClickReturn = () => {
@@ -58,36 +60,47 @@ function Header({
         isSticky={isSticky}
         {...props}
       >
-        <div className="relative h-[48px] items-center">
-          <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center">
+        <div className={`relative h-[48px] flex items-center overflow-hidden ${isIframeMode ? 'iframe-toolbar-compact' : ''}`}>
+          {/* Left section: Logo and return button */}
+          <div className={`flex-shrink-0 flex items-center z-10 bg-primary-main ${isIframeMode ? 'pr-1' : 'pr-2'}`}>
             <div
               className={classNames(
-                'mr-3 inline-flex items-center',
+                'inline-flex items-center',
                 isReturnEnabled && 'cursor-pointer'
               )}
               onClick={onClickReturn}
               data-cy="return-to-work-list"
             >
-              {isReturnEnabled && <Icons.ArrowLeft className="text-white ml-1 h-7 w-7" />}
-              <div className="ml-1">
+              {isReturnEnabled && <Icons.ArrowLeft className="text-white ml-1 h-7 w-7 flex-shrink-0" />}
+              <div className="ml-1 flex-shrink-0">
                 {WhiteLabeling?.createLogoComponentFn?.(React, props) || <Icons.OHIFLogo />}
               </div>
             </div>
+            {Secondary && (
+              <div className="ml-4 h-8 flex items-center flex-shrink-0">{Secondary}</div>
+            )}
           </div>
-          <div className="absolute top-1/2 left-[250px] h-8 -translate-y-1/2">{Secondary}</div>
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transform">
-            <div className="flex items-center justify-center space-x-2">{children}</div>
+
+          {/* Center section: Toolbar with horizontal scroll */}
+          <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
+            <div className="flex items-center justify-center h-full px-2">
+              <div className="flex items-center justify-center space-x-2 whitespace-nowrap">
+                {children}
+              </div>
+            </div>
           </div>
-          <div className="absolute right-0 top-1/2 flex -translate-y-1/2 select-none items-center">
+
+          {/* Right section: Undo/Redo and Settings */}
+          <div className={`flex-shrink-0 flex items-center select-none z-10 bg-primary-main ${isIframeMode ? 'pl-1' : 'pl-2'}`}>
             {UndoRedo}
-            <div className="border-primary-dark mx-1.5 h-[25px] border-r"></div>
+            {UndoRedo && <div className="border-primary-dark mx-1.5 h-[25px] border-r"></div>}
             <div className="flex-shrink-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-white hover:bg-primary-active mt-2 h-full w-full"
+                    className="text-white hover:bg-primary-active h-full w-full"
                   >
                     <Icons.GearSettings />
                   </Button>

@@ -189,16 +189,9 @@ function App({
     };
 
     const handleUnauthenticated = () => {
-      // Redirect to login route when token expires or user is unauthenticated
-      if (typeof window !== 'undefined') {
-        // Use configured login URL or default to full URL
-        let loginUrl = cookieAuth.loginUrl || 'https://synapse.med-pacs.com/login';
-        // If it's a relative URL, make it absolute
-        if (loginUrl.startsWith('/')) {
-          loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-        }
-        window.location.href = loginUrl;
-      }
+      // Disabled redirect to login/RIS - allow manual token changes without redirect
+      // Previously redirected to login route when token expires or user is unauthenticated
+      console.log('Authentication failed (401) - redirect disabled to allow manual token changes');
       return null;
     };
 

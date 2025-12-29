@@ -86,6 +86,7 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
       onClickReturnButton={onClickReturnButton}
       WhiteLabeling={appConfig.whiteLabeling}
       Secondary={<Toolbar buttonSection="secondary" />}
+      isIframeMode={isIframeMode}
       UndoRedo={
         <div className="text-primary flex cursor-pointer items-center">
           <Button
@@ -109,8 +110,10 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
         </div>
       }
     >
-      <div className={`relative flex justify-center gap-[4px] ${isIframeMode ? 'iframe-toolbar-compact' : ''}`}>
-        <Toolbar buttonSection="primary" />
+      <div className={`relative flex justify-center gap-[4px] overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact' : ''}`}>
+        <div className="flex items-center justify-center whitespace-nowrap">
+          <Toolbar buttonSection="primary" />
+        </div>
       </div>
     </Header>
   );

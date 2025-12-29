@@ -38,9 +38,14 @@ export async function defaultRouteInit(
     // study being displayed, and is thus the "active" study.
     const activeStudy = studies[0];
 
-    // run the hanging protocol matching on the displaySets with the predefined
-    // hanging protocol in the mode configuration
-    hangingProtocolService.run({ studies, activeStudy, displaySets }, hangingProtocolId, {
+    // If hangingProtocolId is 'default', pass undefined to allow automatic protocol matching
+    // This enables our custom protocols (like myCtProtocol) to be automatically selected
+    // based on their matching rules (e.g., Modality = CT)
+    const protocolIdToUse = hangingProtocolId === 'default' ? undefined : hangingProtocolId;
+
+    // run the hanging protocol matching on the displaySets
+    // If protocolIdToUse is undefined, it will automatically match the best protocol
+    hangingProtocolService.run({ studies, activeStudy, displaySets }, protocolIdToUse, {
       stageIndex,
     });
   }
@@ -130,8 +135,10 @@ export async function defaultRouteInit(
         );
         allPromises.push(Promise.allSettled(requiredSeriesPromises));
       } else {
+        // If hangingProtocolId is 'default', pass undefined to allow automatic matching
+        const protocolIdForFilter = hangingProtocolId === 'default' ? undefined : hangingProtocolId;
         const { requiredSeries, remaining } = hangingProtocolService.filterSeriesRequiredForRun(
-          hangingProtocolId,
+          protocolIdForFilter,
           retrieveSeriesMetadataPromise
         );
         const requiredSeriesPromises = requiredSeries.map(promise => promise.start());

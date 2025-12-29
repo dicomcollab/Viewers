@@ -26,6 +26,7 @@ import {
 
 import loadModules, { loadModule as peerImport } from './pluginImports';
 import { publicUrl } from './utils/publicUrl';
+import getHangingProtocolModule from './hangingProtocols';
 
 /**
  * @param {object|func} appConfigOrFunc - application configuration, or a function that returns application configuration
@@ -126,6 +127,17 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
     // Return enhanced handler that checks for 401 errors
     return createEnhancedErrorHandler(originalHandler);
   };
+
+  // Register custom hanging protocols EARLY, before extensions are loaded
+  // This ensures our protocol is available when studies are loaded
+  const { hangingProtocolService } = servicesManager.services;
+  const customHangingProtocols = getHangingProtocolModule();
+  customHangingProtocols.forEach(({ name, protocol }) => {
+    if (protocol) {
+      hangingProtocolService.addProtocol(name, protocol);
+      console.log('✅ Registered custom hanging protocol:', name, 'with ID:', protocol.id);
+    }
+  });
 
   /**
    * Example: [ext1, ext2, ext3]

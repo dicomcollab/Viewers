@@ -23,6 +23,27 @@ export const setToolActiveToolbar = {
 const toolbarButtons: Button[] = [
   // sections
   {
+    id: 'WindowLevelTools',
+    uiType: 'ohif.toolButtonList',
+    props: {
+      buttonSection: true,
+    },
+  },
+  {
+    id: 'ZoomTools',
+    uiType: 'ohif.toolButtonList',
+    props: {
+      buttonSection: true,
+    },
+  },
+  {
+    id: 'RotateTools',
+    uiType: 'ohif.toolButtonList',
+    props: {
+      buttonSection: true,
+    },
+  },
+  {
     id: 'MeasurementTools',
     uiType: 'ohif.toolButtonList',
     props: {
@@ -34,6 +55,9 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolButtonList',
     props: {
       buttonSection: true,
+      icon: 'More',
+      label: i18n.t('Buttons:More'),
+      tooltip: i18n.t('Buttons:More Tools'),
     },
   },
   {
@@ -208,6 +232,23 @@ const toolbarButtons: Button[] = [
     },
   },
   {
+    id: 'rotate-left',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-rotate-right',
+      label: i18n.t('Buttons:Rotate Left'),
+      tooltip: i18n.t('Buttons:Rotate -90'),
+      commands: 'rotateViewportCCW',
+      evaluate: [
+        'evaluate.action',
+        {
+          name: 'evaluate.viewport.supported',
+          unsupportedViewportTypes: ['video'],
+        },
+      ],
+    },
+  },
+  {
     id: 'flipHorizontal',
     uiType: 'ohif.toolButton',
     props: {
@@ -215,6 +256,23 @@ const toolbarButtons: Button[] = [
       label: i18n.t('Buttons:Flip Horizontal'),
       tooltip: i18n.t('Buttons:Flip Horizontally'),
       commands: 'flipViewportHorizontal',
+      evaluate: [
+        'evaluate.viewportProperties.toggle',
+        {
+          name: 'evaluate.viewport.supported',
+          unsupportedViewportTypes: ['video', 'volume3d'],
+        },
+      ],
+    },
+  },
+  {
+    id: 'flipVertical',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-flip-horizontal',
+      label: i18n.t('Buttons:Flip Vertical'),
+      tooltip: i18n.t('Buttons:Flip Vertically'),
+      commands: 'flipViewportVertical',
       evaluate: [
         'evaluate.viewportProperties.toggle',
         {
@@ -378,6 +436,23 @@ const toolbarButtons: Button[] = [
       commands: setToolActiveToolbar,
       evaluate: [
         'evaluate.cornerstoneTool',
+        {
+          name: 'evaluate.viewport.supported',
+          unsupportedViewportTypes: ['video'],
+        },
+      ],
+    },
+  },
+  {
+    id: 'ZoomOut',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-zoom',
+      label: i18n.t('Buttons:Zoom Out'),
+      tooltip: i18n.t('Buttons:Zoom Out'),
+      commands: 'scaleDownViewport',
+      evaluate: [
+        'evaluate.action',
         {
           name: 'evaluate.viewport.supported',
           unsupportedViewportTypes: ['video'],
@@ -629,6 +704,13 @@ const toolbarButtons: Button[] = [
           unsupportedViewportTypes: ['video', 'wholeSlide'],
         },
       ],
+    },
+  },
+  {
+    id: 'HangingProtocol',
+    uiType: 'ohif.hangingProtocolSelector',
+    props: {
+      evaluate: 'evaluate.action',
     },
   },
   {

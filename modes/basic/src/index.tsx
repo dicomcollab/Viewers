@@ -200,14 +200,19 @@ export function onModeExit({ servicesManager }: withAppTypes) {
 
 export const toolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
-    'MeasurementTools',
-    'Zoom',
+    'HangingProtocol',
+    'WindowLevelTools',
     'Pan',
-    'TrackballRotate',
-    'WindowLevel',
-    'Capture',
+    'ZoomTools',
+    'RotateTools',
+    'MeasurementTools',
     'Layout',
+    'StackScroll',
+    'Cine',
     'Crosshairs',
+    'TrackballRotate',
+    'Capture',
+    'Reset',
     'MoreTools',
   ],
 
@@ -231,6 +236,24 @@ export const toolbarSections = {
 
   [TOOLBAR_SECTIONS.viewportActionMenu.bottomLeft]: ['windowLevelMenu'],
 
+  WindowLevelTools: [
+    'WindowLevel',
+    'invert',
+  ],
+
+  ZoomTools: [
+    'Zoom',
+    'Magnify',
+    'ZoomOut',
+  ],
+
+  RotateTools: [
+    'rotate-right',
+    'rotate-left',
+    'flipHorizontal',
+    'flipVertical',
+  ],
+
   MeasurementTools: [
     'Length',
     'Bidirectional',
@@ -244,19 +267,12 @@ export const toolbarSections = {
   ],
 
   MoreTools: [
-    'Reset',
-    'rotate-right',
-    'flipHorizontal',
     'ImageSliceSync',
     'ReferenceLines',
     'ImageOverlayViewer',
-    'StackScroll',
-    'invert',
     'Probe',
-    'Cine',
     'Angle',
     'CobbAngle',
-    'Magnify',
     'CalibrationLine',
     'TagBrowser',
     'AdvancedMagnify',
@@ -342,8 +358,9 @@ export const modeInstance = {
   isValidMode,
   routes: [basicRoute],
   extensions: extensionDependencies,
-  // Default protocol gets self-registered by default in the init
-  hangingProtocol: 'default',
+  // Default protocol - using allModality1x1 for 1×1 layout
+  // Change to 'allModality1x4' for 2×2 layout (1×4 option)
+  hangingProtocol: 'allModality1x1',
   // Order is important in sop class handlers when two handlers both use
   // the same sop class under different situations.  In that case, the more
   // general handler needs to come last.  For this case, the dicomvideo must

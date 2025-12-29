@@ -188,24 +188,25 @@ export default function ModeRoute({
 
       // use the URL hangingProtocolId if it exists, otherwise use the one
       // defined in the mode configuration
-      const hangingProtocolIdToUse = hangingProtocolService.getProtocolById(
+      // If the mode uses 'default', we allow undefined to enable automatic protocol matching
+      let hangingProtocolIdToUse = hangingProtocolService.getProtocolById(
         runTimeHangingProtocolId
       )
         ? runTimeHangingProtocolId
-        : hangingProtocol;
+        : hangingProtocol === 'default' ? undefined : hangingProtocol;
 
       // Determine the index of the stageId if the hangingProtocolIdToUse is defined
-      const stageIndex = Array.isArray(hangingProtocolIdToUse)
-        ? -1
-        : hangingProtocolService.getStageIndex(hangingProtocolIdToUse, {
+      const stageIndex = hangingProtocolIdToUse && !Array.isArray(hangingProtocolIdToUse)
+        ? hangingProtocolService.getStageIndex(hangingProtocolIdToUse, {
             stageId: runTimeStageId || undefined,
-          });
+          })
+        : -1;
       // Ensure that the stage index is never negative
       // If stageIndex is negative (e.g., if stage wasn't found), use 0 as the default
       const stageIndexToUse = Math.max(0, stageIndex);
 
       // Sets the active hanging protocols - if hangingProtocol is undefined,
-      // resets to default.  Done before the onModeEnter to allow the onModeEnter
+      // allows automatic matching.  Done before the onModeEnter to allow the onModeEnter
       // to perform custom hanging protocol actions
       hangingProtocolService.setActiveProtocolIds(hangingProtocolIdToUse);
 
