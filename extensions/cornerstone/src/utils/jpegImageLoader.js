@@ -275,14 +275,11 @@ function loadJPEGImage(imageId) {
             }
           }
 
-          // Fallback: redirect to login
+          // Fallback: redirect to RIS URL
           const appConfig = window.config || {};
-          let loginUrl = appConfig.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
-          // If it's a relative URL, make it absolute
-          if (loginUrl.startsWith('/')) {
-            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-          }
-          window.location.href = loginUrl;
+          const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/login';
+          console.log('401 error in JPEG loader - redirecting to RIS:', risWorklistUrl);
+          window.location.href = risWorklistUrl;
           return; // Don't reject, just redirect
         }
 
@@ -307,14 +304,11 @@ function loadJPEGImage(imageId) {
             }
           }
 
-          // Fallback: redirect to login
+          // Fallback: redirect to RIS URL
           const appConfig = window.config || {};
-          let loginUrl = appConfig.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
-          // If it's a relative URL, make it absolute
-          if (loginUrl.startsWith('/')) {
-            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-          }
-          window.location.href = loginUrl;
+          const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
+          console.log('401 error in JPEG loader catch - redirecting to RIS:', risWorklistUrl);
+          window.location.href = risWorklistUrl;
           return; // Don't reject, just redirect
         }
 

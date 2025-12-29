@@ -98,16 +98,12 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
           userAuthenticationService.handleUnauthenticated();
           return;
         }
-        // Fallback: redirect to login if no handler is available
-        // Try to get login URL from appConfig or default to full URL
+        // Fallback: redirect to RIS URL if no handler is available
         if (typeof window !== 'undefined') {
-          const appConfig = errorHandler._servicesManager?.extensionManager?.appConfig;
-          let loginUrl = appConfig?.cookieAuth?.loginUrl || 'https://synapse.med-pacs.com/login';
-          // If it's a relative URL, make it absolute
-          if (loginUrl.startsWith('/')) {
-            loginUrl = `https://synapse.med-pacs.com${loginUrl}`;
-          }
-          window.location.href = loginUrl;
+          const appConfig = errorHandler._servicesManager?.extensionManager?.appConfig || window.config || {};
+          const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/login';
+          console.log('401 error - redirecting to RIS:', risWorklistUrl);
+          window.location.href = risWorklistUrl;
         }
         return;
       }

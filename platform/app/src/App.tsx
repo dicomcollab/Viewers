@@ -189,10 +189,13 @@ function App({
     };
 
     const handleUnauthenticated = () => {
-      // Disabled redirect to login/RIS - allow manual token changes without redirect
-      // Previously redirected to login route when token expires or user is unauthenticated
-      console.log('Authentication failed (401) - redirect disabled to allow manual token changes');
-      return null;
+      // Redirect to RIS URL when token expires or user is unauthenticated
+      if (typeof window !== 'undefined') {
+        const appConfig = window.config || {};
+        const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/login';
+        console.log('Authentication failed (401) - redirecting to RIS:', risWorklistUrl);
+        window.location.href = risWorklistUrl;
+      }
     };
 
     userAuthenticationService.setServiceImplementation({
