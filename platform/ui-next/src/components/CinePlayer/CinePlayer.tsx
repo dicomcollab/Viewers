@@ -75,7 +75,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
     >
       <div
         className={
-          'bg-muted pointer-events-auto inline-flex select-none items-center gap-2 rounded-md px-2 py-2'
+          'bg-muted pointer-events-auto inline-flex select-none items-center gap-1 rounded-md px-1 py-1'
         }
       >
         <Button
@@ -88,12 +88,12 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
         </Button>
 
         {isDynamic && dynamicInfo && (
-          <div className="min-w-16 max-w-44 text-foreground flex flex-col">
-            <div className="text-xs">
+          <div className="min-w-12 max-w-32 text-foreground flex flex-col">
+            <div className="text-xs leading-tight">
               <span className="text-foreground w-2">{dynamicInfo.dimensionGroupNumber}</span>{' '}
               <span className="text-muted-foreground">{`/${dynamicInfo.numDimensionGroups}`}</span>
             </div>
-            <div className="text-muted-foreground text-xs">{dynamicInfo.label}</div>
+            <div className="text-muted-foreground text-xs leading-tight">{dynamicInfo.label}</div>
           </div>
         )}
 
@@ -121,8 +121,8 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
                     inputWidth="w-7 max-w-7"
                     buttonColor="white"
                   >
-                    <div className="flex items-center justify-center gap-1">
-                      <div className="text-foreground flex-shrink-0 text-center text-sm leading-[22px]">
+                    <div className="flex items-center justify-center gap-0.5">
+                      <div className="text-foreground flex-shrink-0 text-center text-xs leading-tight">
                         <span className="text-muted-foreground whitespace-nowrap text-xs">
                           {' FPS'}
                         </span>
@@ -135,7 +135,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
             <PopoverContent
               side="bottom"
               align="center"
-              className="cine-fps-range-popover z-50 w-auto p-2"
+              className="cine-fps-range-popover z-50 w-auto p-1"
               sideOffset={8}
             >
               <Numeric.Container
@@ -145,11 +145,11 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
                 step={stepFrameRate}
                 value={frameRate}
                 onChange={val => handleSetFrameRate(val as number)}
-                className="h-6 px-2"
+                className="h-5 px-1"
               >
                 <Numeric.SingleRange
                   showNumberInput={false}
-                  sliderClassName="w-40"
+                  sliderClassName="w-32 cursor-pointer"
                   sliderVariant="white"
                 />
               </Numeric.Container>
@@ -175,9 +175,9 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
           step={1}
           value={dynamicInfo.dimensionGroupNumber}
           onChange={val => handleDimensionGroupNumberChange(val as number)}
-          className="pointer-events-auto mt-3 w-full"
+          className="pointer-events-auto mt-1 w-full"
         >
-          <Numeric.SingleRange showNumberInput={false} sliderVariant="white" />
+          <Numeric.SingleRange showNumberInput={false} sliderClassName="cursor-pointer" sliderVariant="white" />
         </Numeric.Container>
       )}
     </div>
