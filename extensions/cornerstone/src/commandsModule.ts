@@ -48,6 +48,16 @@ import CornerstoneViewportDownloadForm from './utils/CornerstoneViewportDownload
 import { updateSegmentBidirectionalStats } from './utils/updateSegmentationStats';
 import { generateSegmentationCSVReport } from './utils/generateSegmentationCSVReport';
 import { getUpdatedViewportsForSegmentation } from './utils/hydrationUtils';
+import { setActiveZoomButton, clearActiveZoomButton } from './utils/zoomState';
+
+// Extend the Window interface to include our custom viewport action state
+declare global {
+  interface Window {
+    ohifViewportActionState?: {
+      activeAction?: string;
+    };
+  }
+}
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { isMeasurementWithinViewport } from './utils/isMeasurementWithinViewport';
 import { getCenterExtent } from './utils/getCenterExtent';
@@ -1001,11 +1011,39 @@ function commandsModule({
       // Sometimes it is passed as value (tools with options), sometimes as itemId (toolbar buttons)
       toolName = toolName || itemId || value;
 
+      // Clear zoom button active state when any tool is activated
+      clearActiveZoomButton();
+
+      // Clear viewport action state when a real tool is activated
+      if (window.ohifViewportActionState) {
+        window.ohifViewportActionState.activeAction = null;
+      }
+
       toolGroupIds = toolGroupIds.length ? toolGroupIds : toolGroupService.getToolGroupIds();
 
       toolGroupIds.forEach(toolGroupId => {
         actions.setToolActive({ toolName, toolGroupId, bindings });
       });
+
+      // Trigger toolbar refresh to update button states
+      toolbarService.refreshToolbarState({});
+    },
+    setViewportActionActiveToolbar: ({ actionName }) => {
+      // This is for viewport actions (like rotate, flip) that should show as active in toolbar
+      // but aren't actual cornerstone tools - this only handles the state tracking
+
+      // Clear zoom button active state
+      clearActiveZoomButton();
+
+      // Store the active viewport action
+      if (!window.ohifViewportActionState) {
+        window.ohifViewportActionState = {};
+      }
+      window.ohifViewportActionState.activeAction = actionName;
+
+      // Trigger toolbar refresh to update button states and group evaluations
+      // This will cause the group evaluator to run and promote the selected action to primary
+      toolbarService.refreshToolbarState({});
     },
     setToolActive: ({
       toolName,
@@ -2456,6 +2494,29 @@ function commandsModule({
       const renderingEngine = cornerstoneViewportService.getRenderingEngine();
       renderingEngine.render();
     },
+    executeActiveViewportAction: () => {
+      // Execute the currently active viewport action, default to rotate-right
+      const activeAction = window.ohifViewportActionState?.activeAction || 'rotate-right';
+
+      // Execute the appropriate command based on the active action
+      switch (activeAction) {
+        case 'rotate-right':
+          commandsManager.runCommand('rotateViewportCW');
+          break;
+        case 'rotate-left':
+          commandsManager.runCommand('rotateViewportCCW');
+          break;
+        case 'flipHorizontal':
+          commandsManager.runCommand('flipViewportHorizontal');
+          break;
+        case 'flipVertical':
+          commandsManager.runCommand('flipViewportVertical');
+          break;
+        default:
+          // Fallback to rotate-right
+          commandsManager.runCommand('rotateViewportCW');
+      }
+    },
   };
 
   const definitions = {
@@ -2521,6 +2582,9 @@ function commandsModule({
     setToolActiveToolbar: {
       commandFn: actions.setToolActiveToolbar,
     },
+    setViewportActionActiveToolbar: {
+      commandFn: actions.setViewportActionActiveToolbar,
+    },
     setToolEnabled: {
       commandFn: actions.setToolEnabled,
     },
@@ -2570,6 +2634,26 @@ function commandsModule({
     scaleDownViewport: {
       commandFn: actions.scaleViewport,
       options: { direction: -1 },
+    },
+    zoomInWithState: {
+      commandFn: () => {
+        // Call the existing scaleUpViewport command
+        commandsManager.runCommand('scaleUpViewport');
+        // Update the active zoom button state
+        setActiveZoomButton('ZoomIn');
+        // Trigger toolbar refresh to update button states
+        toolbarService.refreshToolbarState({});
+      },
+    },
+    zoomOutWithState: {
+      commandFn: () => {
+        // Call the existing scaleDownViewport command
+        commandsManager.runCommand('scaleDownViewport');
+        // Update the active zoom button state
+        setActiveZoomButton('ZoomOut');
+        // Trigger toolbar refresh to update button states
+        toolbarService.refreshToolbarState({});
+      },
     },
     fitViewportToWindow: {
       commandFn: actions.scaleViewport,
@@ -2770,6 +2854,9 @@ function commandsModule({
     decimateContours: actions.decimateContours,
     convertContourHoles: actions.convertContourHoles,
     setInterpolationToolConfiguration: actions.setInterpolationToolConfiguration,
+    executeActiveViewportAction: {
+      commandFn: actions.executeActiveViewportAction,
+    },
   };
 
   return {

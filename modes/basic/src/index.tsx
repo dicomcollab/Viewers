@@ -128,6 +128,12 @@ export function onModeEnter({
 
   measurementService.clearMeasurements();
 
+  // Initialize viewport action state with default action
+  if (!window.ohifViewportActionState) {
+    window.ohifViewportActionState = {};
+  }
+  window.ohifViewportActionState.activeAction = 'rotate-right'; // Set default action
+
   // Init Default and SR ToolGroups
   initToolGroups(extensionManager, toolGroupService, commandsManager);
 
@@ -190,6 +196,11 @@ export function onModeExit({ servicesManager }: withAppTypes) {
   this._activatePanelTriggersSubscriptions.forEach(sub => sub.unsubscribe());
   this._activatePanelTriggersSubscriptions.length = 0;
 
+  // Clean up viewport action state
+  if (window.ohifViewportActionState) {
+    window.ohifViewportActionState.activeAction = null;
+  }
+
   uiDialogService.hideAll();
   uiModalService.hide();
   toolGroupService.destroy();
@@ -242,12 +253,14 @@ export const toolbarSections = {
   ],
 
   ZoomTools: [
+    'ZoomIn',
     'Zoom',
     'Magnify',
     'ZoomOut',
   ],
 
   RotateTools: [
+    'DynamicRotateAction',
     'rotate-right',
     'rotate-left',
     'flipHorizontal',

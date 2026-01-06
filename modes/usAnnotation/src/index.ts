@@ -107,6 +107,7 @@ function modeFactory({ modeConfiguration }) {
 
       toolbarService.register(toolbarButtons);
       toolbarService.updateSection(toolbarService.sections.primary, [
+        'ZoomTools',
         'MeasurementTools',
         'Zoom',
         'Pan',
@@ -127,7 +128,7 @@ function modeFactory({ modeConfiguration }) {
         'AdvancedRenderingControls',
       ]);
 
-      toolbarService.updateSection(toolbarService.sections.advancedRenderingControlsSection, [
+      toolbarService.updateSection('advancedRenderingControlsSection', [
         'windowLevelMenuEmbedded',
         'voiManualControlMenu',
         'Colorbar',
@@ -145,7 +146,13 @@ function modeFactory({ modeConfiguration }) {
         'windowLevelMenu',
       ]);
 
-      toolbarService.updateSection(toolbarService.sections.measurementSection, [
+      toolbarService.updateSection('zoomSection', [
+        'ZoomIn',
+        'ZoomOut',
+        'Magnify',
+      ]);
+
+      toolbarService.updateSection('measurementSection', [
         'Length',
         'Bidirectional',
         'ArrowAnnotate',
@@ -157,7 +164,7 @@ function modeFactory({ modeConfiguration }) {
         'LivewireContour',
       ]);
 
-      toolbarService.updateSection(toolbarService.sections.moreToolsSection, [
+      toolbarService.updateSection('moreToolsSection', [
         'Reset',
         'rotate-right',
         'flipHorizontal',
@@ -170,7 +177,6 @@ function modeFactory({ modeConfiguration }) {
         'Cine',
         'Angle',
         'CobbAngle',
-        'Magnify',
         'CalibrationLine',
         'TagBrowser',
         'AdvancedMagnify',

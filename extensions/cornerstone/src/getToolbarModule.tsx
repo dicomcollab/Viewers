@@ -11,6 +11,16 @@ import NavigationComponent from './components/NavigationComponent/NavigationComp
 import TrackingStatus from './components/TrackingStatus/TrackingStatus';
 import ViewportColorbarsContainer from './components/ViewportColorbar';
 import AdvancedRenderingControls from './components/AdvancedRenderingControls';
+import { getActiveZoomButton } from './utils/zoomState';
+
+// Extend the Window interface to include our custom viewport action state
+declare global {
+  interface Window {
+    ohifViewportActionState?: {
+      activeAction?: string;
+    };
+  }
+}
 
 const getDisabledState = (disabledText?: string) => ({
   disabled: true,
@@ -525,6 +535,177 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
       },
     },
     {
+      name: 'evaluate.viewportProperties.rotateRight',
+      evaluate: ({ viewportId }) => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+        if (!viewport || viewport.isDisabled) {
+          return {
+            disabled: false,
+          };
+        }
+
+        // Check if this is the currently active viewport action
+        const activeAction = window.ohifViewportActionState?.activeAction;
+        const isActive = activeAction === 'rotate-right';
+
+        return {
+          disabled: false,
+          className: utils.getToggledClassName(isActive),
+        };
+      },
+    },
+    {
+      name: 'evaluate.viewportProperties.rotateLeft',
+      evaluate: ({ viewportId }) => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+        if (!viewport || viewport.isDisabled) {
+          return {
+            disabled: false,
+          };
+        }
+
+        // Check if this is the currently active viewport action
+        const activeAction = window.ohifViewportActionState?.activeAction;
+        const isActive = activeAction === 'rotate-left';
+
+        return {
+          disabled: false,
+          className: utils.getToggledClassName(isActive),
+        };
+      },
+    },
+    {
+      name: 'evaluate.viewportProperties.flipHorizontal',
+      evaluate: ({ viewportId }) => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+        if (!viewport || viewport.isDisabled) {
+          return {
+            disabled: false,
+          };
+        }
+
+        // Check if this is the currently active viewport action
+        const activeAction = window.ohifViewportActionState?.activeAction;
+        const isActive = activeAction === 'flipHorizontal';
+
+        return {
+          disabled: false,
+          className: utils.getToggledClassName(isActive),
+        };
+      },
+    },
+    {
+      name: 'evaluate.viewportProperties.flipVertical',
+      evaluate: ({ viewportId }) => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+        if (!viewport || viewport.isDisabled) {
+          return {
+            disabled: false,
+          };
+        }
+
+        // Check if this is the currently active viewport action
+        const activeAction = window.ohifViewportActionState?.activeAction;
+        const isActive = activeAction === 'flipVertical';
+
+        return {
+          disabled: false,
+          className: utils.getToggledClassName(isActive),
+        };
+      },
+    },
+    {
+      name: 'evaluate.group.promoteViewportActionToPrimary',
+      evaluate: ({ items }) => {
+        // Get the active viewport action from our global state
+        const activeAction = window.ohifViewportActionState?.activeAction;
+
+        // Find the item that matches the active action
+        const activeItem = items.find(item => {
+          const itemId = item.id;
+          return (
+            (activeAction === 'rotate-right' && itemId === 'rotate-right') ||
+            (activeAction === 'rotate-left' && itemId === 'rotate-left') ||
+            (activeAction === 'flipHorizontal' && itemId === 'flipHorizontal') ||
+            (activeAction === 'flipVertical' && itemId === 'flipVertical')
+          );
+        });
+
+        // If we found a matching item, promote it to primary
+        if (activeItem) {
+          return {
+            primary: activeItem,
+            items: items,
+          };
+        }
+
+        // Default to rotate-right if no active action is set
+        const defaultItem = items.find(item => item.id === 'rotate-right');
+        return {
+          primary: defaultItem || items[0],
+          items: items,
+        };
+      },
+    },
+    {
+      name: 'evaluate.dynamicRotateAction',
+      evaluate: ({ viewportId }) => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+        if (!viewport || viewport.isDisabled) {
+          return {
+            disabled: true,
+          };
+        }
+
+        // Get the active viewport action from our global state, default to rotate-right
+        const activeAction = window.ohifViewportActionState?.activeAction || 'rotate-right';
+
+        // Return the appropriate icon, label, and tooltip based on the active action
+        let icon, label, tooltip;
+
+        switch (activeAction) {
+          case 'rotate-right':
+            icon = 'tool-rotate-right';
+            label = 'Rotate Right';
+            tooltip = 'Rotate +90';
+            break;
+          case 'rotate-left':
+            icon = 'tool-rotate-left';
+            label = 'Rotate Left';
+            tooltip = 'Rotate -90';
+            break;
+          case 'flipHorizontal':
+            icon = 'tool-flip-horizontal';
+            label = 'Flip Horizontal';
+            tooltip = 'Flip Horizontally';
+            break;
+          case 'flipVertical':
+            icon = 'tool-flip-vertical';
+            label = 'Flip Vertical';
+            tooltip = 'Flip Vertically';
+            break;
+          default:
+            // Fallback to rotate-right
+            icon = 'tool-rotate-right';
+            label = 'Rotate Right';
+            tooltip = 'Rotate +90';
+        }
+
+        return {
+          disabled: false,
+          icon,
+          label,
+          tooltip,
+          className: utils.getToggledClassName(true), // Always show as active
+        };
+      },
+    },
+    {
       name: 'evaluate.displaySetIsReconstructable',
       evaluate: ({ viewportId, disabledText = 'Selected viewport is not reconstructable' }) => {
         const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
@@ -547,6 +728,27 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
 
         return {
           disabled: false,
+        };
+      },
+    },
+    {
+      name: 'evaluate.zoom.action',
+      evaluate: ({ viewportId, button }) => {
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+
+        if (!viewport) {
+          return {
+            disabled: true,
+          };
+        }
+
+        // Check which zoom button is currently active
+        const isActive = getActiveZoomButton() === button.id;
+
+        return {
+          disabled: false,
+          isActive: isActive,
+          className: utils.getToggledClassName(isActive),
         };
       },
     },

@@ -312,8 +312,39 @@ const toolbarButtons: Button[] = [
       icon: 'tool-rotate-right',
       label: i18n.t('Buttons:Rotate Right'),
       tooltip: i18n.t('Buttons:Rotate +90'),
-      commands: 'rotateViewportCW',
-      evaluate: 'evaluate.action',
+      commands: [
+        {
+          commandName: 'rotateViewportCW',
+        },
+        {
+          commandName: 'setViewportActionActiveToolbar',
+          commandOptions: {
+            actionName: 'rotate-right',
+          },
+        },
+      ],
+      evaluate: 'evaluate.viewportProperties.rotateRight',
+    },
+  },
+  {
+    id: 'rotate-left',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-rotate-left',
+      label: i18n.t('Buttons:Rotate Left'),
+      tooltip: i18n.t('Buttons:Rotate -90'),
+      commands: [
+        {
+          commandName: 'rotateViewportCCW',
+        },
+        {
+          commandName: 'setViewportActionActiveToolbar',
+          commandOptions: {
+            actionName: 'rotate-left',
+          },
+        },
+      ],
+      evaluate: 'evaluate.viewportProperties.rotateLeft',
     },
   },
   {
@@ -323,9 +354,46 @@ const toolbarButtons: Button[] = [
       icon: 'tool-flip-horizontal',
       label: i18n.t('Buttons:Flip Horizontal'),
       tooltip: i18n.t('Buttons:Flip Horizontally'),
-      commands: 'flipViewportHorizontal',
+      commands: [
+        {
+          commandName: 'flipViewportHorizontal',
+        },
+        {
+          commandName: 'setViewportActionActiveToolbar',
+          commandOptions: {
+            actionName: 'flipHorizontal',
+          },
+        },
+      ],
       evaluate: [
-        'evaluate.viewportProperties.toggle',
+        'evaluate.viewportProperties.flipHorizontal',
+        {
+          name: 'evaluate.viewport.supported',
+          unsupportedViewportTypes: ['volume3d'],
+        },
+      ],
+    },
+  },
+  {
+    id: 'flipVertical',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-flip-vertical',
+      label: i18n.t('Buttons:Flip Vertical'),
+      tooltip: i18n.t('Buttons:Flip Vertically'),
+      commands: [
+        {
+          commandName: 'flipViewportVertical',
+        },
+        {
+          commandName: 'setViewportActionActiveToolbar',
+          commandOptions: {
+            actionName: 'flipVertical',
+          },
+        },
+      ],
+      evaluate: [
+        'evaluate.viewportProperties.flipVertical',
         {
           name: 'evaluate.viewport.supported',
           unsupportedViewportTypes: ['volume3d'],

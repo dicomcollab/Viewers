@@ -1061,6 +1061,59 @@ export const ToolFlipHorizontal = (props: IconProps) => (
   </svg>
 );
 
+export const ToolFlipVertical = (props: IconProps) => (
+  <svg
+    width="28px"
+    height="28px"
+    viewBox="0 0 28 28"
+    version="1.1"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <g
+      id="tool-flip-vertical"
+      stroke="none"
+      strokeWidth="1"
+      fill="none"
+      fillRule="evenodd"
+    >
+      <rect
+        id="Rectangle"
+        x="0"
+        y="0"
+        width="28"
+        height="28"
+      ></rect>
+      <path
+        d="M7.31578947,10.6315789 L7.31578947,6 C7.31578947,4.8954305 8.21121997,4 9.31578947,4 L18.5789474,4 C19.6835169,4 20.5789474,4.8954305 20.5789474,6 L20.5789474,10.6315789 L20.5789474,10.6315789"
+        id="Path-2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      ></path>
+      <path
+        d="M7.31578947,25 L7.31578947,20.3684211 C7.31578947,19.2638516 8.21121997,18.3684211 9.31578947,18.3684211 L18.5789474,18.3684211 C19.6835169,18.3684211 20.5789474,19.2638516 20.5789474,20.3684211 L20.5789474,25 L20.5789474,25"
+        id="Path-2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeDasharray="1,3.1"
+        transform="translate(13.9474, 21.6842) scale(1, -1) translate(-13.9474, -21.6842)"
+      ></path>
+      <line
+        x1="4.55263158"
+        y1="14.5"
+        x2="23.3421053"
+        y2="14.5"
+        id="Line-3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      ></line>
+    </g>
+  </svg>
+);
+
 export const ToolFreehandPolygon = (props: IconProps) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -2457,6 +2510,61 @@ export const ToolRotateRight = (props: IconProps) => (
         <polyline
           id="Path"
           points="5.55555556 0 8.88888889 3.33333333 5.55555556 6.66666667"
+        ></polyline>
+      </g>
+    </g>
+  </svg>
+);
+
+export const ToolRotateLeft = (props: IconProps) => (
+  <svg
+    width="28px"
+    height="28px"
+    viewBox="0 0 28 28"
+    version="1.1"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <g
+      id="tool-rotate-left"
+      stroke="none"
+      strokeWidth="1"
+      fill="none"
+      fillRule="evenodd"
+    >
+      <rect
+        id="Rectangle"
+        x="0"
+        y="0"
+        width="28"
+        height="28"
+      ></rect>
+      <rect
+        id="Rectangle"
+        fill="currentColor"
+        x="4"
+        y="13"
+        width="14.4444444"
+        height="11.1111111"
+        rx="2"
+      ></rect>
+      <g
+        id="Group-11"
+        transform="translate(16, 3)"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      >
+        <path
+          d="M-8.88888889,3.33333333 L-4.44444444,3.33333333 C-1.98984556,3.33333333 0,5.32317889 0,7.77777778 L0,12.2222222"
+          id="Path"
+          transform="scale(-1, 1)"
+        ></path>
+        <polyline
+          id="Path"
+          points="-5.55555556 0 -8.88888889 3.33333333 -5.55555556 6.66666667"
+          transform="scale(-1, 1)"
         ></polyline>
       </g>
     </g>
