@@ -261,7 +261,6 @@ export const toolbarSections = {
 
   RotateTools: [
     'DynamicRotateAction',
-    'rotate-right',
     'rotate-left',
     'flipHorizontal',
     'flipVertical',
