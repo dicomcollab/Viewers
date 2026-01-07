@@ -175,7 +175,7 @@ const bindings = [
   {
     commandName: 'rejectPreview',
     label: 'Reject Preview',
-    keys: ['esc'],
+    keys: ['ctrl+esc'],
   },
   {
     commandName: 'undo',

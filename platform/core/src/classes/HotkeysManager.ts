@@ -140,14 +140,40 @@ export class HotkeysManager {
    * @param {HotkeyDefinition[] | Object} [hotkeyDefinitions=[]] Contains hotkeys definitions
    * @param {string} [name='hotkey-definitions'] Name for localStorage key
    * @param {boolean} [saveToApi=true] Whether to save hotkeys to API
+   * @param {boolean} [validateConflicts=true] Whether to validate for key conflicts before setting
    */
   async setHotkeys(
     hotkeyDefinitions: any[] | Record<string, any> = [],
     name = 'hotkey-definitions',
-    saveToApi = true
+    saveToApi = true,
+    validateConflicts = true
   ) {
     try {
       const definitions = this.getValidDefinitions(hotkeyDefinitions);
+
+      // Validate for conflicts if requested
+      if (validateConflicts) {
+        const validation = this.validateHotkeyDefinitions(definitions);
+        if (!validation.isValid) {
+          const errorMessage = `Hotkey conflicts detected: ${validation.conflicts.map(c =>
+            `Key "${c.keys}" used by multiple commands`
+          ).join(', ')}`;
+
+          console.error('HotkeysManager:', errorMessage);
+
+          const { uiNotificationService } = this._servicesManager.services;
+          if (uiNotificationService) {
+            uiNotificationService.show({
+              title: 'Hotkey Conflicts',
+              message: errorMessage,
+              type: 'error',
+              duration: 5000,
+            });
+          }
+
+          throw new Error(errorMessage);
+        }
+      }
 
       // Remove old localStorage entry
       localStorage.removeItem(name);
@@ -183,6 +209,90 @@ export class HotkeysManager {
   }
 
   /**
+   * Public method to check if a key combination is available for use
+   * @param {string | string[]} keys - The key combination to check
+   * @param {string} excludeCommandName - Optional command name to exclude from the check
+   * @returns {boolean} True if the key combination is available, false if it's already in use
+   */
+  isKeyAvailable(keys: string | string[], excludeCommandName?: string): boolean {
+    if (!keys || keys === '') {
+      return false;
+    }
+
+    let excludeCommandHash: string | undefined;
+    if (excludeCommandName) {
+      // Find the command hash for the exclude command
+      for (const [hash, hotkey] of Object.entries(this.hotkeyDefinitions)) {
+        if (hotkey.commandName === excludeCommandName) {
+          excludeCommandHash = hash;
+          break;
+        }
+      }
+    }
+
+    const conflict = this.checkForKeyConflict(keys, excludeCommandHash);
+    return conflict === null;
+  }
+
+  /**
+   * Get information about what command is using a specific key combination
+   * @param {string | string[]} keys - The key combination to check
+   * @returns {Object|null} Information about the command using the keys, or null if not in use
+   */
+  getKeyUsage(keys: string | string[]): { commandName: string; label: string } | null {
+    const conflict = this.checkForKeyConflict(keys);
+    if (conflict) {
+      return {
+        commandName: conflict.commandName,
+        label: conflict.label || conflict.commandName,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Validates all hotkey definitions for conflicts
+   * @param {HotkeyDefinition[]} definitions - Array of hotkey definitions to validate
+   * @returns {Object} Validation result with conflicts array and isValid boolean
+   */
+  validateHotkeyDefinitions(definitions: any[]): { isValid: boolean; conflicts: any[] } {
+    const keyMap = new Map<string, any>();
+    const conflicts: any[] = [];
+
+    for (const definition of definitions) {
+      if (!definition.keys || definition.keys === '') {
+        continue;
+      }
+
+      const normalizedKeys = this.normalizeKeys(definition.keys);
+      const existingDefinition = keyMap.get(normalizedKeys);
+
+      if (existingDefinition) {
+        conflicts.push({
+          keys: definition.keys,
+          conflictingCommands: [
+            {
+              commandName: existingDefinition.commandName,
+              label: existingDefinition.label,
+            },
+            {
+              commandName: definition.commandName,
+              label: definition.label,
+            },
+          ],
+        });
+      } else {
+        keyMap.set(normalizedKeys, definition);
+      }
+    }
+
+    return {
+      isValid: conflicts.length === 0,
+      conflicts,
+    };
+  }
+
+  /**
    * Set default hotkey bindings. These
    * values are used in `this.restoreDefaultBindings`.
    *
@@ -191,6 +301,27 @@ export class HotkeysManager {
    */
   async setDefaultHotKeys(hotkeyDefinitions = [], loadFromApi = true) {
     const definitions = this.getValidDefinitions(hotkeyDefinitions);
+
+    // Validate for conflicts before setting
+    const validation = this.validateHotkeyDefinitions(definitions);
+    if (!validation.isValid) {
+      console.warn('HotkeysManager: Conflicts detected in default hotkey definitions:', validation.conflicts);
+
+      const { uiNotificationService } = this._servicesManager.services;
+      if (uiNotificationService) {
+        const conflictMessages = validation.conflicts.map(conflict =>
+          `Key "${conflict.keys}" is used by: ${conflict.conflictingCommands.map(cmd => cmd.label || cmd.commandName).join(', ')}`
+        );
+
+        uiNotificationService.show({
+          title: 'Hotkey Conflicts Detected',
+          message: `The following key conflicts were found:\n${conflictMessages.join('\n')}`,
+          type: 'warning',
+          duration: 8000,
+        });
+      }
+    }
+
     this.hotkeyDefaults = definitions;
 
     let updatedDefinitions = definitions;
@@ -421,12 +552,53 @@ export class HotkeysManager {
   }
 
   /**
+   * Checks if a key combination is already in use by another command
+   * @param {string | string[]} keys - The key combination to check
+   * @param {string} excludeCommandHash - Optional command hash to exclude from the check
+   * @returns {Object|null} Returns the conflicting hotkey definition or null if no conflict
+   */
+  private checkForKeyConflict(keys: string | string[], excludeCommandHash?: string): any | null {
+    const normalizedKeys = this.normalizeKeys(keys);
+
+    for (const [commandHash, hotkey] of Object.entries(this.hotkeyDefinitions)) {
+      if (excludeCommandHash && commandHash === excludeCommandHash) {
+        continue;
+      }
+
+      const existingNormalizedKeys = this.normalizeKeys(hotkey.keys);
+      if (existingNormalizedKeys === normalizedKeys) {
+        return hotkey;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Normalizes key combinations to a consistent format for comparison
+   * @param {string | string[]} keys - The key combination to normalize
+   * @returns {string} Normalized key string
+   */
+  private normalizeKeys(keys: string | string[]): string {
+    if (!keys || keys === '') {
+      return '';
+    }
+
+    const isKeyArray = Array.isArray(keys);
+    const keyString = isKeyArray ? keys.join('+') : keys;
+
+    // Convert to lowercase and sort modifiers for consistent comparison
+    return keyString.toLowerCase().split('+').sort().join('+');
+  }
+
+  /**
    * (Unbinds and) binds the specified command to one or more key combinations.
    * When the hotkey combination is triggered, the command name and active contexts
    * are used to locate and execute the appropriate command.
    *
    * @param hotkey - The hotkey definition object.
    * @throws {Error} Throws an error if no commandName is provided.
+   * @throws {Error} Throws an error if the key combination is already in use.
    */
   registerHotkeys({
     commandName,
@@ -447,6 +619,26 @@ export class HotkeysManager {
     if (existingHotkey && existingHotkey.keys === keys) {
       console.debug('HotkeysManager: Identical hotkey registration skipped.');
       return;
+    }
+
+    // Check for key conflicts with other commands (excluding current command)
+    const conflictingHotkey = this.checkForKeyConflict(keys, commandHash);
+    if (conflictingHotkey) {
+      const error = `Key combination "${keys}" is already assigned to command "${conflictingHotkey.commandName}" (${conflictingHotkey.label}). Each key combination can only be used once.`;
+      console.error('HotkeysManager:', error);
+
+      // Notify user about the conflict
+      const { uiNotificationService } = this._servicesManager.services;
+      if (uiNotificationService) {
+        uiNotificationService.show({
+          title: 'Hotkey Conflict',
+          message: error,
+          type: 'error',
+          duration: 5000,
+        });
+      }
+
+      throw new Error(error);
     }
 
     const userPreferredKeys = JSON.parse(localStorage.getItem('user-preferred-keys') || '{}');
