@@ -139,7 +139,19 @@ export function onModeEnter({
 
   toolbarService.register(this.toolbarButtons);
 
-  for (const [key, section] of Object.entries(this.toolbarSections)) {
+  // Detect iframe mode
+  const isIframeMode = (() => {
+    try {
+      return window.self !== window.top;
+    } catch (e) {
+      return true;
+    }
+  })();
+
+  // Use different toolbar sections based on iframe mode
+  const sectionsToUse = isIframeMode ? this.iframeToolbarSections : this.toolbarSections;
+
+  for (const [key, section] of Object.entries(sectionsToUse)) {
     toolbarService.updateSection(key, section);
   }
 
@@ -294,6 +306,93 @@ export const toolbarSections = {
   ],
 };
 
+// Iframe-specific toolbar sections - minimal primary toolbar
+export const iframeToolbarSections = {
+  [TOOLBAR_SECTIONS.primary]: [
+    'ZoomTools',
+    'MeasurementTools',
+    'WindowLevelTools',
+    'Pan',
+    'RotateTools',
+    'Layout',
+    'MoreTools',
+  ],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.topLeft]: ['orientationMenu', 'dataOverlayMenu'],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.bottomMiddle]: ['AdvancedRenderingControls'],
+
+  AdvancedRenderingControls: [
+    'windowLevelMenuEmbedded',
+    'voiManualControlMenu',
+    'Colorbar',
+    'opacityMenu',
+    'thresholdMenu',
+  ],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.topRight]: [
+    'modalityLoadBadge',
+    'trackingStatus',
+    'navigationComponent',
+  ],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.bottomLeft]: ['windowLevelMenu'],
+
+  WindowLevelTools: [
+    'WindowLevel',
+    'invert',
+  ],
+
+  ZoomTools: [
+    'ZoomIn',
+    'Zoom',
+    'Magnify',
+    'ZoomOut',
+  ],
+
+  RotateTools: [
+    'rotate-right',
+    'rotate-left',
+    'flipHorizontal',
+    'flipVertical',
+  ],
+
+  MeasurementTools: [
+    'Length',
+    'Bidirectional',
+    'ArrowAnnotate',
+    'EllipticalROI',
+    'RectangleROI',
+    'CircleROI',
+    'PlanarFreehandROI',
+    'SplineROI',
+    'LivewireContour',
+  ],
+
+  // All other tools moved to MoreTools in iframe mode
+  MoreTools: [
+    'HangingProtocol',
+    'StackScroll',
+    'Cine',
+    'Crosshairs',
+    'TrackballRotate',
+    'Capture',
+    'Reset',
+    'ImageSliceSync',
+    'ReferenceLines',
+    'ImageOverlayViewer',
+    'Probe',
+    'Angle',
+    'CobbAngle',
+    'CalibrationLine',
+    'TagBrowser',
+    'AdvancedMagnify',
+    'UltrasoundDirectionalTool',
+    'WindowLevelRegion',
+    'SegmentLabelTool',
+  ],
+};
+
 export const basicLayout = {
   id: ohif.layout,
   props: {
@@ -356,6 +455,7 @@ export const modeInstance = {
   displayName: 'Non-Longitudinal Basic',
   _activatePanelTriggersSubscriptions: [],
   toolbarSections,
+  iframeToolbarSections,
 
   /**
    * Lifecycle hooks

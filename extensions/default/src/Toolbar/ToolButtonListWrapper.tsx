@@ -66,7 +66,7 @@ export default function ToolButtonListWrapper({ buttonSection, id }: ToolButtonL
                 data-cy={item.id}
                 data-tool={item.id}
                 data-active={item.isActive}
-                onSelect={() => onInteraction?.({ id, itemId: item.id, commands: item.commands })}
+                onSelect={() => onInteraction?.({ itemId: item.id })}
               >
                 <span className="pl-1">{item.label || item.tooltip || item.id}</span>
               </ToolButtonListItem>
@@ -93,7 +93,7 @@ export default function ToolButtonListWrapper({ buttonSection, id }: ToolButtonL
           <ToolButton
             {...primary}
             onInteraction={({ itemId }) => {
-              onInteraction?.({ id, itemId, commands: primary.commands });
+              onInteraction?.({ itemId: itemId || primary.id });
             }}
             className={primary.className}
           />
@@ -110,7 +110,7 @@ export default function ToolButtonListWrapper({ buttonSection, id }: ToolButtonL
                 data-cy={item.id}
                 data-tool={item.id}
                 data-active={item.isActive}
-                onSelect={() => onInteraction?.({ id, itemId: item.id, commands: item.commands })}
+                onSelect={() => onInteraction?.({ itemId: item.id })}
               >
                 <span className="pl-1">{item.label || item.tooltip || item.id}</span>
               </ToolButtonListItem>

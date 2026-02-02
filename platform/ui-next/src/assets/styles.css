@@ -35,6 +35,82 @@
   background-color: #004152;
 }
 
+/* IFRAME MODE OPTIMIZATIONS */
+.iframe-toolbar-compact {
+  /* Compact toolbar for iframe mode */
+  height: 36px !important;
+}
+
+.iframe-toolbar-compact button,
+.iframe-toolbar-compact [data-tool] button,
+.iframe-toolbar-compact .tool-button {
+  /* Make toolbar buttons more compact in iframe */
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 2px !important;
+}
+
+.iframe-toolbar-compact svg,
+.iframe-toolbar-compact [data-tool] svg,
+.iframe-toolbar-compact .tool-button svg {
+  /* Smaller icons in iframe mode */
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.iframe-toolbar-compact .dropdown-trigger,
+.iframe-toolbar-compact [role="button"] {
+  /* Compact dropdown triggers */
+  width: 24px !important;
+  height: 28px !important;
+  min-width: 24px !important;
+  padding: 1px 2px !important;
+}
+
+.iframe-toolbar-compact .dropdown-trigger svg {
+  /* Smaller dropdown icons */
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* Make More Tools button more prominent in iframe mode */
+.iframe-toolbar-compact [data-tool="MoreTools"] button {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.iframe-toolbar-compact [data-tool="MoreTools"]:hover button {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Override any conflicting button styles in iframe mode */
+.iframe-toolbar-compact .w-10 {
+  width: 28px !important;
+}
+
+.iframe-toolbar-compact .h-10 {
+  height: 28px !important;
+}
+
+.iframe-toolbar-compact .w-8 {
+  width: 24px !important;
+}
+
+.iframe-toolbar-compact .h-8 {
+  height: 24px !important;
+}
+
+/* Compact spacing */
+.iframe-toolbar-compact .space-x-2 > * + * {
+  margin-left: 0.25rem !important;
+}
+
+.iframe-toolbar-compact .space-x-1 > * + * {
+  margin-left: 0.125rem !important;
+}
+
 /* INVISIBLE SCROLLBAR */
 .invisible-scrollbar {
   scrollbar-width: none;

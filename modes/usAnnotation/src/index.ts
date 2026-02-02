@@ -106,18 +106,43 @@ function modeFactory({ modeConfiguration }) {
       initToolGroups(extensionManager, toolGroupService, commandsManager);
 
       toolbarService.register(toolbarButtons);
-      toolbarService.updateSection(toolbarService.sections.primary, [
-        'ZoomTools',
-        'MeasurementTools',
-        'Zoom',
-        'Pan',
-        'TrackballRotate',
-        'WindowLevel',
-        'Capture',
-        'Layout',
-        'Crosshairs',
-        'MoreTools',
-      ]);
+
+      // Detect iframe mode
+      const isIframeMode = (() => {
+        try {
+          return window.self !== window.top;
+        } catch (e) {
+          return true;
+        }
+      })();
+
+      // Configure toolbar based on iframe mode
+      if (isIframeMode) {
+        // Minimal toolbar for iframe mode - only essential tools
+        toolbarService.updateSection(toolbarService.sections.primary, [
+          'ZoomTools',
+          'MeasurementTools',
+          'WindowLevel',
+          'Pan',
+          'TrackballRotate',
+          'Layout',
+          'MoreTools',
+        ]);
+      } else {
+        // Full toolbar for normal mode
+        toolbarService.updateSection(toolbarService.sections.primary, [
+          'ZoomTools',
+          'MeasurementTools',
+          'Zoom',
+          'Pan',
+          'TrackballRotate',
+          'WindowLevel',
+          'Capture',
+          'Layout',
+          'Crosshairs',
+          'MoreTools',
+        ]);
+      }
 
       toolbarService.updateSection(toolbarService.sections.viewportActionMenu.topLeft, [
         'orientationMenu',
@@ -165,6 +190,11 @@ function modeFactory({ modeConfiguration }) {
       ]);
 
       toolbarService.updateSection('moreToolsSection', [
+        // Tools moved from primary in iframe mode (reduced set)
+        'Zoom',
+        'Crosshairs',
+        'Capture',
+        // Original more tools
         'Reset',
         'rotate-right',
         'flipHorizontal',
