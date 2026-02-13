@@ -71,7 +71,7 @@ function Header({
               onClick={onClickReturn}
               data-cy="return-to-work-list"
             >
-              {isReturnEnabled && <Icons.ArrowLeft className={`text-white ml-1 flex-shrink-0 ${isIframeMode ? 'h-5 w-5' : 'h-7 w-7'}`} />}
+              {/* {isReturnEnabled && <Icons.ArrowLeft className={`text-white ml-1 flex-shrink-0 ${isIframeMode ? 'h-5 w-5' : 'h-7 w-7'}`} />} */}
               <div className={`flex-shrink-0 ${isIframeMode ? 'ml-0.5' : 'ml-1'}`}>
                 {WhiteLabeling?.createLogoComponentFn?.(React, props) ||
                   <div className={isIframeMode ? 'scale-75 origin-left' : ''}>
