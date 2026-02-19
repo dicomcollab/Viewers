@@ -1,0 +1,37 @@
+{
+  "platform": {
+    "apiRuntime": "node:16"
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "*.js",
+      "*.css",
+      "*.wasm",
+      "*.woff",
+      "*.woff2",
+      "*.png",
+      "*.jpg",
+      "*.jpeg",
+      "*.svg",
+      "*.ico",
+      "*.json",
+      "/config/*.js",
+      "/assets/*",
+      "/static/*"
+    ]
+  },
+  "routes": [
+    {
+      "route": "/viewer/*",
+      "rewrite": "/index.html"
+    }
+  ],
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".json": "application/json",
+    ".css": "text/css",
+    ".wasm": "application/wasm"
+  }
+}
