@@ -1,0 +1,85 @@
+# Azure Static Web Apps CI/CD with SWA CLI for OHIF Viewer
+# Triggers on push and PRs targeting azure-pacs-connection branch
+name: Azure Static Web Apps CI/CD with SWA CLI
+
+on:
+  push:
+    branches:
+      - azure-pacs-connection
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - azure-pacs-connection
+
+jobs:
+  build_and_deploy_job:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    name: Build and Deploy Job
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Yarn
+        run: corepack enable && corepack prepare yarn@1.22.22 --activate
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            platform/app/node_modules
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build OHIF Viewer
+        run: |
+          export APP_CONFIG="${APP_CONFIG:-config/default.js}"
+          yarn build
+        env:
+          NODE_ENV: production
+          PUBLIC_URL: /
+          APP_CONFIG: ${{ secrets.APP_CONFIG }}
+          QUICK_BUILD: false
+
+      - name: Clean build directory (optional)
+        run: |
+          cd platform/app/dist
+          find . -name "*.map" -type f -delete 2>/dev/null || true
+          find . -name "*.png" -size +1M -delete 2>/dev/null || true
+          find . -name "*.jpg" -size +1M -delete 2>/dev/null || true
+          du -sh . || true
+
+      - name: Copy staticwebapp.config.json
+        run: |
+          cp .github/samples/staticwebapp.config.json platform/app/dist/
+
+      - name: Install SWA CLI
+        run: npm install -g @azure/static-web-apps-cli
+
+      - name: Deploy with SWA CLI
+        run: |
+          swa deploy ./platform/app/dist --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }} --env production
+
+  close_pull_request_job:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close Pull Request Job
+    steps:
+      - name: Install SWA CLI
+        run: npm install -g @azure/static-web-apps-cli
+
+      - name: Close Pull Request
+        run: |
+          swa deploy --action close --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}

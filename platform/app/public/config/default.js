@@ -1,23 +1,127 @@
-// Azure PACS Token - Set your Azure DICOM service token here
-// This token will be used globally for all Azure DICOM API requests
-// Replace 'YOUR_AZURE_DICOM_TOKEN_HERE' with your actual Azure DICOM service token
-const AZURE_PACS_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL2RpY29tLmhlYWx0aGNhcmVhcGlzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzhmNmE3ODg0LTA2ZjItNDJjMC05MzhhLWE3OTJmNWM1YTk1Zi8iLCJpYXQiOjE3NjUxODQ1NjAsIm5iZiI6MTc2NTE4NDU2MCwiZXhwIjoxNzY1MTg4Njc3LCJhY3IiOiIxIiwiYWlvIjoiQVVRQXUvOGFBQUFBU29KT2tmOGlsa3dwSkQydDJVd3ZMN240b1ErSzd3VjliMGt1dnB0Y1RtMVhianl3Q2hFU3VwSkRTNDZ1eEJFdUliWStFZFo0bzAwUVhmMTQ5K0tuVlE9PSIsImFtciI6WyJwd2QiLCJyc2EiXSwiYXBwaWQiOiIwNGIwNzc5NS04ZGRiLTQ2MWEtYmJlZS0wMmY5ZTFiZjdiNDYiLCJhcHBpZGFjciI6IjAiLCJkZXZpY2VpZCI6Ijk4ODYxMTQ4LTA0YmItNGU0NC1hYjdjLWFmOGQxOTU4ODM1NyIsImZhbWlseV9uYW1lIjoiQCBTb2Z0ZWNoIiwiZ2l2ZW5fbmFtZSI6IkRpY29tIiwiaWR0eXAiOiJ1c2VyIiwiaXBhZGRyIjoiMTA2LjIwMS4xNDYuMTg1IiwibmFtZSI6IkRpY29tIEAgU29mdGVjaCIsIm9pZCI6Ijg3M2Y5M2RlLTNhZjQtNDcyOC1hZDMzLTExYjRmZTQwNDEwNiIsInB1aWQiOiIxMDAzMjAwMzZENjg4OTFFIiwicHdkX3VybCI6Imh0dHBzOi8vZ28ubWljcm9zb2Z0LmNvbS9md2xpbmsvP2xpbmtpZD0yMjI0MTk4IiwicmgiOiIxLkFUMEFoSGhxal9JR3dFS1RpcWVTOWNXcFg3OGw1M1hPWnVwTW01cGNUS3JsZnpPaEFLWTlBQS4iLCJzY3AiOiJ1c2VyX2ltcGVyc29uYXRpb24iLCJzaWQiOiIwMGFiYjEzOS02MzEzLTZjOGMtNDM2MS00YzU5OGRlYWY0YjgiLCJzdWIiOiJ1bW5HNEZjUmJCN2wwVm9ibzJlelJWVkVwd3QyV0hDUHlqd0tlanZ2QS1JIiwidGlkIjoiOGY2YTc4ODQtMDZmMi00MmMwLTkzOGEtYTc5MmY1YzVhOTVmIiwidW5pcXVlX25hbWUiOiJkaWNvbUBjb2xsYWJzb2Z0ZWNoLmNvbS5hdSIsInVwbiI6ImRpY29tQGNvbGxhYnNvZnRlY2guY29tLmF1IiwidXRpIjoib2hWenBEd0J1a0M4dnoxcmthc1dBQSIsInZlciI6IjEuMCIsInhtc19hY3RfZmN0IjoiNSAzIiwieG1zX2Z0ZCI6IkowOTlEVk96QjNRVlg4NHQ0MkxkRDN5MC1yM01zcWVkYzlpVnowOVpsbTBCYTI5eVpXRmpaVzUwY21Gc0xXUnpiWE0iLCJ4bXNfaWRyZWwiOiI2IDEiLCJ4bXNfc3ViX2ZjdCI6IjMgNiJ9.M0KftPL9Kwr1X7jVZtZYmdndVfgijtb7uy16v9lAQN4sr4QRRlRx7bLONm2EIUzTbXoRDSaqCcRei56YZ_kVQ7vATrpCGOSW1uY5WAesQg32nEW7S3RXLfcWYrqisxv1-6o-pmBt7-H8C2o3XBg-K_WZXgkFa8CfydXtWdy8L_jd4qrpuazDok4XR9Wa76f0kZ-ZIsWuLnJQMSUCPM-7IZR5hKqOP7Yibzoo7u1Yd1aGgSe9mprSoJF7SSDFTOH01-WimqbWgxKckDG4v1QX9wsC9BTIb14SrdFvgeeGE36JToBbMVPfD3c4dQjgyjoC3WhY3SppQT51Y6zemWlaRw';
+// ========== Azure PACS Token (single source of truth) ==========
+// Set your token here or update window.AZURE_PACS_TOKEN / updateAzurePacsTokenEverywhere() at runtime.
+// No OAuth/refresh – token is manually updated.
+const AZURE_PACS_INITIAL_TOKEN = '';
+
+// Cached token (mutable). Used everywhere.
+let _cachedAzurePacsToken = AZURE_PACS_INITIAL_TOKEN;
+
+// Get current Azure PACS token (always returns cached value).
+function getAzurePacsToken() {
+  return _cachedAzurePacsToken;
+}
+
+// Update token everywhere so all consumers (window, config) use the new value.
+function updateAzurePacsTokenEverywhere(newToken) {
+  if (!newToken || typeof newToken !== 'string') return;
+  _cachedAzurePacsToken = newToken;
+  if (typeof window !== 'undefined') {
+    window.AZURE_PACS_TOKEN = newToken;
+    if (window.config && window.config.dataSources) {
+      window.config.dataSources.forEach(function (ds) {
+        if (ds.configuration && 'azureToken' in ds.configuration) {
+          ds.configuration.azureToken = newToken;
+        }
+      });
+    }
+  }
+}
 
 // Azure DICOM Service Base URL
-// Replace with your Azure DICOM service URL (without /v2/ suffix)
 const AZURE_DICOM_SERVICE_URL = 'https://hdsdemows-dicomdemo.dicom.azurehealthcareapis.com';
 
 // Helper function to get Azure DICOM v2 base URL
-// Azure DICOM v2 requires /v2/ prefix in the URL as per Azure DICOM Conformance Statement v2
 function getAzureDicomV2BaseUrl() {
   const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
   return `${baseUrl}/v2`;
 }
 
-// Make Azure token globally accessible
+// Expose token and helpers on window (no automatic refresh; token is set manually).
 if (typeof window !== 'undefined') {
-  window.AZURE_PACS_TOKEN = AZURE_PACS_TOKEN;
+  window.AZURE_PACS_TOKEN = _cachedAzurePacsToken;
+  window.getAzurePacsToken = getAzurePacsToken;
+  window.updateAzurePacsTokenEverywhere = updateAzurePacsTokenEverywhere;
   window.getAzureDicomV2BaseUrl = getAzureDicomV2BaseUrl;
+}
+
+// ========== Frame retrieval data source options (Retrieve Frames Accept headers) ==========
+// Each option maps to a supported Accept header for DICOM frame retrieval.
+// Selectable in Settings > Preferences > Data Source. Transfer syntaxes supported for transcoding:
+// 1.2.840.10008.1.2, 1.2.840.10008.1.2.1, 1.2.840.10008.1.2.2, 1.2.840.10008.1.2.4.50,
+// 1.2.840.10008.1.2.4.57, 1.2.840.10008.1.2.4.70, 1.2.840.10008.1.2.4.90, 1.2.840.10008.1.2.4.91, 1.2.840.10008.1.2.5
+var FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS = [
+  {
+    sourceName: 'frame-multipart-octet-wildcard',
+    friendlyName: 'Multipart octet-stream (transfer-syntax=*)',
+    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=*'],
+  },
+  {
+    sourceName: 'frame-multipart-octet-default',
+    friendlyName: 'Multipart octet-stream (default 1.2.840.10008.1.2.1)',
+    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1'],
+  },
+  {
+    sourceName: 'frame-multipart-octet-explicit',
+    friendlyName: 'Multipart octet-stream (Little Endian Explicit)',
+    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1'],
+  },
+  {
+    sourceName: 'frame-multipart-jp2-default',
+    friendlyName: 'Multipart image/jp2 (default 1.2.840.10008.1.2.4.90)',
+    acceptHeader: ['multipart/related; type="image/jp2"; transfer-syntax=1.2.840.10008.1.2.4.90'],
+  },
+  {
+    sourceName: 'frame-multipart-jp2-90',
+    friendlyName: 'Multipart image/jp2 (JPEG 2000 Lossless)',
+    acceptHeader: ['multipart/related; type="image/jp2"; transfer-syntax=1.2.840.10008.1.2.4.90'],
+  },
+  {
+    sourceName: 'frame-single-octet-wildcard',
+    friendlyName: 'Single frame application/octet-stream (transfer-syntax=*)',
+    acceptHeader: ['application/octet-stream; transfer-syntax=*'],
+  },
+  {
+    sourceName: 'frame-any-default',
+    friendlyName: 'Any (*/*, default application/octet-stream)',
+    acceptHeader: ['*/*'],
+  },
+];
+
+function getAzurePacsFrameRetrievalDataSources() {
+  var baseUrl = getAzureDicomV2BaseUrl();
+  var token = getAzurePacsToken();
+  return FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS.map(function (opt) {
+    return {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: opt.sourceName,
+      configuration: {
+        friendlyName: 'Azure PACS (Frame: ' + opt.friendlyName + ')',
+        name: 'azure-pacs-v2-wadors',
+        wadoUriRoot: baseUrl,
+        qidoRoot: baseUrl,
+        wadoRoot: baseUrl,
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: true,
+        supportsWildcard: true,
+        staticWado: false,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: function (url) {
+            return url.replace('/pixeldata.mp4', '/rendered');
+          },
+        },
+        omitQuotationForMultipartRequest: true,
+        acceptHeader: opt.acceptHeader,
+        isAzureDicomV2: true,
+        azureToken: token,
+      },
+    };
+  });
 }
 
 // Demo token - Set your basic token here for the demo datasource
@@ -114,6 +218,35 @@ async function fetchPreferences() {
   }
 }
 
+// Save preferences (e.g. data source selection) to API so it is used on next load
+async function savePreferences(payload) {
+  try {
+    const token = getTokenFromCookie();
+    if (!token) {
+      console.warn('No token found in cookie');
+      return { ok: false };
+    }
+    const response = await fetch(
+      'https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/savePreferences',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Token: token,
+        },
+        body: JSON.stringify(payload || {}),
+      }
+    );
+    if (!response.ok) {
+      throw new Error('HTTP error! status: ' + response.status);
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error('Error saving preferences:', error);
+    return { ok: false };
+  }
+}
+
 function getDefaultDataSourceName() {
   // Check localStorage first for cached value
   const cachedDataSource = localStorage.getItem('defaultDataSourceName');
@@ -121,8 +254,8 @@ function getDefaultDataSourceName() {
     console.log(`Using cached default data source: ${cachedDataSource}`);
     return cachedDataSource;
   }
-  // Fallback to default
-  const defaultName = 'localviewer-image-jpeg';
+  // Fallback to first frame retrieval option
+  const defaultName = FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS[0].sourceName;
   console.log(`Using fallback default data source: ${defaultName}`);
   return defaultName;
 }
@@ -239,6 +372,10 @@ window.config = {
     },
   ],
   defaultDataSourceName: getDefaultDataSourceName(), // synchronous with localStorage cache
+  // Options for Preferences > Data Source dropdown (frame retrieval sources only)
+  dataSourceOptionsForPreferences: FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS.map(function (opt) {
+    return { value: opt.sourceName, label: opt.friendlyName };
+  }),
   // Cookie-based authentication configuration
   // Set the cookie name that contains the authentication token
   // The token will be automatically read from cookies and passed in all API request headers
@@ -389,9 +526,12 @@ window.config = {
         // For QIDO-RS search endpoints, Azure DICOM v2 requires Accept: */*
         // This is set automatically in DicomWebDataSource for Azure DICOM v2
         isAzureDicomV2: true, // Flag to identify Azure DICOM v2
-        azureToken: AZURE_PACS_TOKEN, // Store token in config for access
+        azureToken: getAzurePacsToken(), // Store token in config for access
       },
     },
+
+    // Frame retrieval data sources (configurable in Settings > Preferences > Data Source)
+    ...getAzurePacsFrameRetrievalDataSources(),
 
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
@@ -425,7 +565,7 @@ window.config = {
         acceptHeader: '*/*',
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
-        azureToken: AZURE_PACS_TOKEN,
+        azureToken: getAzurePacsToken(),
       },
     },
     {
@@ -460,7 +600,7 @@ window.config = {
         acceptHeader: '*/*',
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
-        azureToken: AZURE_PACS_TOKEN,
+        azureToken: getAzurePacsToken(),
       },
     },
     {
@@ -495,7 +635,7 @@ window.config = {
         acceptHeader: '*/*',
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
-        azureToken: AZURE_PACS_TOKEN,
+        azureToken: getAzurePacsToken(),
       },
     },
     {
@@ -554,7 +694,7 @@ window.config = {
         acceptHeader: '*/*',
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
-        azureToken: AZURE_PACS_TOKEN,
+        azureToken: getAzurePacsToken(),
         // Custom configuration to use hardcoded token
         onConfiguration: config => {
           // Store the demo token in the config so it can be accessed
@@ -660,6 +800,12 @@ window.config = {
   //   },
   // },
 };
+
+// Expose preferences API for Settings UI
+if (typeof window !== 'undefined') {
+  window.fetchPreferences = fetchPreferences;
+  window.savePreferences = savePreferences;
+}
 
 // Update defaultDataSourceName asynchronously and cache it
 updateDefaultDataSourceName().catch(error => {

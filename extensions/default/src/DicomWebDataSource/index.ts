@@ -377,8 +377,8 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
                   console.log(`[Series Search Cache] ✅ Cached series (${result?.length || 0} series)`);
                   return result;
                 },
-                staleTime: 60 * 60 * 1000, // 1 hour
-                gcTime: 24 * 60 * 60 * 1000, // 24 hours
+                staleTime: 1000, // 1 hour
+                gcTime: 1000, // 24 hours
               });
 
               return data;

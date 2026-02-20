@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSystem, hotkeys as hotkeysModule } from '@ohif/core';
 import { UserPreferencesModal, FooterAction } from '@ohif/ui-next';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,8 @@ import i18n from '@ohif/i18n';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@ohif/ui-next';
 
 const { availableLanguages, defaultLanguage, currentLanguage: currentLanguageFn } = i18n;
+
+const DATA_SOURCE_STORAGE_KEY = 'defaultDataSourceName';
 
 interface HotkeyDefinition {
   keys: string;
@@ -25,13 +27,38 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
 
   const currentLanguage = currentLanguageFn();
 
+  const dataSourceOptions =
+    (typeof window !== 'undefined' && (window as Window & { config?: { dataSourceOptionsForPreferences?: { value: string; label: string }[] } })?.config?.dataSourceOptionsForPreferences) ||
+    [];
+  const defaultDataSourceFromStorage =
+    typeof localStorage !== 'undefined' ? localStorage.getItem(DATA_SOURCE_STORAGE_KEY) : null;
+  const fallbackDataSource = dataSourceOptions.length ? dataSourceOptions[0].value : '';
+
   const [state, setState] = useState({
     hotkeyDefinitions: hotkeyDefinitions as HotkeyDefinitions,
     languageValue: currentLanguage.value,
+    dataSourceValue: defaultDataSourceFromStorage || fallbackDataSource,
   });
 
+  useEffect(() => {
+    if (dataSourceOptions.length && !defaultDataSourceFromStorage && typeof window !== 'undefined' && window.fetchPreferences) {
+      (window as Window & { fetchPreferences: () => Promise<{ dataSourceFormat?: string } | null> })
+        .fetchPreferences()
+        .then(prefs => {
+          if (prefs?.dataSourceFormat) {
+            setState(s => ({ ...s, dataSourceValue: prefs.dataSourceFormat }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [dataSourceOptions.length, defaultDataSourceFromStorage]);
+
   const onLanguageChangeHandler = (value: string) => {
-    setState(state => ({ ...state, languageValue: value }));
+    setState(s => ({ ...s, languageValue: value }));
+  };
+
+  const onDataSourceChangeHandler = (value: string) => {
+    setState(s => ({ ...s, dataSourceValue: value }));
   };
 
   const onHotkeyChangeHandler = (id: string, newKeys: string) => {
@@ -48,10 +75,11 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
   };
 
   const onResetHandler = async () => {
-    setState(state => ({
-      ...state,
+    setState(s => ({
+      ...s,
       languageValue: defaultLanguage.value,
       hotkeyDefinitions: hotkeyDefaults as HotkeyDefinitions,
+      dataSourceValue: dataSourceOptions.length ? dataSourceOptions[0].value : s.dataSourceValue,
     }));
 
     await hotkeysManager.restoreDefaultBindings();
@@ -85,6 +113,34 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
             </SelectContent>
           </Select>
         </div>
+
+        {/* Data Source (frame retrieval) - selectable so API uses the chosen Accept header */}
+        {dataSourceOptions.length > 0 && (
+          <div className="mb-3 flex items-center space-x-14">
+            <UserPreferencesModal.SubHeading>{t('Data Source')}</UserPreferencesModal.SubHeading>
+            <Select
+              value={state.dataSourceValue || dataSourceOptions[0]?.value}
+              onValueChange={onDataSourceChangeHandler}
+            >
+              <SelectTrigger
+                className="w-[28rem] max-w-full"
+                aria-label="Data Source"
+              >
+                <SelectValue placeholder={t('Select data source')} />
+              </SelectTrigger>
+              <SelectContent>
+                {dataSourceOptions.map(opt => (
+                  <SelectItem
+                    key={opt.value}
+                    value={opt.value}
+                  >
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <UserPreferencesModal.SubHeading>{t('Hotkeys')}</UserPreferencesModal.SubHeading>
         <UserPreferencesModal.HotkeysGrid>
@@ -120,6 +176,19 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
             onClick={async () => {
               if (state.languageValue !== currentLanguage.value) {
                 i18n.changeLanguage(state.languageValue);
+              }
+              if (state.dataSourceValue && typeof window !== 'undefined') {
+                const win = window as Window & {
+                  config?: { defaultDataSourceName?: string };
+                  savePreferences?: (p: { dataSourceFormat?: string }) => Promise<{ ok: boolean }>;
+                };
+                localStorage.setItem(DATA_SOURCE_STORAGE_KEY, state.dataSourceValue);
+                if (win.config) {
+                  win.config.defaultDataSourceName = state.dataSourceValue;
+                }
+                if (win.savePreferences) {
+                  await win.savePreferences({ dataSourceFormat: state.dataSourceValue });
+                }
               }
               // Convert hotkeyDefinitions object to array format for setHotkeys
               // The state.hotkeyDefinitions has updated keys (as string), but we need full definition from hotkeysManager

@@ -51,18 +51,16 @@ function DataSourceWrapper(props: withAppTypes) {
   };
 
   const getInitialDataSourceName = useCallback(() => {
-    // TODO - get the variable from the props all the time...
+    // Prefer ?datasources= query param, then config default (e.g. from Preferences), then first available web API source
     let dataSourceName = lowerCaseSearchParams.get('datasources');
 
-    if (!dataSourceName && window.config.defaultDataSourceName) {
-      return '';
+    if (!dataSourceName && window.config?.defaultDataSourceName) {
+      return window.config.defaultDataSourceName;
     }
 
     if (!dataSourceName) {
       // Gets the first defined datasource with the right name
-      // Mostly for historical reasons - new configs should use the defaultDataSourceName
       const dataSourceModules = extensionManager.modules[MODULE_TYPES.DATA_SOURCE];
-      // TODO: Good usecase for flatmap?
       const webApiDataSources = dataSourceModules.reduce((acc, curr) => {
         const mods = [];
         curr.module.forEach(mod => {

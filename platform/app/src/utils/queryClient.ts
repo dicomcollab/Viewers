@@ -108,9 +108,9 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       // Cache study metadata for 1 hour (3600000 ms)
-      staleTime: 60 * 60 * 1000, // 1 hour
+      staleTime: 1000, // 1 hour
       // Keep cached data for 1 hour even if unused
-      gcTime: 60 * 60 * 1000, // 1 hour (formerly cacheTime)
+      gcTime: 1000, // 1 hour (formerly cacheTime)
       // Retry failed requests 2 times
       retry: 2,
       // Don't refetch on window focus for study metadata

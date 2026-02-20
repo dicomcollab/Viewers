@@ -5,5 +5,7 @@
   "ResetDefaultMessage": "Preferences successfully reset to default. <br /> You must <strong>Save</strong> to perform this action.",
   "Save": "$t(Buttons:Save)",
   "SaveMessage": "Preferences saved",
-  "User preferences": "User Preferences"
+  "User preferences": "User Preferences",
+  "Data Source": "Data Source",
+  "Select data source": "Select data source"
 }
