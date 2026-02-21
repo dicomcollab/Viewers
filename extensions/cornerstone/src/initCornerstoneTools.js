@@ -229,8 +229,12 @@ export default async function initCornerstoneTools(configuration = {}) {
       UltrasoundPleuraBLineTool: UltrasoundPleuraBLineTool.toolName,
     };
 
-    // Fetch preferences from API
-    const preferences = await fetchPreferences();
+    // Use shared preferences from config when available (single API call for app); else fetch here
+    const getPrefs =
+      typeof window !== 'undefined' && window.fetchPreferences
+        ? window.fetchPreferences
+        : fetchPreferences;
+    const preferences = await getPrefs();
 
     // Get the current default styles
     const defaultStyles = annotation.config.style.getDefaultToolStyles();

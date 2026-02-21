@@ -1,7 +1,7 @@
 // ========== Azure PACS Token (single source of truth) ==========
 // Set your token here or update window.AZURE_PACS_TOKEN / updateAzurePacsTokenEverywhere() at runtime.
 // No OAuth/refresh – token is manually updated.
-const AZURE_PACS_INITIAL_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyIsImtpZCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyJ9.eyJhdWQiOiJodHRwczovL2RpY29tLmhlYWx0aGNhcmVhcGlzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzhmNmE3ODg0LTA2ZjItNDJjMC05MzhhLWE3OTJmNWM1YTk1Zi8iLCJpYXQiOjE3NzE2NjI4MDAsIm5iZiI6MTc3MTY2MjgwMCwiZXhwIjoxNzcxNjY2NzAwLCJhaW8iOiJrMlpnWURoZjdYajYydFBabHIwM0xoL3A2ZzRRQndBPSIsImFwcGlkIjoiMzIxYTVmNmYtMTQ1OS00ZDQ2LTk3YTQtMzE3NWExMjFjMzY3IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvOGY2YTc4ODQtMDZmMi00MmMwLTkzOGEtYTc5MmY1YzVhOTVmLyIsImlkdHlwIjoiYXBwIiwib2lkIjoiNjU2ZDQ3YzItYWU0Yy00NDg4LWE1MmYtNGYyYmViNTY1ZDEwIiwicmgiOiIxLkFUMEFoSGhxal9JR3dFS1RpcWVTOWNXcFg3OGw1M1hPWnVwTW01cGNUS3JsZnpNQUFBQTlBQS4iLCJzdWIiOiI2NTZkNDdjMi1hZTRjLTQ0ODgtYTUyZi00ZjJiZWI1NjVkMTAiLCJ0aWQiOiI4ZjZhNzg4NC0wNmYyLTQyYzAtOTM4YS1hNzkyZjVjNWE5NWYiLCJ1dGkiOiJYalV0ODBvZlkweTkzVGZNSmZCaUFBIiwidmVyIjoiMS4wIiwieG1zX2FjdF9mY3QiOiIzIDkiLCJ4bXNfZnRkIjoiYjN5WjNLTlB3b0s2LVgtY2dHSGM2c3V2VkNTWFFRWW5Wekp6Y0tudjZjZ0JhMjl5WldGalpXNTBjbUZzTFdSemJYTSIsInhtc19pZHJlbCI6IjE4IDciLCJ4bXNfcmQiOiIwLjQyTGxZQkppdEJVUzRXQVhFbmpyOFVScEZydUtfN3dqVnNmYVgtYTFBRVU1aFFSMlhmVG9lblNReTZHMXcxNTQyZUZaLTRDaUhFSUMtMVdmbDU1TGUtVXplMWFNejZxbjljWkFVVzRoQWVYRk12T2VuTnNpWnlMR3l2bmZrLUUyQUEiLCJ4bXNfc3ViX2ZjdCI6IjMgOSJ9.jQGBc6ZTxX6uabG4xTJfenecpnPeCoScseQT4aNl__EebiWO2sht5-YXJKf7DEzzCmqBIqG28_rdjdQWbFc9RJ7M9Z0F6eQfgzg-HwIfVpMOT8174QfDJs1G2SuQH7WL-SlNO2YvNVBhx71erarPbv9KrZxx-MwLkdKdk4uoj-YWERz2Zr1hlqjhOcVPLqkUWd1liLe_iifqukvL1eDjYM1wNrzTv8m6HEMyvRtLtnRK66C2Az4Gf9TKaLHlOP7EMzjW9stfYo8Zhx_ZgpzfMpkBvzo3OXkgA-6dlvBNfRGYeVQy6hfJKWgKAsHKdkGNMhe5U6Fdm-IfaJWaIVqe8Q';
+const AZURE_PACS_INITIAL_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyIsImtpZCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyJ9.eyJhdWQiOiJodHRwczovL2RpY29tLmhlYWx0aGNhcmVhcGlzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzhmNmE3ODg0LTA2ZjItNDJjMC05MzhhLWE3OTJmNWM1YTk1Zi8iLCJpYXQiOjE3NzE2NjU5MjQsIm5iZiI6MTc3MTY2NTkyNCwiZXhwIjoxNzcxNjY5ODI0LCJhaW8iOiJrMlpnWUVoaytjMjY4OVFHamQ1M20rZXdaZTBWQkFBPSIsImFwcGlkIjoiMzIxYTVmNmYtMTQ1OS00ZDQ2LTk3YTQtMzE3NWExMjFjMzY3IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvOGY2YTc4ODQtMDZmMi00MmMwLTkzOGEtYTc5MmY1YzVhOTVmLyIsImlkdHlwIjoiYXBwIiwib2lkIjoiNjU2ZDQ3YzItYWU0Yy00NDg4LWE1MmYtNGYyYmViNTY1ZDEwIiwicmgiOiIxLkFUMEFoSGhxal9JR3dFS1RpcWVTOWNXcFg3OGw1M1hPWnVwTW01cGNUS3JsZnpNQUFBQTlBQS4iLCJzdWIiOiI2NTZkNDdjMi1hZTRjLTQ0ODgtYTUyZi00ZjJiZWI1NjVkMTAiLCJ0aWQiOiI4ZjZhNzg4NC0wNmYyLTQyYzAtOTM4YS1hNzkyZjVjNWE5NWYiLCJ1dGkiOiJ4R3V1OHZHekZFR2cxLTI5Rk1RTkFBIiwidmVyIjoiMS4wIiwieG1zX2FjdF9mY3QiOiIzIDkiLCJ4bXNfZnRkIjoiSjJ5VklBaEVZVElxUGFBV0RneXpLMHJKWjc1M3RpRF9iUE9kOUF1dFVGZ0JhMjl5WldGemIzVjBhQzFrYzIxeiIsInhtc19pZHJlbCI6IjE4IDciLCJ4bXNfcmQiOiIwLjQyTGxZQkppdEJVUzRXQVhFbmpyOFVScEZydUtfN3dqVnNmYVgtYTFBRVU1aFFSMlhmVG9lblNReTZHMXcxNTQyZUZaLTRDaUhFSUMtMVdmbDU1TGUtVXplMWFNejZxbjljWkFVVzRoQVUwVmhoZmlRdjVjVDVhLVBsNWIxUG9hQUEiLCJ4bXNfc3ViX2ZjdCI6IjMgOSJ9.KEAU3Rt6HlidrXjUBU2xEGlvtw0c6JJj7dbWWyb1XjDc_Dcca7l6NM_yBIb1b--aOxal6CHdYuDSVji6auwKiRr9TuSBF4w8---YL7Vzp_VR9M7sooDAebtbreo83LUSryse-5aFW4wWBATy9oAbTxxcr7AA_Q_oYflL0DLLH2zTHW3iWy0wFROSIKun6foazOoYGk8xAxjZjYlDeQrQxtLmj0G554ZxndIvqJAmqcczaKebA8a_7335FZdVDPCJbpRuvIFw13QpxItnsCZHINsgkIRQO9FxziulbsSG_4LQHkB7DxwWzo9I_Jink1YTB3RiPUWzF32JhTtxUqt3hw';
 
 // Cached token (mutable). Used everywhere.
 let _cachedAzurePacsToken = AZURE_PACS_INITIAL_TOKEN;
@@ -189,33 +189,56 @@ function getTokenFromCookie() {
   return null;
 }
 
-// Function to fetch preferences from API
+// Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
+let _preferencesPromise = null;
+let _preferencesCache = undefined;
+
+// Function to fetch preferences from API (single call per session, shared across app)
 async function fetchPreferences() {
-  try {
-    const token = getTokenFromCookie();
-    if (!token) {
-      console.warn('No token found in cookie');
-      return null;
-    }
-    const response = await fetch(
-      `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/getPreferences`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Token: token,
-        },
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching preferences:', error);
-    return null;
+  if (_preferencesCache !== undefined) {
+    return _preferencesCache;
   }
+  if (_preferencesPromise) {
+    return _preferencesPromise;
+  }
+  _preferencesPromise = (async () => {
+    try {
+      const token = getTokenFromCookie();
+      if (!token) {
+        console.warn('No token found in cookie');
+        return null;
+      }
+      const response = await fetch(
+        `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/getPreferences`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Token: token,
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      _preferencesCache = data;
+      return data;
+    } catch (error) {
+      console.error('Error fetching preferences:', error);
+      _preferencesCache = null;
+      return null;
+    } finally {
+      _preferencesPromise = null;
+    }
+  })();
+  return _preferencesPromise;
+}
+
+// Optional: clear cache (e.g. after save so next read gets fresh data)
+function clearPreferencesCache() {
+  _preferencesPromise = null;
+  _preferencesCache = undefined;
 }
 
 // Save preferences (e.g. data source selection) to API so it is used on next load
@@ -269,6 +292,7 @@ async function savePreferences(payload) {
     if (!response.ok) {
       throw new Error('HTTP error! status: ' + response.status);
     }
+    clearPreferencesCache();
     return { ok: true };
   } catch (error) {
     console.error('Error saving preferences:', error);
@@ -854,16 +878,11 @@ window.config = {
   // },
 };
 
-// Expose preferences API for Settings UI
+// Expose preferences API for Settings UI (single shared fetch; response cached for app)
 if (typeof window !== 'undefined') {
   window.fetchPreferences = fetchPreferences;
   window.savePreferences = savePreferences;
-}
-
-// Expose preferences API for Settings UI
-if (typeof window !== 'undefined') {
-  window.fetchPreferences = fetchPreferences;
-  window.savePreferences = savePreferences;
+  window.clearPreferencesCache = clearPreferencesCache;
 }
 
 // Update defaultDataSourceName asynchronously and cache it

@@ -267,11 +267,21 @@ export class HotkeysManager {
   }
 
   /**
-   * Load hotkeys from API preferences
+   * Load hotkeys from API preferences.
+   * Uses shared window.fetchPreferences when available so getPreferences is only called once for the app.
    * @returns {Promise<HotkeyDefinition[]>} Array of hotkey definitions from API
    */
   async loadHotkeysFromAPI(): Promise<Array<Record<string, any>>> {
     try {
+      const win = typeof window !== 'undefined' ? (window as Window & { fetchPreferences?: () => Promise<{ hotkeys?: Array<Record<string, any>> } | null> }) : null;
+      if (win?.fetchPreferences) {
+        const data = await win.fetchPreferences();
+        if (data && data.hotkeys && Array.isArray(data.hotkeys)) {
+          return data.hotkeys;
+        }
+        return [];
+      }
+
       const token = getTokenFromCookie();
       if (!token) {
         console.warn('No token found in cookie, skipping API hotkey load');
