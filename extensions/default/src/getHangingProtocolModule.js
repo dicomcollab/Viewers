@@ -16,6 +16,8 @@ const defaultProtocol = {
   editableBy: {},
   protocolMatchingRules: [],
   toolGroupIds: ['default'],
+  // Only load first series metadata before showing viewer; load other series on demand when user clicks.
+  hpInitiationCriteria: { minSeriesLoaded: 1 },
   // -1 would be used to indicate active only, whereas other values are
   // the number of required priors referenced - so 0 means active with
   // 0 or more priors.

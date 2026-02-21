@@ -20,12 +20,21 @@ export async function defaultRouteInit(
 ) {
   const { displaySetService, hangingProtocolService, uiNotificationService, customizationService } =
     servicesManager.services;
+
+  const loadSeriesMetadataOnDemand = appConfig?.loadSeriesMetadataOnDemand === true;
+  // When loading on demand, use 'default' (1x1) for initial load so only one series is loaded;
+  // user sees single viewport first; switching to 2x2 etc. is fast after background load.
+  const initialHangingProtocolId =
+    loadSeriesMetadataOnDemand ? 'default' : hangingProtocolId;
+  const placeholderDisplaySetUIDsBySeries = new Map<string, string>(); // SeriesInstanceUID -> placeholder displaySetInstanceUID
+
   /**
    * Function to apply the hanging protocol when the minimum number of display sets were
-   * received or all display sets retrieval were completed
+   * received or all display sets retrieval were completed.
+   * When loadSeriesMetadataOnDemand is true, uses 'default' (1x1) for initial display.
    * @returns
    */
-  function applyHangingProtocol() {
+  function applyHangingProtocol(protocolIdToUse?: string) {
     const displaySets = displaySetService.getActiveDisplaySets();
 
     if (!displaySets || !displaySets.length) {
@@ -38,9 +47,10 @@ export async function defaultRouteInit(
     // study being displayed, and is thus the "active" study.
     const activeStudy = studies[0];
 
+    const protocolId = protocolIdToUse ?? initialHangingProtocolId;
     // run the hanging protocol matching on the displaySets with the predefined
-    // hanging protocol in the mode configuration
-    hangingProtocolService.run({ studies, activeStudy, displaySets }, hangingProtocolId, {
+    // hanging protocol (default 1x1 when loading on demand for fast first paint)
+    hangingProtocolService.run({ studies, activeStudy, displaySets }, protocolId, {
       stageIndex,
     });
   }
@@ -51,6 +61,13 @@ export async function defaultRouteInit(
     DicomMetadataStore.EVENTS.INSTANCES_ADDED,
     function ({ StudyInstanceUID, SeriesInstanceUID, madeInClient = false }) {
       const seriesMetadata = DicomMetadataStore.getSeries(StudyInstanceUID, SeriesInstanceUID);
+
+      // Remove placeholder for this series when real instances are added
+      const placeholderUID = placeholderDisplaySetUIDsBySeries.get(SeriesInstanceUID);
+      if (placeholderUID) {
+        placeholderDisplaySetUIDsBySeries.delete(SeriesInstanceUID);
+        displaySetService.deleteDisplaySet(placeholderUID);
+      }
 
       // checks if the series filter was used, if it exists
       const seriesInstanceUIDs = filters?.seriesInstanceUID;
@@ -115,33 +132,79 @@ export async function defaultRouteInit(
     const remainingPromises = [];
 
     function startRemainingPromises(remainingPromises) {
-      remainingPromises.forEach(p => p.forEach(p => p.start()));
+      remainingPromises.forEach(p => p.forEach(pr => pr.start()));
     }
 
     promises.forEach(promise => {
-      const retrieveSeriesMetadataPromise = promise.value;
-      if (!Array.isArray(retrieveSeriesMetadataPromise)) {
+      const raw = promise.value;
+      const retrieveSeriesMetadataPromise = Array.isArray(raw)
+        ? raw
+        : raw?.promises;
+      const preLoadData = raw?.preLoadData;
+
+      if (!retrieveSeriesMetadataPromise || !Array.isArray(retrieveSeriesMetadataPromise)) {
         return;
       }
 
       if (displaySetFromUrl) {
-        const requiredSeriesPromises = retrieveSeriesMetadataPromise.map(promise =>
-          promise.start()
-        );
+        const requiredSeriesPromises = retrieveSeriesMetadataPromise.map(pr => pr.start());
         allPromises.push(Promise.allSettled(requiredSeriesPromises));
       } else {
         const { requiredSeries, remaining } = hangingProtocolService.filterSeriesRequiredForRun(
-          hangingProtocolId,
+          initialHangingProtocolId,
           retrieveSeriesMetadataPromise
         );
-        const requiredSeriesPromises = requiredSeries.map(promise => promise.start());
+        const requiredSeriesPromises = requiredSeries.map(pr => pr.start());
         allPromises.push(Promise.allSettled(requiredSeriesPromises));
         remainingPromises.push(remaining);
+
+        // On-demand: add placeholder display sets for remaining series so user can click to load
+        if (loadSeriesMetadataOnDemand && remaining?.length && preLoadData?.length) {
+          const protocolId = Array.isArray(initialHangingProtocolId) ? initialHangingProtocolId[0] : initialHangingProtocolId;
+          const minLoaded =
+            hangingProtocolService.getProtocolById(protocolId)?.hpInitiationCriteria
+              ?.minSeriesLoaded ?? 1;
+          const remainingSummaries = preLoadData.slice(minLoaded);
+          const placeholders = remainingSummaries.map((seriesMeta: { StudyInstanceUID: string; SeriesInstanceUID: string; SeriesDescription?: string; SeriesNumber?: number; Modality?: string }) => {
+            const uid = `placeholder:${seriesMeta.SeriesInstanceUID}`;
+            placeholderDisplaySetUIDsBySeries.set(seriesMeta.SeriesInstanceUID, uid);
+            return {
+              displaySetInstanceUID: uid,
+              instances: [],
+              StudyInstanceUID: seriesMeta.StudyInstanceUID,
+              SeriesInstanceUID: seriesMeta.SeriesInstanceUID,
+              SeriesDescription: seriesMeta.SeriesDescription,
+              SeriesNumber: seriesMeta.SeriesNumber,
+              Modality: seriesMeta.Modality,
+              numImages: 0,
+              isSeriesPlaceholder: true,
+              viewportType: 'stack',
+            };
+          });
+          if (placeholders.length) {
+            displaySetService.addDisplaySets(...placeholders);
+          }
+        }
       }
     });
 
-    await Promise.allSettled(allPromises).then(applyHangingProtocol);
-    startRemainingPromises(remainingPromises);
+    await Promise.allSettled(allPromises).then(() => {
+      applyHangingProtocol();
+      // When on-demand: start remaining series in background so switching to 2x2 etc. loads fast
+      if (loadSeriesMetadataOnDemand && remainingPromises.length > 0) {
+        const scheduleBackgroundLoad = () => {
+          startRemainingPromises(remainingPromises);
+        };
+        if (typeof requestIdleCallback !== 'undefined') {
+          requestIdleCallback(scheduleBackgroundLoad, { timeout: 2000 });
+        } else {
+          setTimeout(scheduleBackgroundLoad, 500);
+        }
+      }
+    });
+    if (!loadSeriesMetadataOnDemand) {
+      startRemainingPromises(remainingPromises);
+    }
     applyHangingProtocol();
   });
 

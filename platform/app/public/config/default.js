@@ -1,7 +1,7 @@
 // ========== Azure PACS Token (single source of truth) ==========
 // Set your token here or update window.AZURE_PACS_TOKEN / updateAzurePacsTokenEverywhere() at runtime.
 // No OAuth/refresh – token is manually updated.
-const AZURE_PACS_INITIAL_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyIsImtpZCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyJ9.eyJhdWQiOiJodHRwczovL2RpY29tLmhlYWx0aGNhcmVhcGlzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzhmNmE3ODg0LTA2ZjItNDJjMC05MzhhLWE3OTJmNWM1YTk1Zi8iLCJpYXQiOjE3NzE1NjY1ODUsIm5iZiI6MTc3MTU2NjU4NSwiZXhwIjoxNzcxNTcwNDg1LCJhaW8iOiJrMlpnWU1nN2xYNDIwUHRaVlZ2OHQ1T1NCdlczQVE9PSIsImFwcGlkIjoiMzIxYTVmNmYtMTQ1OS00ZDQ2LTk3YTQtMzE3NWExMjFjMzY3IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvOGY2YTc4ODQtMDZmMi00MmMwLTkzOGEtYTc5MmY1YzVhOTVmLyIsImlkdHlwIjoiYXBwIiwib2lkIjoiNjU2ZDQ3YzItYWU0Yy00NDg4LWE1MmYtNGYyYmViNTY1ZDEwIiwicmgiOiIxLkFUMEFoSGhxal9JR3dFS1RpcWVTOWNXcFg3OGw1M1hPWnVwTW01cGNUS3JsZnpNQUFBQTlBQS4iLCJzdWIiOiI2NTZkNDdjMi1hZTRjLTQ0ODgtYTUyZi00ZjJiZWI1NjVkMTAiLCJ0aWQiOiI4ZjZhNzg4NC0wNmYyLTQyYzAtOTM4YS1hNzkyZjVjNWE5NWYiLCJ1dGkiOiJQTEFWVi1XeGZFMnl2ZHpQMklzZEFBIiwidmVyIjoiMS4wIiwieG1zX2FjdF9mY3QiOiI5IDMiLCJ4bXNfZnRkIjoic1Myb2FoUVVTbWZtM2dsNmJ1dmJ1NFRkajB4NkgwQ2k0N2JjUFpFbWxkTUJhMjl5WldGalpXNTBjbUZzTFdSemJYTSIsInhtc19pZHJlbCI6IjcgMTIiLCJ4bXNfcmQiOiIwLjQyTGxZQkppdEJVUzRXQVhFbmpyOFVScEZydUtfN3dqVnNmYVgtYTFBRVU1aFFSMlhmVG9lblNReTZHMXcxNTQyZUZaLTRDaUhFSUMtMVdmbDU1TGUtVXplMWFNejZxbjljWkFVVzRoQVUwVmhoZmlRdjVjVDVhLVBsNWIxUG9hQUEiLCJ4bXNfc3ViX2ZjdCI6IjMgOSJ9.VqMaYSbmWXnxeg2zG8vw9kXVC13NoCDNTLuo6TClz76j2xR6H6D05bwXuel12c3C2DJAetw7pZBbyBXaAieIs5GSXs-2WoLMo395PboIXuoVZWVM4CRihSrqwutgRlkl8htxHbuoDzgMGo5l8sJMkX2MVNp9UvEZCiDcCizoUD0u6DHYnD1swKTQPkS_-y-b_UOui-VP8Aya5Pz3ZgxlYkML-Zt_jiVLA1tZHD-1FNBlXyJSROkCA7XxXAyFaSNzelxsyo_gCKrnJSxVLF1DSeGxoCwahnwhU1AwHadx0P5Ci-0Nx-rJDLOpVYTYnaAoZskMHh_P_Pqu_eY8KvjcJw';
+const AZURE_PACS_INITIAL_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyIsImtpZCI6InNNMV95QXhWOEdWNHlOLUI2ajJ4em1pazVBbyJ9.eyJhdWQiOiJodHRwczovL2RpY29tLmhlYWx0aGNhcmVhcGlzLmF6dXJlLmNvbSIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzhmNmE3ODg0LTA2ZjItNDJjMC05MzhhLWE3OTJmNWM1YTk1Zi8iLCJpYXQiOjE3NzE2NDY5OTEsIm5iZiI6MTc3MTY0Njk5MSwiZXhwIjoxNzcxNjUwODkxLCJhaW8iOiJrMlpnWVBqNjUrMjcwN0lSTTR2ajAyM1h4b1JzQlFBPSIsImFwcGlkIjoiMzIxYTVmNmYtMTQ1OS00ZDQ2LTk3YTQtMzE3NWExMjFjMzY3IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvOGY2YTc4ODQtMDZmMi00MmMwLTkzOGEtYTc5MmY1YzVhOTVmLyIsImlkdHlwIjoiYXBwIiwib2lkIjoiNjU2ZDQ3YzItYWU0Yy00NDg4LWE1MmYtNGYyYmViNTY1ZDEwIiwicmgiOiIxLkFUMEFoSGhxal9JR3dFS1RpcWVTOWNXcFg3OGw1M1hPWnVwTW01cGNUS3JsZnpNQUFBQTlBQS4iLCJzdWIiOiI2NTZkNDdjMi1hZTRjLTQ0ODgtYTUyZi00ZjJiZWI1NjVkMTAiLCJ0aWQiOiI4ZjZhNzg4NC0wNmYyLTQyYzAtOTM4YS1hNzkyZjVjNWE5NWYiLCJ1dGkiOiIyTndKMlRDVUxVQ01mN0tGRWxFYUFBIiwidmVyIjoiMS4wIiwieG1zX2FjdF9mY3QiOiIzIDkiLCJ4bXNfZnRkIjoidW5DeWtFanZNUlA1cUFCZ0F1MDZaU0pyYUctOGtKYUpqejZGM3BTUXJjNEJZWE5wWVhOdmRYUm9aV0Z6ZEMxa2MyMXoiLCJ4bXNfaWRyZWwiOiIyOCA3IiwieG1zX3JkIjoiMC40MkxsWUJKaXRCVVM0V0FYRW5qcjhVUnBGcnVLXzd3alZzZmFYLWExQUVVNWhRUjJYZlRvZW5TUXk2RzF3MTU0MmVGWi00Q2lIRUlDLTFXZmw1NUxlLVV6ZTFhTXo2cW45Y1pBVVc0aEFlWEZNdk9lbk5zaVp5TEd5dm5may1FMkFBIiwieG1zX3N1Yl9mY3QiOiIzIDkifQ.E7lYcaBCV0Ifb4QYl_RF4xbcS-6LbC_DabO7UJjbZ94qshcP1PPivSr9r1P40mdoi_djGREVX104YPRebn_fvVXTSBgv12g2JZDFCBJOX9KdMnw_kqEmme-VzwgwrFbTFGZFVsH3plYTUogzwE9xkyb0ziVJLhnR7JufXO5mRoPolwjjxEmN8wgIhtWUD8m-3-vxCR5ybUrqdpBZ2ixNtmoEWt4Xd5knMNCyM-aPc-Cn9p0xUZe5LRC_6z6XR9rdv9m_h2YtQgofNv6_FZiJFnJBfdgo10zvb2joqFiZ1pi-xS5vfx2b9z0r3qr7fRuppITS4z1bizvWGFCjwhFJUg';
 
 // Cached token (mutable). Used everywhere.
 let _cachedAzurePacsToken = AZURE_PACS_INITIAL_TOKEN;
@@ -247,6 +247,35 @@ async function savePreferences(payload) {
   }
 }
 
+// Save preferences (e.g. data source selection) to API so it is used on next load
+async function savePreferences(payload) {
+  try {
+    const token = getTokenFromCookie();
+    if (!token) {
+      console.warn('No token found in cookie');
+      return { ok: false };
+    }
+    const response = await fetch(
+      'https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/savePreferences',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Token: token,
+        },
+        body: JSON.stringify(payload || {}),
+      }
+    );
+    if (!response.ok) {
+      throw new Error('HTTP error! status: ' + response.status);
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error('Error saving preferences:', error);
+    return { ok: false };
+  }
+}
+
 function getDefaultDataSourceName() {
   // Check localStorage first for cached value
   const cachedDataSource = localStorage.getItem('defaultDataSourceName');
@@ -256,6 +285,8 @@ function getDefaultDataSourceName() {
   }
   // Fallback to first frame retrieval option
   const defaultName = FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS[0].sourceName;
+  // Fallback to first frame retrieval option
+  // const defaultName = FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS[0].sourceName;
   console.log(`Using fallback default data source: ${defaultName}`);
   return defaultName;
 }
@@ -376,6 +407,10 @@ window.config = {
   dataSourceOptionsForPreferences: FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS.map(function (opt) {
     return { value: opt.sourceName, label: opt.friendlyName };
   }),
+  // Options for Preferences > Data Source dropdown (frame retrieval sources only)
+  dataSourceOptionsForPreferences: FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS.map(function (opt) {
+    return { value: opt.sourceName, label: opt.friendlyName };
+  }),
   // Cookie-based authentication configuration
   // Set the cookie name that contains the authentication token
   // The token will be automatically read from cookies and passed in all API request headers
@@ -387,6 +422,13 @@ window.config = {
   // Set to false to disable redirecting root path (/) to RIS worklist
   redirectRootToRis: false, // Disabled - root path will show OHIF worklist instead of redirecting to RIS
   risWorklistUrl: 'https://synapse.med-pacs.com/worklist', // RIS worklist URL (not used when redirectRootToRis is false)
+  // Load only first series metadata on init; load other series when user clicks (requires enableStudyLazyLoad on data source).
+  loadSeriesMetadataOnDemand: true,
+  studyPrefetcher: {
+    enabled: true,
+    maxNumPrefetchRequests: 3,
+    prefetchAllSeries: false,
+  },
   /* Dynamic config allows user to pass "configUrl" query string this allows to load config without recompiling application. The regex will ensure valid configuration source */
   // dangerouslyUseDynamicConfig: {
   //   enabled: true,
@@ -527,8 +569,12 @@ window.config = {
         // This is set automatically in DicomWebDataSource for Azure DICOM v2
         isAzureDicomV2: true, // Flag to identify Azure DICOM v2
         azureToken: getAzurePacsToken(), // Store token in config for access
+        azureToken: getAzurePacsToken(), // Store token in config for access
       },
     },
+
+    // Frame retrieval data sources (configurable in Settings > Preferences > Data Source)
+    ...getAzurePacsFrameRetrievalDataSources(),
 
     // Frame retrieval data sources (configurable in Settings > Preferences > Data Source)
     ...getAzurePacsFrameRetrievalDataSources(),
@@ -566,6 +612,7 @@ window.config = {
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
         azureToken: getAzurePacsToken(),
+        azureToken: getAzurePacsToken(),
       },
     },
     {
@@ -601,6 +648,7 @@ window.config = {
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
         azureToken: getAzurePacsToken(),
+        azureToken: getAzurePacsToken(),
       },
     },
     {
@@ -635,6 +683,7 @@ window.config = {
         acceptHeader: '*/*',
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
+        azureToken: getAzurePacsToken(),
         azureToken: getAzurePacsToken(),
       },
     },
@@ -694,6 +743,7 @@ window.config = {
         acceptHeader: '*/*',
         // Azure DICOM v2 specific configuration
         isAzureDicomV2: true,
+        azureToken: getAzurePacsToken(),
         azureToken: getAzurePacsToken(),
         // Custom configuration to use hardcoded token
         onConfiguration: config => {
@@ -800,6 +850,12 @@ window.config = {
   //   },
   // },
 };
+
+// Expose preferences API for Settings UI
+if (typeof window !== 'undefined') {
+  window.fetchPreferences = fetchPreferences;
+  window.savePreferences = savePreferences;
+}
 
 // Expose preferences API for Settings UI
 if (typeof window !== 'undefined') {

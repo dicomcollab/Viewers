@@ -49,16 +49,53 @@ export default {
   'studyBrowser.studyMode': 'all',
   'studyBrowser.thumbnailDoubleClickCallback': {
     callbacks: [
-      ({ activeViewportId, servicesManager, commandsManager, isHangingProtocolLayout }) =>
+      ({
+        activeViewportId,
+        servicesManager,
+        commandsManager,
+        isHangingProtocolLayout,
+        dataSource,
+      }) =>
         async displaySetInstanceUID => {
-          const { hangingProtocolService, uiNotificationService } = servicesManager.services;
+          const { hangingProtocolService, uiNotificationService, displaySetService } =
+            servicesManager.services;
+          let targetDisplaySetUID = displaySetInstanceUID;
+
+          const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+          if (displaySet?.isSeriesPlaceholder && dataSource?.retrieve?.series?.ensureSeriesLoaded) {
+            const { StudyInstanceUID, SeriesInstanceUID } = displaySet;
+            const loadPromise = dataSource.retrieve.series.ensureSeriesLoaded(
+              StudyInstanceUID,
+              SeriesInstanceUID
+            );
+            if (loadPromise) {
+              try {
+                await loadPromise;
+                const realDisplaySets = displaySetService.getDisplaySetsForSeries(SeriesInstanceUID);
+                const realDs = realDisplaySets?.find(ds => !ds.isSeriesPlaceholder && ds.instances?.length);
+                if (realDs) {
+                  targetDisplaySetUID = realDs.displaySetInstanceUID;
+                }
+              } catch (e) {
+                console.error(e);
+                uiNotificationService.show({
+                  title: i18n.t('StudyBrowser:Thumbnail Double Click'),
+                  message: i18n.t('StudyBrowser:Failed to load series.'),
+                  type: 'error',
+                  duration: 3000,
+                });
+                return;
+              }
+            }
+          }
+
           let updatedViewports = [];
           const viewportId = activeViewportId;
 
           try {
             updatedViewports = hangingProtocolService.getViewportsRequireUpdate(
               viewportId,
-              displaySetInstanceUID,
+              targetDisplaySetUID,
               isHangingProtocolLayout
             );
           } catch (error) {

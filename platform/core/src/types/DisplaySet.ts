@@ -51,6 +51,8 @@ export type DisplaySet = {
 
   isHydrated?: boolean;
   isRehydratable?: boolean;
+  /** True when series metadata is not loaded yet; double-click loads it on demand */
+  isSeriesPlaceholder?: boolean;
 };
 
 export type DisplaySetSeriesMetadataInvalidatedEvent = {

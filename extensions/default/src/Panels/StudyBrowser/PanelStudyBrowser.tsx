@@ -87,6 +87,7 @@ function PanelStudyBrowser({
         servicesManager,
         isHangingProtocolLayout,
         appConfig: extensionManager._appConfig,
+        dataSource,
       };
 
       const handlers = customHandler?.callbacks.map(callback => callback(setupArgs));
@@ -102,6 +103,7 @@ function PanelStudyBrowser({
       servicesManager,
       isHangingProtocolLayout,
       customizationService,
+      dataSource,
     ]
   );
 

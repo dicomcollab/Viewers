@@ -132,6 +132,9 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
   // this is part of hte base standard.
   dicomWebConfig.bulkDataURI ||= { enabled: true };
 
+  // Registry for on-demand series metadata load: StudyInstanceUID -> Map(SeriesInstanceUID -> DeferredPromise)
+  const _pendingSeriesPromises = new Map<string, Map<string, { start: () => Promise<unknown> }>>();
+
   const implementation = {
     initialize: ({ params, query }) => {
       if (dicomWebConfig.onConfiguration && typeof dicomWebConfig.onConfiguration === 'function') {
@@ -549,6 +552,15 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             madeInClient
           );
         },
+        /** Load metadata for a single series on demand (e.g. when user clicks that series). Returns a promise that resolves when instances are added. */
+        ensureSeriesLoaded: (StudyInstanceUID: string, SeriesInstanceUID: string): Promise<unknown> | undefined => {
+          const studyMap = _pendingSeriesPromises.get(StudyInstanceUID);
+          const entry = studyMap?.get(SeriesInstanceUID);
+          if (entry) {
+            return entry.start();
+          }
+          return undefined;
+        },
       },
     },
 
@@ -688,6 +700,21 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           dicomWebConfig
         );
 
+      // Register pending series promises for on-demand load (ensureSeriesLoaded)
+      if (returnPromises && seriesSummaryMetadata?.length && seriesPromises?.length) {
+        let studyMap = _pendingSeriesPromises.get(StudyInstanceUID);
+        if (!studyMap) {
+          studyMap = new Map();
+          _pendingSeriesPromises.set(StudyInstanceUID, studyMap);
+        }
+        seriesSummaryMetadata.forEach((seriesMeta: { SeriesInstanceUID: string }, i: number) => {
+          const promise = seriesPromises[i];
+          if (promise && typeof (promise as { start?: () => Promise<unknown> }).start === 'function') {
+            studyMap.set(seriesMeta.SeriesInstanceUID, { start: (promise as { start: () => Promise<unknown> }).start.bind(promise) });
+          }
+        });
+      }
+
       /**
        * Adds the retrieve bulkdata function to naturalized DICOM data.
        * This is done recursively, for sub-sequences.
@@ -801,7 +828,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
 
       if (returnPromises) {
         Promise.all(seriesDeliveredPromises).then(() => setSuccessFlag());
-        return seriesPromises;
+        return { promises: seriesPromises, preLoadData: seriesSummaryMetadata };
       } else {
         await Promise.all(seriesDeliveredPromises);
         setSuccessFlag();
