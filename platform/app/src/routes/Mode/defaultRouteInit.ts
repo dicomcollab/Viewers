@@ -190,10 +190,13 @@ export async function defaultRouteInit(
 
     await Promise.allSettled(allPromises).then(() => {
       applyHangingProtocol();
-      // When on-demand: start remaining series in background so switching to 2x2 etc. loads fast
-      if (loadSeriesMetadataOnDemand && remainingPromises.length > 0) {
+      // When loadSeriesMetadataOnDemand is true: load only the first N series in background
+      // so thumbnails appear for them; rest load when user clicks (ensureSeriesLoaded).
+      const backgroundCount = appConfig?.loadSeriesMetadataOnDemandBackgroundCount ?? 5;
+      if (loadSeriesMetadataOnDemand && remainingPromises.length > 0 && backgroundCount > 0) {
         const scheduleBackgroundLoad = () => {
-          startRemainingPromises(remainingPromises);
+          const toStart = remainingPromises.flat().slice(0, backgroundCount);
+          toStart.forEach(pr => pr.start?.());
         };
         if (typeof requestIdleCallback !== 'undefined') {
           requestIdleCallback(scheduleBackgroundLoad, { timeout: 2000 });

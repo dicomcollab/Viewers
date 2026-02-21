@@ -149,23 +149,55 @@ function ViewerViewportGrid(props: withAppTypes) {
     }
   }, [viewportGridService, generateLayoutHash]);
 
-  const onDropHandler = (viewportId, { displaySetInstanceUID }) => {
+  const onDropHandler = async (viewportId, { displaySetInstanceUID }) => {
     const { viewportGridService } = servicesManager.services;
+    let uidToUse = displaySetInstanceUID;
+    const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+    if (
+      displaySet?.isSeriesPlaceholder &&
+      dataSource?.retrieve?.series?.ensureSeriesLoaded
+    ) {
+      try {
+        const loadPromise = dataSource.retrieve.series.ensureSeriesLoaded(
+          displaySet.StudyInstanceUID,
+          displaySet.SeriesInstanceUID
+        );
+        if (loadPromise) {
+          await loadPromise;
+          const realDisplaySets = displaySetService.getDisplaySetsForSeries(
+            displaySet.SeriesInstanceUID
+          );
+          const realDs = realDisplaySets?.find(
+            ds => !ds.isSeriesPlaceholder && ds.instances?.length
+          );
+          if (realDs) {
+            uidToUse = realDs.displaySetInstanceUID;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        uiNotificationService.show({
+          title: 'Load Series',
+          message: 'Failed to load series. Please try again.',
+          type: 'error',
+          duration: 3000,
+        });
+        viewportGridService.publishViewportOnDropHandled({ displaySetInstanceUID });
+        return;
+      }
+    }
     const customOnDropHandler = customizationService.getCustomization('customOnDropHandler');
-    const dropHandlerPromise = customOnDropHandler({
+    const { handled } = await customOnDropHandler({
       ...props,
       viewportId,
-      displaySetInstanceUID,
+      displaySetInstanceUID: uidToUse,
       appConfig,
     });
-    dropHandlerPromise.then(({ handled }) => {
-      if (!handled) {
-        const updatedViewports = _getUpdatedViewports(viewportId, displaySetInstanceUID);
-
-        commandsManager.run('setDisplaySetsForViewports', { viewportsToUpdate: updatedViewports });
-      }
-    });
-    viewportGridService.publishViewportOnDropHandled({ displaySetInstanceUID });
+    if (!handled) {
+      const updatedViewports = _getUpdatedViewports(viewportId, uidToUse);
+      commandsManager.run('setDisplaySetsForViewports', { viewportsToUpdate: updatedViewports });
+    }
+    viewportGridService.publishViewportOnDropHandled({ displaySetInstanceUID: uidToUse });
   };
 
   const getViewportPanes = useCallback(() => {
@@ -315,13 +347,28 @@ function ViewerViewportGrid(props: withAppTypes) {
   );
 }
 
+function PlaceholderSeriesViewport() {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-black/90 p-4 text-center text-white">
+      <p className="text-sm">
+        Double-click a series in the list to load it.
+      </p>
+    </div>
+  );
+}
+
 function _getViewportComponent(displaySets, viewportComponents, uiNotificationService) {
   if (!displaySets || !displaySets.length) {
     return { component: EmptyViewport, isReferenceViewable: () => false };
   }
 
+  const first = displaySets[0];
+  if (first?.isSeriesPlaceholder && (!first.instances || first.instances.length === 0)) {
+    return { component: PlaceholderSeriesViewport, isReferenceViewable: () => false };
+  }
+
   // Todo: Do we have a viewport that has two different SOPClassHandlerIds?
-  const SOPClassHandlerId = displaySets[0].SOPClassHandlerId;
+  const SOPClassHandlerId = first.SOPClassHandlerId;
 
   for (let i = 0; i < viewportComponents.length; i++) {
     if (!viewportComponents[i]) {
@@ -336,10 +383,10 @@ function _getViewportComponent(displaySets, viewportComponents, uiNotificationSe
     }
   }
 
-  console.log("Can't show displaySet", SOPClassHandlerId, displaySets[0]);
+  console.log("Can't show displaySet", SOPClassHandlerId, first);
   uiNotificationService.show({
     title: 'Viewport Not Supported Yet',
-    message: `Cannot display SOPClassUID of ${displaySets[0].SOPClassUID} yet`,
+    message: `Cannot display SOPClassUID of ${first.SOPClassUID} yet`,
     type: 'error',
   });
 

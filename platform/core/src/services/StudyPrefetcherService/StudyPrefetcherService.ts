@@ -50,6 +50,12 @@ type StudyPrefetcherConfig = {
    * (need to add support for `AbortController` on Cornerstone)
    * */
   maxNumPrefetchRequests: number;
+  /**
+   * Max number of images to prefetch per display set (prevents hundreds of API
+   * calls for large series when prefetching adjacent series). Use a window
+   * around the middle. 0 = no limit (legacy behavior).
+   */
+  maxImagesPerDisplaySetToPrefetch?: number;
   /* Display sets prefetching order (closest, downward and upward) */
   order: StudyPrefetchOrder;
 };
@@ -126,6 +132,7 @@ class StudyPrefetcherService extends PubSubService {
      * (need to add support for `AbortController` on Cornerstone)
      * */
     maxNumPrefetchRequests: 10,
+    maxImagesPerDisplaySetToPrefetch: 30,
     /* Display sets prefetching order (closest, downward and upward) */
     order: StudyPrefetchOrder.downward,
   };
@@ -631,7 +638,13 @@ class StudyPrefetcherService extends PubSubService {
 
   private _enqueueDisplaySetImagesRequests(displaySet: DisplaySet) {
     const { displaySetInstanceUID } = displaySet;
-    const imageIds = this._getImageIdsForDisplaySet(displaySet);
+    let imageIds = this._getImageIdsForDisplaySet(displaySet);
+    const maxPerSet = this.config.maxImagesPerDisplaySetToPrefetch;
+
+    if (maxPerSet && maxPerSet > 0 && imageIds.length > maxPerSet) {
+      const start = Math.max(0, Math.floor(imageIds.length / 2) - Math.floor(maxPerSet / 2));
+      imageIds = imageIds.slice(start, start + maxPerSet);
+    }
 
     imageIds.forEach(imageId => {
       if (this.cache.isImageCached(imageId)) {
