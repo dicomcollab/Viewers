@@ -63,23 +63,26 @@ jobs:
 
       - name: Copy staticwebapp.config.json
         run: |
-          cp .github/samples/staticwebapp.config.json platform/app/dist/
+          cp .github/workflows/staticwebapp.config.json platform/app/dist/
 
-      - name: Install SWA CLI
-        run: npm install -g @azure/static-web-apps-cli
-
-      - name: Deploy with SWA CLI
-        run: |
-          swa deploy ./platform/app/dist --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }} --env production
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.TOKEN_GITHUB }}
+          action: 'upload'
+          app_location: platform/app/dist
+          output_location: ''
+          skip_app_build: true
+          production_branch: azure-pacs-connection
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     name: Close Pull Request Job
     steps:
-      - name: Install SWA CLI
-        run: npm install -g @azure/static-web-apps-cli
-
       - name: Close Pull Request
-        run: |
-          swa deploy --action close --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: 'close'
