@@ -91,8 +91,8 @@ export async function getCachedStudyMetadata(
       queryFn: async () => {
         return await fetchFn();
       },
-      staleTime: 60 * 60 * 1000, // 1 hour - consider data fresh for 1 hour
-      gcTime: 60 * 60 * 1000, // 1 hour - keep in cache for 1 hour
+      staleTime: 1000, // 1 hour - consider data fresh for 1 hour
+      gcTime: 1000, // 1 hour - keep in cache for 1 hour
     });
 
     return data;

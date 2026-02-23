@@ -62,8 +62,8 @@ export async function getCachedStudiesSearch(fetchFn, dataSourceName, params) {
       queryFn: async () => {
         return await fetchFn();
       },
-      staleTime: 5 * 60 * 1000, // 5 minutes - studies list changes more frequently
-      gcTime: 60 * 60 * 1000, // 1 hour - keep in cache for 1 hour
+      staleTime: 1000, // 5 minutes - studies list changes more frequently
+      gcTime: 1000, // 1 hour - keep in cache for 1 hour
     });
 
     return data;

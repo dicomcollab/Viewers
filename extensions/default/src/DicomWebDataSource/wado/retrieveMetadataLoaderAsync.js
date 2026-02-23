@@ -164,8 +164,8 @@ export default class RetrieveMetadataLoaderAsync extends RetrieveMetadataLoader 
     if (queryClient && result && result.length > 0) {
       const queryKey = ['seriesSearchRaw', dataSourceName || 'default', studyInstanceUID];
       queryClient.setQueryData(queryKey, result, {
-        staleTime: 60 * 60 * 1000, // 1 hour
-        gcTime: 24 * 60 * 60 * 1000, // 24 hours
+        staleTime: 1000, // 1 hour
+        gcTime: 1000, // 24 hours
       });
       console.log(`[Series Search Cache] ✅ Cached raw series data for preLoad: ${studyInstanceUID.substring(0, 20)}...`);
     }
