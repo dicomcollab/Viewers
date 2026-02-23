@@ -63,8 +63,59 @@ function getTokenFromCookie() {
   return null;
 }
 
-// Function to fetch preferences from API
+// Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
+let _preferencesPromise = null;
+let _preferencesCache = undefined;
+
+// Function to fetch preferences from API (single call per session, shared across app)
 async function fetchPreferences() {
+  if (_preferencesCache !== undefined) {
+    return _preferencesCache;
+  }
+  if (_preferencesPromise) {
+    return _preferencesPromise;
+  }
+  _preferencesPromise = (async () => {
+    try {
+      const token = getTokenFromCookie();
+      if (!token) {
+        console.warn('No token found in cookie');
+        return null;
+      }
+      const response = await fetch(
+        `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/getPreferences`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Token: token,
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      _preferencesCache = data;
+      return data;
+    } catch (error) {
+      console.error('Error fetching preferences:', error);
+      _preferencesCache = null;
+      return null;
+    } finally {
+      _preferencesPromise = null;
+    }
+  })();
+  return _preferencesPromise;
+}
+
+// Optional: clear cache (e.g. after save so next read gets fresh data)
+function clearPreferencesCache() {
+  _preferencesPromise = null;
+  _preferencesCache = undefined;
+}
+
+async function savePreferences(payload) {
   try {
     const token = getTokenFromCookie();
     if (!token) {
@@ -72,22 +123,23 @@ async function fetchPreferences() {
       return null;
     }
     const response = await fetch(
-      `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/getPreferences`,
+      `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/savePreferences`,
       {
-        method: 'GET',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Token: token,
         },
+        body: JSON.stringify(payload || {}),
       }
     );
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    const data = await response.json();
-    return data;
+    clearPreferencesCache();
+    return await response.json();
   } catch (error) {
-    console.error('Error fetching preferences:', error);
+    console.error('Error saving preferences:', error);
     return null;
   }
 }
@@ -146,6 +198,16 @@ window.config = {
   strictZSpacingForVolumeViewport: true,
   groupEnabledModesFirst: true,
   allowMultiSelectExport: false,
+  // Load only first series metadata on init; load other series when user clicks (requires enableStudyLazyLoad on data source).
+  loadSeriesMetadataOnDemand: true,
+  // When loadSeriesMetadataOnDemand is true, load this many series in background so thumbnails appear (0 = none).
+  loadSeriesMetadataOnDemandBackgroundCount: 5,
+  studyPrefetcher: {
+    enabled: true,
+    maxNumPrefetchRequests: 3,
+    maxImagesPerDisplaySetToPrefetch: 30, // Cap prefetch per series to reduce API calls (e.g. 464-instance series)
+    prefetchAllSeries: false,
+  },
   maxNumRequests: {
     interaction: 100,
     thumbnail: 75,
@@ -337,7 +399,7 @@ window.config = {
         qidoSupportsIncludeField: false,
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: false,
+        enableStudyLazyLoad: true,
         supportsFuzzyMatching: false,
         supportsWildcard: true,
         staticWado: true,
@@ -605,3 +667,10 @@ window.config = {
 updateDefaultDataSourceName().catch(error => {
   console.error('Failed to update default data source name:', error);
 });
+
+// Expose preferences API for Settings UI (single shared fetch; response cached for app)
+if (typeof window !== 'undefined') {
+  window.fetchPreferences = fetchPreferences;
+  window.savePreferences = savePreferences;
+  window.clearPreferencesCache = clearPreferencesCache;
+}

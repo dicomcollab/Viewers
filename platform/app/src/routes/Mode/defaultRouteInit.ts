@@ -111,6 +111,12 @@ export async function defaultRouteInit(
     displaySetFromUrl = true;
   }
 
+  const loadSeriesMetadataOnDemand = appConfig?.loadSeriesMetadataOnDemand === true;
+  const loadSeriesMetadataOnDemandBackgroundCount =
+    Math.max(0, Number(appConfig?.loadSeriesMetadataOnDemandBackgroundCount) || 0);
+  // When loadSeriesMetadataOnDemand is true, use default protocol so only one series is required for first paint
+  const initialHangingProtocolId = loadSeriesMetadataOnDemand ? 'default' : hangingProtocolId;
+
   await Promise.allSettled(allRetrieves).then(async promises => {
     log.timeEnd(Enums.TimingEnum.STUDY_TO_DISPLAY_SETS);
     log.time(Enums.TimingEnum.DISPLAY_SETS_TO_FIRST_IMAGE);
@@ -119,8 +125,13 @@ export async function defaultRouteInit(
     const allPromises = [];
     const remainingPromises = [];
 
-    function startRemainingPromises(remainingPromises) {
-      remainingPromises.forEach(p => p.forEach(p => p.start()));
+    function startRemainingPromises(remainingPromisesToStart, limitCount = 0) {
+      const flat = remainingPromisesToStart.flat();
+      if (limitCount > 0) {
+        flat.slice(0, limitCount).forEach(pr => pr.start());
+      } else {
+        flat.forEach(pr => pr.start());
+      }
     }
 
     promises.forEach(promise => {
@@ -135,8 +146,8 @@ export async function defaultRouteInit(
         );
         allPromises.push(Promise.allSettled(requiredSeriesPromises));
       } else {
-        // If hangingProtocolId is 'default', pass undefined to allow automatic matching
-        const protocolIdForFilter = hangingProtocolId === 'default' ? undefined : hangingProtocolId;
+        const protocolIdForFilter =
+          initialHangingProtocolId === 'default' ? undefined : initialHangingProtocolId;
         const { requiredSeries, remaining } = hangingProtocolService.filterSeriesRequiredForRun(
           protocolIdForFilter,
           retrieveSeriesMetadataPromise
@@ -148,7 +159,13 @@ export async function defaultRouteInit(
     });
 
     await Promise.allSettled(allPromises).then(applyHangingProtocol);
-    startRemainingPromises(remainingPromises);
+    const backgroundCount = loadSeriesMetadataOnDemand
+      ? loadSeriesMetadataOnDemandBackgroundCount
+      : 0;
+    startRemainingPromises(
+      remainingPromises,
+      backgroundCount > 0 ? backgroundCount : 0
+    );
     applyHangingProtocol();
   });
 
