@@ -192,7 +192,7 @@ const bindings = [
   {
     commandName: 'interpolateScrollForMarkerLabelmap',
     label: 'Interpolate Scroll',
-    keys: ['n'],
+    keys: ['p'],
     isEditable: true,
   },
   {
