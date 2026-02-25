@@ -30,7 +30,7 @@ function getBackendUrl() {
     return (window as any).config.backendHotkeyUrl;
   } else {
     // Fallback to default URL if environment variable is not available
-    return 'https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences';
+    return 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences';
   }
 }
 

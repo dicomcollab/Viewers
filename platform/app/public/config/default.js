@@ -83,7 +83,7 @@ async function fetchPreferences() {
         return null;
       }
       const response = await fetch(
-        `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/getPreferences`,
+        `https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences/getPreferences`,
         {
           method: 'GET',
           headers: {
@@ -123,7 +123,7 @@ async function savePreferences(payload) {
       return null;
     }
     const response = await fetch(
-      `https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences/savePreferences`,
+      `https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences/savePreferences`,
       {
         method: 'POST',
         headers: {

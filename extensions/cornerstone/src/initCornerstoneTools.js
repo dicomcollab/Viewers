@@ -83,7 +83,7 @@ async function fetchPreferences() {
       backendUrl = window.config.backendHotkeyUrl;
     } else {
       // Fallback to default URL if environment variable is not available
-      backendUrl = 'https://med-pacs-dev-risapi-win.azurewebsites.net/api/v1/preferences';
+      backendUrl = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences';
     }
 
     const response = await fetch(`${backendUrl}/getPreferences`, {
