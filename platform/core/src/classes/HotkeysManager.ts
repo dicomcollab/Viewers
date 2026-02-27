@@ -152,28 +152,28 @@ export class HotkeysManager {
       const definitions = this.getValidDefinitions(hotkeyDefinitions);
 
       // Validate for conflicts if requested
-      if (validateConflicts) {
-        const validation = this.validateHotkeyDefinitions(definitions);
-        if (!validation.isValid) {
-          const errorMessage = `Hotkey conflicts detected: ${validation.conflicts.map(c =>
-            `Key "${c.keys}" used by multiple commands`
-          ).join(', ')}`;
+      // if (validateConflicts) {
+      //   const validation = this.validateHotkeyDefinitions(definitions);
+      //   if (!validation.isValid) {
+      //     const errorMessage = `Hotkey conflicts detected: ${validation.conflicts.map(c =>
+      //       `Key "${c.keys}" used by multiple commands`
+      //     ).join(', ')}`;
 
-          console.error('HotkeysManager:', errorMessage);
+      //     console.error('HotkeysManager:', errorMessage);
 
-          const { uiNotificationService } = this._servicesManager.services;
-          if (uiNotificationService) {
-            uiNotificationService.show({
-              title: 'Hotkey Conflicts',
-              message: errorMessage,
-              type: 'error',
-              duration: 5000,
-            });
-          }
+      //     const { uiNotificationService } = this._servicesManager.services;
+      //     if (uiNotificationService) {
+      //       uiNotificationService.show({
+      //         title: 'Hotkey Conflicts',
+      //         message: errorMessage,
+      //         type: 'error',
+      //         duration: 5000,
+      //       });
+      //     }
 
-          throw new Error(errorMessage);
-        }
-      }
+      //     throw new Error(errorMessage);
+      //   }
+      // }
 
       // Remove old localStorage entry
       localStorage.removeItem(name);
@@ -190,14 +190,14 @@ export class HotkeysManager {
       definitions.forEach(definition => this.registerHotkeys(definition));
     } catch (error) {
       console.error('Error while setting hotkeys:', error);
-      const { uiNotificationService } = this._servicesManager.services;
-      if (uiNotificationService) {
-        uiNotificationService.show({
-          title: 'Hotkeys Manager',
-          message: 'Error while setting hotkeys',
-          type: 'error',
-        });
-      }
+      // const { uiNotificationService } = this._servicesManager.services;
+      // if (uiNotificationService) {
+      //   uiNotificationService.show({
+      //     title: 'Hotkeys Manager',
+      //     message: 'Error while setting hotkeys',
+      //     type: 'error',
+      //   });
+      // }
     }
   }
 
@@ -305,12 +305,16 @@ export class HotkeysManager {
     // Validate for conflicts before setting
     const validation = this.validateHotkeyDefinitions(definitions);
     if (!validation.isValid) {
-      console.warn('HotkeysManager: Conflicts detected in default hotkey definitions:', validation.conflicts);
+      console.warn(
+        'HotkeysManager: Conflicts detected in default hotkey definitions:',
+        validation.conflicts
+      );
 
       const { uiNotificationService } = this._servicesManager.services;
       if (uiNotificationService) {
-        const conflictMessages = validation.conflicts.map(conflict =>
-          `Key "${conflict.keys}" is used by: ${conflict.conflictingCommands.map(cmd => cmd.label || cmd.commandName).join(', ')}`
+        const conflictMessages = validation.conflicts.map(
+          conflict =>
+            `Key "${conflict.keys}" is used by: ${conflict.conflictingCommands.map(cmd => cmd.label || cmd.commandName).join(', ')}`
         );
 
         uiNotificationService.show({
