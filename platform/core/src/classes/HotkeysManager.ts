@@ -302,30 +302,6 @@ export class HotkeysManager {
   async setDefaultHotKeys(hotkeyDefinitions = [], loadFromApi = true) {
     const definitions = this.getValidDefinitions(hotkeyDefinitions);
 
-    // Validate for conflicts before setting
-    const validation = this.validateHotkeyDefinitions(definitions);
-    if (!validation.isValid) {
-      console.warn(
-        'HotkeysManager: Conflicts detected in default hotkey definitions:',
-        validation.conflicts
-      );
-
-      const { uiNotificationService } = this._servicesManager.services;
-      if (uiNotificationService) {
-        const conflictMessages = validation.conflicts.map(
-          conflict =>
-            `Key "${conflict.keys}" is used by: ${conflict.conflictingCommands.map(cmd => cmd.label || cmd.commandName).join(', ')}`
-        );
-
-        uiNotificationService.show({
-          title: 'Hotkey Conflicts Detected',
-          message: `The following key conflicts were found:\n${conflictMessages.join('\n')}`,
-          type: 'warning',
-          duration: 8000,
-        });
-      }
-    }
-
     this.hotkeyDefaults = definitions;
 
     let updatedDefinitions = definitions;
@@ -644,19 +620,6 @@ export class HotkeysManager {
     const conflictingHotkey = this.checkForKeyConflict(keys, commandHash);
     if (conflictingHotkey) {
       const error = `Key combination "${keys}" is already assigned to command "${conflictingHotkey.commandName}" (${conflictingHotkey.label}). Each key combination can only be used once.`;
-      console.error('HotkeysManager:', error);
-
-      // Notify user about the conflict
-      const { uiNotificationService } = this._servicesManager.services;
-      if (uiNotificationService) {
-        uiNotificationService.show({
-          title: 'Hotkey Conflict',
-          message: error,
-          type: 'error',
-          duration: 5000,
-        });
-      }
-
       throw new Error(error);
     }
 
