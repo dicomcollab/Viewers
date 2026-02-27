@@ -391,11 +391,11 @@ window.config = {
         friendlyName: 'AWS S3 Static wado server',
         name: 'aws',
         wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoSupportsIncludeField: false,
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
@@ -423,11 +423,11 @@ window.config = {
         friendlyName: 'AWS S3 Static wado server',
         name: 'aws',
         wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/wadouri',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri',
         qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoSupportsIncludeField: true,
         imageRendering: 'wadouri',
         thumbnailRendering: 'wadouri',
@@ -455,11 +455,11 @@ window.config = {
         friendlyName: 'AWS S3 Static wado server',
         name: 'aws',
         wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/wadouri',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri',
         qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoSupportsIncludeField: true,
         imageRendering: 'wadouri',
         thumbnailRendering: 'wadouri',
@@ -484,11 +484,11 @@ window.config = {
         friendlyName: 'AWS S3 Static wado server',
         name: 'aws',
         wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoSupportsIncludeField: true,
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
@@ -538,11 +538,11 @@ window.config = {
         friendlyName: 'Demo PACS (Hardcoded Token)',
         name: 'Demo PACS',
         wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-a3c3gxcmgzg4bchf.eastus-01.azurewebsites.net/api',
+          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
         qidoSupportsIncludeField: false,
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
