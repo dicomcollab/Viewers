@@ -659,7 +659,7 @@ const commandsModule = ({
           displaySetInstanceUID: defaultDisplaySetInstanceUID,
         },
         title: 'DICOM Tag Browser',
-        containerClassName: 'max-w-3xl',
+        containerClassName: 'max-w-3xl max-h-[35rem] overflow-hidden flex flex-col dicom-tag-browser-dialog',
       });
     },
 

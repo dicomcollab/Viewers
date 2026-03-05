@@ -49,3 +49,8 @@
 .dicom-tag-browser-table th.dicom-tag-browser-table-left {
   text-align: left;
 }
+
+/* DICOM Tag Browser dialog: constrain height and style close icon */
+.dicom-tag-browser-dialog > button {
+  color: white;
+}
