@@ -134,8 +134,8 @@ export function onModeEnter({
   }
   window.ohifViewportActionState.activeAction = 'rotate-right'; // Set default action
 
-  // Init Default and SR ToolGroups
-  initToolGroups(extensionManager, toolGroupService, commandsManager);
+  // Init Default and SR ToolGroups (customizationService provides mouse bindings from preferences/cookies)
+  initToolGroups(extensionManager, toolGroupService, commandsManager, customizationService);
 
   toolbarService.register(this.toolbarButtons);
 

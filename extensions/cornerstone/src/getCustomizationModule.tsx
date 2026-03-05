@@ -1,7 +1,9 @@
 import viewportOverlayCustomization from './customizations/viewportOverlayCustomization';
 import getSegmentationPanelCustomization from './customizations/segmentationPanelCustomization';
 import layoutSelectorCustomization from './customizations/layoutSelectorCustomization';
-import viewportToolsCustomization from './customizations/viewportToolsCustomization';
+import {
+  getViewportToolsWithMousePreferences,
+} from './customizations/viewportToolsCustomization';
 import viewportClickCommandsCustomization from './customizations/viewportClickCommandsCustomization';
 import measurementsCustomization from './customizations/measurementsCustomization';
 import volumeRenderingCustomization from './customizations/volumeRenderingCustomization';
@@ -24,7 +26,7 @@ function getCustomizationModule({ commandsManager, servicesManager, extensionMan
           extensionManager,
         }),
         ...layoutSelectorCustomization,
-        ...viewportToolsCustomization,
+        ...getViewportToolsWithMousePreferences(),
         ...viewportClickCommandsCustomization,
         ...measurementsCustomization,
         ...volumeRenderingCustomization,

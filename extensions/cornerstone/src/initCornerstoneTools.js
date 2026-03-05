@@ -252,22 +252,33 @@ export default async function initCornerstoneTools(configuration = {}) {
     const globalTextBoxColor =
       preferences && preferences.globalTextColor ? preferences.globalTextColor : 'rgb(0, 255, 0)';
 
-    // Apply styles from API preferences if available
-    if (preferences && preferences.tools && Array.isArray(preferences.tools)) {
-      console.log('Applying styles from API preferences...');
+    // Apply styles from preferences (API or cookies: userPreferences_tools)
+    let toolsArray = preferences?.tools;
+    if (typeof toolsArray === 'string') {
+      try {
+        toolsArray = JSON.parse(toolsArray);
+      } catch (_) {
+        toolsArray = null;
+      }
+    }
+    if (preferences && toolsArray && Array.isArray(toolsArray) && toolsArray.length > 0) {
+      console.log('Applying styles from preferences (tools)...');
 
       // Create a map of tool-specific configurations for quick lookup
       const toolSpecificConfigs = {};
 
-      preferences.tools.forEach(toolConfig => {
-        const { toolId, lineColor, textBoxColor } = toolConfig;
-        const dbToolName = toolId.name;
+      toolsArray.forEach(toolConfig => {
+        const toolId = toolConfig?.toolId ?? toolConfig;
+        const dbToolName = toolId?.name ?? toolConfig?.toolName;
+        const lineColor = toolConfig?.lineColor ?? toolId?.lineColor;
+        const textBoxColor = toolConfig?.textBoxColor ?? toolId?.textBoxColor;
+        if (!dbToolName) return;
         const cornerstoneToolName = toolNameMapping[dbToolName];
 
-        if (cornerstoneToolName) {
+        if (cornerstoneToolName && (lineColor || textBoxColor)) {
           toolSpecificConfigs[cornerstoneToolName] = {
-            lineColor: lineColor,
-            textBoxColor: textBoxColor,
+            lineColor: lineColor || undefined,
+            textBoxColor: textBoxColor || undefined,
           };
         }
       });

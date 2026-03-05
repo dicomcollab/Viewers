@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSystem, hotkeys as hotkeysModule } from '@ohif/core';
 import { UserPreferencesModal, FooterAction } from '@ohif/ui-next';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +29,17 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
     hotkeyDefinitions: hotkeyDefinitions as HotkeyDefinitions,
     languageValue: currentLanguage.value,
   });
+
+  // Sync with current hotkeys when modal opens (e.g. from cookies/API), so Zoom In shows "*" not "+"
+  useEffect(() => {
+    const defs = (hotkeysManager.hotkeyDefinitions || {}) as HotkeyDefinitions;
+    const zoomInEntry = Object.entries(defs).find(([, d]) => d?.label === 'Zoom In');
+    console.log('[UserPreferencesModal] Syncing hotkeyDefinitions. Zoom In entry:', zoomInEntry?.[0], 'keys=', zoomInEntry?.[1]?.keys, 'total defs=', Object.keys(defs).length);
+    setState(s => ({
+      ...s,
+      hotkeyDefinitions: defs,
+    }));
+  }, [hotkeysManager]);
 
   const onLanguageChangeHandler = (value: string) => {
     setState(state => ({ ...state, languageValue: value }));

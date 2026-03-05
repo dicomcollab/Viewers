@@ -202,6 +202,12 @@ module.exports = (env, argv) => {
         chunkFilename: '[id].css',
       })
     );
+    // OHIF viewer app bundle is large by design (extensions, cornerstone, etc.)
+    mergedConfig.performance = {
+      hints: false,
+      maxEntrypointSize: 10 * 1024 * 1024, // 10 MiB
+      maxAssetSize: 10 * 1024 * 1024,
+    };
   }
 
   mergedConfig.watchOptions = {

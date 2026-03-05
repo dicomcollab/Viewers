@@ -67,7 +67,173 @@ function getTokenFromCookie() {
 let _preferencesPromise = null;
 let _preferencesCache = undefined;
 
-// Function to fetch preferences from API (single call per session, shared across app)
+const USER_PREFERENCES_COOKIE_PREFIX = 'userPreferences_';
+
+/**
+ * Get a cookie value by name from document.cookie
+ * @param {string} name - Cookie name
+ * @returns {string|null} Cookie value or null
+ */
+function getCookie(name) {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const nameEQ = name + '=';
+  const cookies = document.cookie.split(';');
+  for (let i = 0; i < cookies.length; i++) {
+    let cookie = cookies[i].trim();
+    if (cookie.indexOf(nameEQ) === 0) {
+      return decodeURIComponent(cookie.substring(nameEQ.length).trim());
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse a cookie value that may be a JSON string (e.g. "#d952e6" or "[{...}]")
+ * @param {string} value - Raw cookie value
+ * @returns {*} Parsed value or original string
+ */
+function parseCookieValue(value) {
+  if (value == null || value === '') return value;
+  const trimmed = String(value).trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (_) {
+      return value;
+    }
+  }
+  return value;
+}
+
+/**
+ * Read all user preferences from cookies (keys: userPreferences_*).
+ * Maps cookie names to preference keys and parses JSON where needed.
+ * Hotkeys may be split across userPreferences_hotkeys_0, userPreferences_hotkeys_1, etc.
+ * @returns {Object|null} Preferences object in API shape, or null if no preference cookies found
+ */
+function getPreferencesFromCookies() {
+  if (typeof document === 'undefined' || !document.cookie) {
+    console.log('[getPreferencesFromCookies] No document or document.cookie');
+    return null;
+  }
+  const cookieString = document.cookie;
+  const cookies = cookieString.split(';');
+  const raw = {};
+  const foundCookieNames = [];
+  for (let i = 0; i < cookies.length; i++) {
+    const trimmed = cookies[i].trim();
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx < 0) continue;
+    const namePart = trimmed.slice(0, eqIdx).trim();
+    let name;
+    try {
+      name = decodeURIComponent(namePart);
+    } catch (_) {
+      name = namePart;
+    }
+    name = name.replace(/^\uFEFF/, '').trim(); // BOM
+    const value = trimmed.slice(eqIdx + 1).trim();
+    let decoded;
+    try {
+      decoded = decodeURIComponent(value);
+    } catch (e) {
+      decoded = value;
+    }
+    // Match userPreferences_* cookies
+    if (name.startsWith(USER_PREFERENCES_COOKIE_PREFIX)) {
+      foundCookieNames.push(name);
+      const key = name.slice(USER_PREFERENCES_COOKIE_PREFIX.length);
+      if (key.startsWith('hotkeys_')) {
+        const index = key.replace(/^hotkeys_/, ''); // "hotkeys_0" -> "0"
+        if (!raw._hotkeysParts) raw._hotkeysParts = {};
+        raw._hotkeysParts[index] = decoded;
+      } else {
+        raw[key] = decoded;
+      }
+      continue;
+    }
+    // Fallback: some backends set cookies as hotkeys_0, hotkeys_1 without userPreferences_ prefix
+    if (name === 'hotkeys_0' || name === 'hotkeys_1' || /^hotkeys_\d+$/.test(name)) {
+      const index = name.replace('hotkeys_', '');
+      if (!raw._hotkeysParts) raw._hotkeysParts = {};
+      raw._hotkeysParts[index] = decoded;
+      foundCookieNames.push('(fallback) ' + name);
+    }
+  }
+  const hasHotkeysParts = raw._hotkeysParts && Object.keys(raw._hotkeysParts).length > 0;
+  console.log('[getPreferencesFromCookies] userPreferences_ cookies found:', foundCookieNames, '| hotkeys parts:', hasHotkeysParts ? Object.keys(raw._hotkeysParts) : 'none', '| cookie names in document.cookie:', cookieString.split(';').map(s => s.trim().split('=')[0]).filter(Boolean));
+  if (Object.keys(raw).length === 0 && !raw._hotkeysParts) return null;
+
+  const prefs = {};
+  if (raw._hotkeysParts) {
+    const indices = Object.keys(raw._hotkeysParts).sort((a, b) => {
+      const na = parseInt(a, 10);
+      const nb = parseInt(b, 10);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+      return String(a).localeCompare(String(b));
+    });
+    console.log('[Hotkeys cookie] Found hotkeys parts:', indices, 'part0 length=', raw._hotkeysParts[indices[0]]?.length);
+    const parts = indices.map(i => raw._hotkeysParts[i]);
+    let hotkeysStr = (parts[0] || '') + (parts.slice(1).join('') || '');
+    // When hotkeys are split across cookies, the boundary has ..."previousSta" + "ge"... => ..."previousSta""ge"... Remove the duplicate "" so we get ..."previousStage"...
+    hotkeysStr = hotkeysStr.replace(/""/g, '');
+    try {
+      let parsed = JSON.parse(hotkeysStr);
+      while (typeof parsed === 'string') {
+        parsed = JSON.parse(parsed);
+      }
+      prefs.hotkeys = Array.isArray(parsed) ? parsed : [];
+      // [Hotkeys debug] Cookie hotkeys parsed
+      const zoomIn = (prefs.hotkeys || []).find(h => h.commandName === 'scaleUpViewport');
+      console.log('[Hotkeys cookie] Parsed hotkeys count:', (prefs.hotkeys || []).length, 'Zoom In (scaleUpViewport) keys:', zoomIn?.keys, 'raw:', zoomIn);
+    } catch (e) {
+      console.warn('[Hotkeys cookie] Parse failed:', e?.message || e, 'hotkeysStr length:', hotkeysStr?.length);
+      prefs.hotkeys = [];
+    }
+  }
+  if (raw.globalLineColor != null) prefs.globalLineColor = parseCookieValue(raw.globalLineColor);
+  if (raw.globalTextColor != null) prefs.globalTextColor = parseCookieValue(raw.globalTextColor);
+  if (raw.globalToolColor != null) prefs.globalToolColor = parseCookieValue(raw.globalToolColor);
+  if (raw.mousePreferences != null) {
+    try {
+      let parsed = typeof raw.mousePreferences === 'string' ? JSON.parse(raw.mousePreferences) : raw.mousePreferences;
+      // Cookie may be double-encoded: "{\"bindings\":{\"WindowLevel\":\"Primary\",...}}"
+      while (typeof parsed === 'string') {
+        parsed = JSON.parse(parsed);
+      }
+      prefs.mousePreferences = parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      prefs.mousePreferences = null;
+    }
+  }
+  if (raw.tools != null) {
+    try {
+      let parsed = typeof raw.tools === 'string' ? JSON.parse(raw.tools) : raw.tools;
+      // Cookie may be double-encoded (value stored as JSON string): "[{\"toolId\":...}]"
+      while (typeof parsed === 'string') {
+        parsed = JSON.parse(parsed);
+      }
+      prefs.tools = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+    } catch (_) {
+      prefs.tools = [];
+    }
+  }
+  if (raw.windowLevelPresets != null) {
+    try {
+      prefs.windowLevelPresets = typeof raw.windowLevelPresets === 'string' ? JSON.parse(raw.windowLevelPresets) : raw.windowLevelPresets;
+    } catch (_) {
+      prefs.windowLevelPresets = raw.windowLevelPresets;
+    }
+  }
+  if (raw.dataSourceFormat != null) prefs.dataSourceFormat = parseCookieValue(raw.dataSourceFormat);
+
+  const hasAny = prefs.hotkeys?.length > 0 || prefs.globalLineColor != null || prefs.globalTextColor != null ||
+    prefs.globalToolColor != null || (prefs.tools && (Array.isArray(prefs.tools) ? prefs.tools.length > 0 : Object.keys(prefs.tools).length > 0)) ||
+    (prefs.mousePreferences && Object.keys(prefs.mousePreferences).length > 0) || prefs.windowLevelPresets != null || prefs.dataSourceFormat != null;
+  return hasAny ? prefs : null;
+}
+
+// Function to fetch preferences: first from cookies (userPreferences_*), then from API if no cookie data
 async function fetchPreferences() {
   if (_preferencesCache !== undefined) {
     return _preferencesCache;
@@ -77,6 +243,14 @@ async function fetchPreferences() {
   }
   _preferencesPromise = (async () => {
     try {
+      const fromCookies = getPreferencesFromCookies();
+      if (fromCookies != null) {
+        _preferencesCache = fromCookies;
+        const zoomIn = (fromCookies.hotkeys || []).find(h => h.commandName === 'scaleUpViewport');
+        console.log('[fetchPreferences] Using cookie preferences. Hotkeys count=', (fromCookies.hotkeys || []).length, 'Zoom In keys=', zoomIn?.keys);
+        return fromCookies;
+      }
+
       const token = getTokenFromCookie();
       if (!token) {
         console.warn('No token found in cookie');
@@ -673,4 +847,5 @@ if (typeof window !== 'undefined') {
   window.fetchPreferences = fetchPreferences;
   window.savePreferences = savePreferences;
   window.clearPreferencesCache = clearPreferencesCache;
+  window.getPreferencesFromCookies = getPreferencesFromCookies;
 }

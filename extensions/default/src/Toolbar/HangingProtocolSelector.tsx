@@ -89,15 +89,23 @@ function HangingProtocolSelectorWithServices({
     const timeoutId = setTimeout(updateCurrentProtocol, 100);
     updateCurrentProtocol();
 
-    // Subscribe to protocol changes
-    const unsubscribe = hangingProtocolService.subscribe(
+    // Subscribe to protocol changes (service returns { unsubscribe } or cleanup may be called when service is reset)
+    const subscription = hangingProtocolService.subscribe(
       hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
       updateCurrentProtocol
     );
+    const unsubscribeFn =
+      typeof subscription?.unsubscribe === 'function'
+        ? subscription.unsubscribe
+        : typeof subscription === 'function'
+          ? subscription
+          : undefined;
 
     return () => {
       clearTimeout(timeoutId);
-      unsubscribe();
+      if (typeof unsubscribeFn === 'function') {
+        unsubscribeFn();
+      }
     };
   }, [hangingProtocolService, servicesManager]);
 

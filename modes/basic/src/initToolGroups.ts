@@ -10,15 +10,24 @@ const colorsByOrientation = {
   coronal: 'rgb(0, 200, 0)',
 };
 
-function initDefaultToolGroup(extensionManager, toolGroupService, commandsManager, toolGroupId) {
+function initDefaultToolGroup(
+  extensionManager,
+  toolGroupService,
+  commandsManager,
+  toolGroupId,
+  customizationService?
+) {
   const utilityModule = extensionManager.getModuleEntry(
     '@ohif/extension-cornerstone.utilityModule.tools'
   );
 
   const { toolNames, Enums } = utilityModule.exports;
 
-  const tools = {
-    active: [
+  // Use overlay viewport tools from customization (includes mouse preferences from cookies) when available
+  let active =
+    customizationService?.getCustomization('cornerstone.overlayViewportTools')?.active;
+  if (!active || !Array.isArray(active) || active.length === 0) {
+    active = [
       {
         toolName: toolNames.WindowLevel,
         bindings: [{ mouseButton: Enums.MouseBindings.Primary }],
@@ -35,7 +44,11 @@ function initDefaultToolGroup(extensionManager, toolGroupService, commandsManage
         toolName: toolNames.StackScroll,
         bindings: [{ mouseButton: Enums.MouseBindings.Wheel }, { numTouchPoints: 3 }],
       },
-    ],
+    ];
+  }
+
+  const tools = {
+    active,
     passive: [
       { toolName: toolNames.Length },
       {
@@ -313,8 +326,19 @@ function initVolume3DToolGroup(extensionManager, toolGroupService) {
   toolGroupService.createToolGroupAndAddTools('volume3d', tools);
 }
 
-function initToolGroups(extensionManager, toolGroupService, commandsManager) {
-  initDefaultToolGroup(extensionManager, toolGroupService, commandsManager, 'default');
+function initToolGroups(
+  extensionManager,
+  toolGroupService,
+  commandsManager,
+  customizationService?
+) {
+  initDefaultToolGroup(
+    extensionManager,
+    toolGroupService,
+    commandsManager,
+    'default',
+    customizationService
+  );
   initSRToolGroup(extensionManager, toolGroupService);
   initMPRToolGroup(extensionManager, toolGroupService, commandsManager);
   initVolume3DToolGroup(extensionManager, toolGroupService);
