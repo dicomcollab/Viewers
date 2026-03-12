@@ -44,16 +44,34 @@ function CornerstoneImageScrollbar({
       return;
     }
 
+    // After orientation change or during viewport setup, volume id can be undefined;
+    // getCurrentImageIdIndex() throws "Could not find image volume with id undefined".
+    const volumeId = typeof viewport.getVolumeId === 'function' ? viewport.getVolumeId() : undefined;
+    if (volumeId == null && viewportData.viewportType === Enums.ViewportType.ORTHOGRAPHIC) {
+      setImageSliceData(prev => ({ imageIndex: prev?.imageIndex ?? 0, numberOfSlices: prev?.numberOfSlices ?? 1 }));
+      return;
+    }
+
     try {
-      const imageIndex = viewport.getCurrentImageIdIndex();
-      const numberOfSlices = viewport.getNumberOfSlices();
+      const rawIndex =
+        typeof viewport.getCurrentImageIdIndex === 'function'
+          ? viewport.getCurrentImageIdIndex(volumeId)
+          : 0;
+      const imageIndex =
+        typeof rawIndex === 'number' && Number.isFinite(rawIndex) ? rawIndex : 0;
+      let numberOfSlices = 1;
+      try {
+        numberOfSlices = viewport.getNumberOfSlices?.() ?? 1;
+      } catch {
+        numberOfSlices = 1;
+      }
 
       setImageSliceData({
-        imageIndex: imageIndex,
+        imageIndex,
         numberOfSlices,
       });
-    } catch (error) {
-      console.warn(error);
+    } catch {
+      setImageSliceData(prev => ({ imageIndex: prev?.imageIndex ?? 0, numberOfSlices: prev?.numberOfSlices ?? 1 }));
     }
   }, [viewportId, viewportData]);
 
@@ -72,13 +90,23 @@ function CornerstoneImageScrollbar({
       if (!viewport || viewport instanceof VolumeViewport3D) {
         return;
       }
-      const { imageIndex, newImageIdIndex = imageIndex, imageIdIndex } = event.detail;
-      const numberOfSlices = viewport.getNumberOfSlices();
-      // find the index of imageId in the imageIds
-      setImageSliceData({
-        imageIndex: newImageIdIndex ?? imageIdIndex,
-        numberOfSlices,
-      });
+      try {
+        const { imageIndex, newImageIdIndex = imageIndex, imageIdIndex } = event.detail || {};
+        const rawIndex = newImageIdIndex ?? imageIdIndex ?? imageIndex;
+        const safeIndex = typeof rawIndex === 'number' && Number.isFinite(rawIndex) ? rawIndex : 0;
+        let numberOfSlices = 1;
+        try {
+          numberOfSlices = viewport.getNumberOfSlices?.() ?? 1;
+        } catch {
+          numberOfSlices = 1;
+        }
+        setImageSliceData({
+          imageIndex: safeIndex,
+          numberOfSlices,
+        });
+      } catch {
+        // viewport may have undefined volume id after orientation change
+      }
     };
 
     element.addEventListener(eventId, updateIndex);

@@ -263,6 +263,7 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
                   <SelectValue
                     data-cy={`overlay-ds-select-value-${displaySet.label?.toUpperCase()}`}
                   >
+                    {displaySet.SeriesNumber !== undefined ? `S:${displaySet.SeriesNumber} ` : ''}
                     {displaySet.label?.toUpperCase()}
                   </SelectValue>
                 </SelectTrigger>
@@ -374,7 +375,10 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
                 onValueChange={value => handleForegroundSelectionChange(displaySet, value)}
               >
                 <SelectTrigger className="flex-1">
-                  <SelectValue>{displaySet.label?.toUpperCase()}</SelectValue>
+                  <SelectValue>
+                    {displaySet.SeriesNumber !== undefined ? `S:${displaySet.SeriesNumber} ` : ''}
+                    {displaySet.label?.toUpperCase()}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {/* Include both potential foregrounds and the current foreground */}
@@ -482,6 +486,9 @@ function ViewportDataOverlayMenu({ viewportId }: withAppTypes<{ viewportId: stri
           >
             <SelectTrigger className="flex-1">
               <SelectValue>
+                {backgroundDisplaySet?.SeriesNumber !== undefined
+                  ? `S:${backgroundDisplaySet.SeriesNumber} `
+                  : ''}
                 {(
                   backgroundDisplaySet?.SeriesDescription ||
                   backgroundDisplaySet?.label ||

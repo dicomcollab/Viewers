@@ -18,6 +18,7 @@ const Thumbnail = ({
   seriesNumber,
   numInstances,
   loadingProgress,
+  isLayoutLoading = false,
   countIcon,
   messages,
   isActive,
@@ -33,7 +34,32 @@ const Thumbnail = ({
   onReject = () => {},
   onClickUntrack = () => {},
   ThumbnailMenuItems = () => {},
+  onPrefetchDisplaySet,
 }: withAppTypes): React.ReactNode => {
+  const normalizedLoadingProgress =
+    typeof loadingProgress === 'object' && loadingProgress != null
+      ? loadingProgress.loadingProgress
+      : loadingProgress;
+
+  const showLoading =
+    (normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading;
+
+  // Show preload button when series is not fully downloaded. Thumbnail (first instance) loaded
+  // for display does not count as "downloaded" — only full series load does.
+  const isFullyLoaded = normalizedLoadingProgress != null && normalizedLoadingProgress >= 1;
+  const showPrefetchButton =
+    Boolean(onPrefetchDisplaySet) && !isFullyLoaded;
+
+  const handlePrefetchClick = e => {
+    e.stopPropagation();
+    e.preventDefault();
+    onPrefetchDisplaySet?.(displaySetInstanceUID);
+  };
+
+  const loadedCount =
+    numInstances != null && normalizedLoadingProgress != null && normalizedLoadingProgress < 1
+      ? Math.round(normalizedLoadingProgress * numInstances) || 0
+      : null;
   // TODO: We should wrap our thumbnail to create a "DraggableThumbnail", as
   // this will still allow for "drag", even if there is no drop target for the
   // specified item.
@@ -63,7 +89,7 @@ const Thumbnail = ({
       <div
         className={classnames(
           'flex h-full w-full flex-col items-center justify-center gap-[2px] p-[4px]',
-          isActive && 'bg-primary-main rounded'
+          isActive && 'bg-primary-light/30 rounded'
         )}
       >
         <div className="h-[114px] w-[128px]">
@@ -85,7 +111,7 @@ const Thumbnail = ({
                 className={classnames(
                   'h-[10px] w-[10px] rounded-[2px]',
                   isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight' : 'bg-primary/65',
-                  loadingProgress && loadingProgress < 1 && 'bg-primary/25'
+                  showLoading && 'bg-primary/25'
                 )}
               ></div>
               <div className="text-[11px] font-semibold text-white">{modality}</div>
@@ -135,6 +161,28 @@ const Thumbnail = ({
             </div>
           </div>
         </div>
+        {/* Instance load progress (e.g. downloading from PACS) */}
+            {showLoading && numInstances != null && (
+          <div className="flex w-[128px] flex-col gap-[2px] px-1 pb-0.5">
+            <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
+              {loadedCount != null ? (
+                <span>
+                  {loadedCount}/{numInstances}
+                </span>
+              ) : (
+                <span>Loading…</span>
+              )}
+            </div>
+            <div className="bg-primary/20 h-1 w-full overflow-hidden rounded-full">
+              <div
+                className="bg-primary-light h-full rounded-full transition-[width] duration-200"
+                    style={{
+                      width: `${(normalizedLoadingProgress != null ? normalizedLoadingProgress : 0) * 100}%`,
+                    }}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex h-[52px] w-[128px] flex-col justify-start pt-px">
           <Tooltip>
             <TooltipContent>{description}</TooltipContent>
@@ -154,6 +202,23 @@ const Thumbnail = ({
                   <Icons.InfoSeries className="w-3" />
                 )}
                 <div>{numInstances}</div>
+                {showPrefetchButton && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-white hover:text-primary-light flex h-4 w-4 items-center justify-center rounded outline-none transition-colors hover:bg-primary/30"
+                        onClick={handlePrefetchClick}
+                        aria-label="Preload series"
+                      >
+                        <Icons.Download className="h-5 w-5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                      <span className="text-white">Preload series</span>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
             </div>
           </div>
@@ -167,7 +232,7 @@ const Thumbnail = ({
       <div
         className={classnames(
           'flex h-full w-full items-center justify-between pr-[8px] pl-[8px] pt-[4px] pb-[4px]',
-          isActive && 'bg-primary-main rounded'
+          isActive && 'bg-primary-light/30 rounded'
         )}
       >
         <div className="relative flex h-[32px] w-full items-center gap-[8px] overflow-hidden">
@@ -175,7 +240,7 @@ const Thumbnail = ({
             className={classnames(
               'h-[32px] w-[4px] min-w-[4px] rounded',
               isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight' : 'bg-primary/65',
-              loadingProgress && loadingProgress < 1 && 'bg-primary/25'
+              showLoading && 'bg-primary/25'
             )}
           ></div>
           <div className="flex h-full w-[calc(100%-12px)] flex-col justify-start">
@@ -202,6 +267,23 @@ const Thumbnail = ({
                     <Icons.InfoSeries className="w-3" />
                   )}
                   <div>{numInstances}</div>
+                  {showPrefetchButton && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-white hover:text-primary-light flex h-4 w-4 items-center justify-center rounded outline-none transition-colors hover:bg-primary/30"
+                          onClick={handlePrefetchClick}
+                          aria-label="Preload series"
+                        >
+                          <Icons.Download className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        <span className="text-white">Preload series</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
             </div>
@@ -254,7 +336,7 @@ const Thumbnail = ({
       className={classnames(
         className,
         'bg-muted hover:bg-primary/30 group flex cursor-pointer select-none flex-col rounded outline-none',
-        viewPreset === 'thumbnails' && 'h-[170px] w-[135px]',
+        viewPreset === 'thumbnails' && 'h-[190px] w-[135px]',
         viewPreset === 'list' && 'h-[40px] w-full'
       )}
       id={`thumbnail-${displaySetInstanceUID}`}
@@ -300,6 +382,8 @@ Thumbnail.propTypes = {
   seriesNumber: PropTypes.any,
   numInstances: PropTypes.number.isRequired,
   loadingProgress: PropTypes.number,
+  /** True when this series is loading in the current advanced layout (e.g. MPR, 3D). */
+  isLayoutLoading: PropTypes.bool,
   messages: PropTypes.object,
   isActive: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,
@@ -311,6 +395,7 @@ Thumbnail.propTypes = {
   onClickUntrack: PropTypes.func,
   countIcon: PropTypes.string,
   thumbnailType: PropTypes.oneOf(['thumbnail', 'thumbnailTracked', 'thumbnailNoImage']),
+  onPrefetchDisplaySet: PropTypes.func,
 };
 
 export { Thumbnail };

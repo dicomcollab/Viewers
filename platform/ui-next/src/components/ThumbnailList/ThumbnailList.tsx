@@ -12,6 +12,7 @@ const ThumbnailList = ({
   activeDisplaySetInstanceUIDs = [],
   viewPreset,
   ThumbnailMenuItems,
+  onPrefetchDisplaySet,
 }) => {
   // Use the dynamic height hook on the parent container
   const { ref, maxHeight } = useDynamicMaxHeight(thumbnails);
@@ -53,6 +54,7 @@ const ThumbnailList = ({
                   onDoubleClick={onThumbnailDoubleClick.bind(null, displaySetInstanceUID)}
                   onClickUntrack={onClickUntrack.bind(null, displaySetInstanceUID)}
                   ThumbnailMenuItems={ThumbnailMenuItems}
+                  onPrefetchDisplaySet={onPrefetchDisplaySet}
                 />
               );
             })}
@@ -80,6 +82,7 @@ const ThumbnailList = ({
                   onDoubleClick={onThumbnailDoubleClick.bind(null, displaySetInstanceUID)}
                   onClickUntrack={onClickUntrack.bind(null, displaySetInstanceUID)}
                   ThumbnailMenuItems={ThumbnailMenuItems}
+                  onPrefetchDisplaySet={onPrefetchDisplaySet}
                 />
               );
             })}
@@ -121,6 +124,7 @@ ThumbnailList.propTypes = {
   onClickUntrack: PropTypes.func.isRequired,
   viewPreset: PropTypes.string,
   ThumbnailMenuItems: PropTypes.any,
+  onPrefetchDisplaySet: PropTypes.func,
 };
 
 export { ThumbnailList };

@@ -377,7 +377,7 @@ function _getInstanceNumberFromVolume(
     const imageId = imageIds[imageIndex];
 
     if (!imageId) {
-      return {};
+      return undefined;
     }
 
     const { instanceNumber } = metaData.get('generalImageModule', imageId) || {};
@@ -451,6 +451,15 @@ function InstanceNumberOverlayItem({
   customization,
 }: OverlayItemProps) {
   const { imageIndex, numberOfSlices } = imageSliceData;
+  const idx = Number(imageIndex);
+  const total = Number(numberOfSlices);
+  const safeInstanceNumber =
+    instanceNumber !== undefined &&
+    instanceNumber !== null &&
+    typeof instanceNumber === 'number' &&
+    Number.isFinite(instanceNumber)
+      ? instanceNumber
+      : null;
 
   return (
     <div
@@ -458,13 +467,13 @@ function InstanceNumberOverlayItem({
       style={{ color: (customization && customization.color) || undefined }}
     >
       <span>
-        {instanceNumber !== undefined && instanceNumber !== null ? (
+        {safeInstanceNumber !== null ? (
           <>
             <span className="mr-0.5 shrink-0 opacity-[0.70]">I:</span>
-            <span>{`${instanceNumber} (${imageIndex + 1}/${numberOfSlices})`}</span>
+            <span>{`${safeInstanceNumber} (${idx + 1}/${total})`}</span>
           </>
         ) : (
-          `${imageIndex + 1}/${numberOfSlices}`
+          `${idx + 1}/${total}`
         )}
       </span>
     </div>

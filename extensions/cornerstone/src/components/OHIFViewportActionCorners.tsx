@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { ViewportActionCorners, IconPresentationProvider, ToolButton } from '@ohif/ui-next';
+import { ViewportActionCorners, IconPresentationProvider, ToolButton, useViewportGrid } from '@ohif/ui-next';
 import { Toolbar } from '@ohif/extension-default/src/Toolbar/Toolbar';
 import { ButtonLocation } from '@ohif/core/src/services/ToolBarService/ToolbarService';
 import { useViewportHover } from '../hooks';
@@ -9,10 +9,13 @@ export type OHIFViewportActionCornersProps = {
 };
 
 function OHIFViewportActionCornersComponent({ viewportId }: OHIFViewportActionCornersProps) {
-  // Use the viewport hover hook to track if viewport is hovered or active
+  const [{ viewports }] = useViewportGrid();
   const { isHovered, isActive } = useViewportHover(viewportId);
 
-  const shouldShowCorners = isHovered || isActive;
+  // When more than one viewport (e.g. MPR, axial primary), show orientation menu and corner
+  // actions on all viewports so each slide shows its controls. Otherwise show only on hover/active.
+  const hasMultipleViewports = viewports && viewports.size > 1;
+  const shouldShowCorners = hasMultipleViewports || isHovered || isActive;
 
   if (!shouldShowCorners) {
     return null;

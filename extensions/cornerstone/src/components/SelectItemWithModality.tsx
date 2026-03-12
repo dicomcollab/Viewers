@@ -14,7 +14,14 @@ const SelectItemWithModality = ({
     className="flex w-[90%] items-center justify-between"
     data-cy={dataCY}
   >
-    <span className="text-foreground truncate text-base">{displaySet.label}</span>
+    <div className="flex flex-col overflow-hidden pr-2">
+      <span className="text-foreground truncate text-base">{displaySet.label}</span>
+      {displaySet.SeriesNumber !== undefined && (
+        <span className="text-muted-foreground truncate text-xs">
+          S:{displaySet.SeriesNumber}
+        </span>
+      )}
+    </div>
     {showModality && displaySet.Modality && (
       <span className="text-muted-foreground flex-shrink-0 whitespace-nowrap text-xs">
         {displaySet.Modality}

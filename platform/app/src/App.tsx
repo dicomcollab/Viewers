@@ -169,13 +169,15 @@ function App({
         };
       }
 
-      // Get token from cookie - use configured cookie name or fallback to common names
+      // Get token from cookie - use configured cookie name, then patientToken (for patient-facing app), then common names
+      // Either token or patientToken is passed by the parent application; both are sent to PACS API (study, series, instance)
       const cookieName = cookieAuth.cookieName || 'token';
-      let token = getCookie(cookieName);
+      const patientTokenCookieName = cookieAuth.patientTokenCookieName || 'patientToken';
+      let token = getCookie(cookieName) || getCookie(patientTokenCookieName);
 
-      // Fallback to common cookie names if configured name not found
+      // Fallback to common cookie names if configured names not found
       if (!token) {
-        token = getCookie('token') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt');
+        token = getCookie('token') || getCookie('patientToken') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt');
       }
 
       if (token) {

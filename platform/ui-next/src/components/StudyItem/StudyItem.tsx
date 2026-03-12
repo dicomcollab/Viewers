@@ -22,6 +22,7 @@ const StudyItem = ({
   viewPreset = 'thumbnails',
   ThumbnailMenuItems,
   StudyMenuItems,
+  onPrefetchDisplaySet,
   StudyInstanceUID,
 }: withAppTypes) => {
   return (
@@ -88,6 +89,7 @@ const StudyItem = ({
               onClickUntrack={onClickUntrack}
               viewPreset={viewPreset}
               ThumbnailMenuItems={ThumbnailMenuItems}
+              onPrefetchDisplaySet={onPrefetchDisplaySet}
             />
           )}
         </AccordionContent>
@@ -111,6 +113,7 @@ StudyItem.propTypes = {
   onClickUntrack: PropTypes.func,
   viewPreset: PropTypes.string,
   StudyMenuItems: PropTypes.func,
+  onPrefetchDisplaySet: PropTypes.func,
   StudyInstanceUID: PropTypes.string,
 };
 

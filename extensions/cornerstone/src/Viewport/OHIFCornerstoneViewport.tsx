@@ -82,6 +82,11 @@ const OHIFCornerstoneViewport = React.memo(
     const [enabledVPElement, setEnabledVPElement] = useState(null);
     const elementRef = useRef() as React.MutableRefObject<HTMLDivElement>;
     const viewportRef = useViewportRef(viewportId);
+    const hasMarkedReadyRef = useRef(false);
+    const prevViewportDepsRef = useRef<{
+      orientation: string;
+      displaySetUIDs: string;
+    } | null>(null);
 
     const {
       displaySetService,
@@ -226,6 +231,50 @@ const OHIFCornerstoneViewport = React.memo(
       };
     }, []);
 
+    // Mark viewport ready when viewport data is actually set (e.g. volume loaded).
+    // ELEMENT_ENABLED fires when the element is added to the DOM; VIEWPORT_DATA_CHANGED
+    // fires when _setDisplaySets (and thus volume/stack data) has finished.
+    // Fallback: when switching layouts (single → MPR / axial primary) with cached data,
+    // one viewport's displaySetPromise can resolve after the others; retry so we don't get stuck "Preparing view".
+    useEffect(() => {
+      hasMarkedReadyRef.current = false;
+      const markReady = () => {
+        if (hasMarkedReadyRef.current) return;
+        hasMarkedReadyRef.current = true;
+        if (onElementEnabled && typeof onElementEnabled === 'function') {
+          onElementEnabled({ detail: { viewportId } });
+        }
+      };
+      const { unsubscribe } = cornerstoneViewportService.subscribe(
+        cornerstoneViewportService.EVENTS.VIEWPORT_DATA_CHANGED,
+        ({ viewportId: changedViewportId }) => {
+          if (changedViewportId === viewportId) {
+            markReady();
+          }
+        }
+      );
+      const delays = [200, 450, 800, 1200, 1800];
+      const timers: number[] = [];
+      delays.forEach(delay => {
+        const t = window.setTimeout(() => {
+          if (hasMarkedReadyRef.current) return;
+          try {
+            const viewportInfo = cornerstoneViewportService.getViewportInfo(viewportId);
+            if (viewportInfo?.getViewportData?.()) {
+              markReady();
+            }
+          } catch {
+            // viewport not registered yet
+          }
+        }, delay);
+        timers.push(t);
+      });
+      return () => {
+        unsubscribe();
+        timers.forEach(t => window.clearTimeout(t));
+      };
+    }, [viewportId, onElementEnabled, cornerstoneViewportService]);
+
     // subscribe to displaySet metadata invalidation (updates)
     // Currently, if the metadata changes we need to re-render the display set
     // for it to take effect in the viewport. As we deal with scaling in the loading,
@@ -270,6 +319,49 @@ const OHIFCornerstoneViewport = React.memo(
       // handle the default viewportType to be stack
       if (!viewportOptions.viewportType) {
         viewportOptions.viewportType = STACK;
+      }
+
+      // Layout change (e.g. MPR → single on double-click) resets isReady in grid state.
+      // Allow this viewport to mark ready again when VIEWPORT_DATA_CHANGED fires.
+      hasMarkedReadyRef.current = false;
+
+      const displaySetUIDs = displaySets
+        .map(ds => ds.displaySetInstanceUID)
+        .sort()
+        .join(',');
+      const newOrientation = viewportOptions.orientation;
+      const prev = prevViewportDepsRef.current;
+      prevViewportDepsRef.current = { orientation: newOrientation, displaySetUIDs };
+
+      // When only orientation changed (e.g. from setViewportOrientation command in MPR),
+      // update the existing viewport instead of re-running loadViewportData. Full reload
+      // can leave viewports black or broken (see OHIF #3486, #5147).
+      if (
+        prev &&
+        prev.displaySetUIDs === displaySetUIDs &&
+        prev.orientation !== newOrientation &&
+        viewportOptions.viewportType === 'volume'
+      ) {
+        try {
+          const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+          const viewportInfo = cornerstoneViewportService.getViewportInfo(viewportId);
+          if (
+            viewport &&
+            viewportInfo &&
+            viewport.type === Enums.ViewportType.ORTHOGRAPHIC &&
+            viewportInfo.getViewportData?.()
+          ) {
+            viewport.setOrientation(newOrientation as Enums.OrientationAxis);
+            if (typeof viewport.resetCamera === 'function') {
+              viewport.resetCamera();
+            }
+            cornerstoneViewportService.safeRenderViewport(viewport);
+            viewportInfo.setOrientation(newOrientation as Enums.OrientationAxis);
+            return;
+          }
+        } catch {
+          // fall through to full loadViewportData
+        }
       }
 
       const loadViewportData = async () => {

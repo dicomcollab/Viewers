@@ -168,6 +168,7 @@ const DicomTagBrowser = ({
                 max={activeDisplaySet?.images?.length}
                 step={1}
                 className="pt-4"
+                variant="white"
               />
             </div>
           )}

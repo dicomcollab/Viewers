@@ -179,6 +179,77 @@ class StudyPrefetcherService extends PubSubService {
     this._stopPrefetching();
   }
 
+  /**
+   * Returns current load progress for a display set (if tracked).
+   * Used by the study panel to show instance download progress.
+   */
+  public getDisplaySetLoadProgress(displaySetInstanceUID: string): { loadingProgress: number; numInstances: number } | undefined {
+    const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
+    if (!state) return undefined;
+    return { loadingProgress: state.loadingProgress, numInstances: state.numInstances };
+  }
+
+  /**
+   * Manually trigger background preload of a specific display set's instances.
+   * Used when the user clicks the preload button on a series in the Study Panel.
+   * Only a full load of all instances counts as "downloaded"; the first instance
+   * loaded for the thumbnail does not. No-op if the service is disabled, display
+   * set not found, or already fully loaded/loading.
+   */
+  public async prefetchDisplaySet(displaySetInstanceUID: string): Promise<void> {
+    if (!this.config.enabled) {
+      return;
+    }
+    const { displaySetService } = this._servicesManager.services;
+    const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+    if (!displaySet) {
+      return;
+    }
+
+    const existingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
+    if (existingState) {
+      if (existingState.loadingProgress >= 1) {
+        return; // Already fully loaded
+      }
+      
+      const numExpected = displaySet.numImageFrames || 2;
+      if (existingState.numInstances < numExpected) {
+        this._displaySetLoadingStates.delete(displaySetInstanceUID);
+      }
+      // If we didn't delete it, it stays in _displaySetLoadingStates, but we STILL 
+      // want to proceed to _enqueueDisplaySetImagesRequests(..., true) so its
+      // pending requests are moved to the front of the prefetch queue.
+    }
+
+    // If metadata was only partially loaded (e.g. loadSeriesMetadataOnDemand is true),
+    // fetch the rest of the series metadata first before enqueuing prefetch requests.
+    const initialImageIds = this._getImageIdsForDisplaySet(displaySet);
+    const numExpected = displaySet.numImageFrames || initialImageIds.length;
+    if (initialImageIds.length < numExpected) {
+      const dataSource = this._extensionManager.getActiveDataSource()[0];
+      if (dataSource && dataSource.retrieve?.series?.metadata) {
+        try {
+          await dataSource.retrieve.series.metadata({
+            StudyInstanceUID: displaySet.StudyInstanceUID,
+            filters: { SeriesInstanceUID: displaySet.SeriesInstanceUID },
+          });
+        } catch (e) {
+          console.warn('Failed to retrieve series metadata for preload', e);
+        }
+      }
+    }
+
+    if (!this._isRunning) {
+      this._isRunning = true;
+      this._addEventListeners();
+      this._broadcastEvent(this.EVENTS.SERVICE_STARTED, {});
+    }
+    
+    this._addDisplaySetLoadingState(displaySet);
+    this._enqueueDisplaySetImagesRequests(displaySet, true); // unshift=true to prioritize user preload
+    this._sendNextRequests();
+  }
+
   private _addImageLoadingEventsListeners() {
     const fnOnImageLoadCompleted = (imageId: string) => {
       // `sendNextRequests` must be called after image loaded/failed events
@@ -324,11 +395,11 @@ class StudyPrefetcherService extends PubSubService {
     const { _activeDisplaySetsInstanceUIDs: displaySetsInstanceUIDs } = this;
 
     return (
-      displaySetsInstanceUIDs.length &&
-      displaySetsInstanceUIDs.every(
-        displaySetsInstanceUID =>
-          this._displaySetLoadingStates.get(displaySetsInstanceUID).loadingProgress >= 1
-      )
+      displaySetsInstanceUIDs.length > 0 &&
+      displaySetsInstanceUIDs.every(displaySetsInstanceUID => {
+        const state = this._displaySetLoadingStates.get(displaySetsInstanceUID);
+        return state != null && state.loadingProgress >= 1;
+      })
     );
   }
 
@@ -475,10 +546,9 @@ class StudyPrefetcherService extends PubSubService {
     this._displaySetLoadingStates.set(displaySetInstanceUID, displaySetLoadingState);
     this._updateImageIdsDisplaySetMap(displaySetInstanceUID, imageIds);
 
-    // Notify the UI that something is already loaded (eg: update StudyBrowser)
-    if (loadedImageIds.size) {
-      this._triggerDisplaySetEvents(displaySetInstanceUID);
-    }
+    // Notify the UI that this display set is entering loading state (e.g: update StudyBrowser)
+    // even if no images are loaded yet, so the UI can show a 0% progress bar.
+    this._triggerDisplaySetEvents(displaySetInstanceUID);
   }
 
   private _loadDisplaySets() {
@@ -579,6 +649,9 @@ class StudyPrefetcherService extends PubSubService {
     this._sendNextRequests();
   }
 
+  /** Max concurrent prefetch requests when the active viewport is still loading (e.g. user-triggered preload). */
+  private static readonly MAX_PREFETCH_WHEN_ACTIVE_LOADING = 2;
+
   private async _sendNextRequests() {
     // If the service has stopped with async requests in progress this method may
     // get called again when each of those requests are fulfilled.
@@ -586,21 +659,25 @@ class StudyPrefetcherService extends PubSubService {
       return;
     }
 
-    // Does not send any prefetch request until the active display sets are loaded
-    if (!this._areActiveDisplaySetsLoaded()) {
-      return;
-    }
-
     const { _pendingRequests: pendingRequests, _inflightRequests: inflightRequests } = this;
     const { maxNumPrefetchRequests } = this.config;
 
-    if (!pendingRequests.length || inflightRequests.size >= maxNumPrefetchRequests) {
+    if (!pendingRequests.length) {
+      return;
+    }
+
+    const activeLoaded = this._areActiveDisplaySetsLoaded();
+    const maxConcurrent = activeLoaded
+      ? maxNumPrefetchRequests
+      : StudyPrefetcherService.MAX_PREFETCH_WHEN_ACTIVE_LOADING;
+
+    if (inflightRequests.size >= maxConcurrent) {
       return;
     }
 
     const numImageRequests = Math.min(
       pendingRequests.length,
-      maxNumPrefetchRequests - inflightRequests.size
+      maxConcurrent - inflightRequests.size
     );
     const imageRequests = this._pendingRequests.splice(0, numImageRequests);
 
@@ -629,22 +706,36 @@ class StudyPrefetcherService extends PubSubService {
     });
   }
 
-  private _enqueueDisplaySetImagesRequests(displaySet: DisplaySet) {
+  private _enqueueDisplaySetImagesRequests(displaySet: DisplaySet, unshift: boolean = false) {
     const { displaySetInstanceUID } = displaySet;
     const imageIds = this._getImageIdsForDisplaySet(displaySet);
 
+    // Remove existing requests for this display set so we can prioritize them at the front without duplicating
+    if (unshift) {
+      this._pendingRequests = this._pendingRequests.filter(
+        req => req.displaySetInstanceUID !== displaySetInstanceUID
+      );
+    }
+
+    const newRequests = [];
     imageIds.forEach(imageId => {
       if (this.cache.isImageCached(imageId)) {
         this._moveImageIdToLoadedSet(imageId);
         return;
       }
 
-      this._pendingRequests.push({
+      newRequests.push({
         displaySetInstanceUID,
         imageId,
         aborted: false,
       });
     });
+
+    if (unshift) {
+      this._pendingRequests.unshift(...newRequests);
+    } else {
+      this._pendingRequests.push(...newRequests);
+    }
   }
 
   /**

@@ -40,27 +40,15 @@ if (typeof window !== 'undefined') {
   window.getDemoToken = getDemoToken;
 }
 
-// Helper function to get token from cookie (using cookieUtils logic)
+// Helper function to get token from cookie (token or patientToken - either is passed to PACS API)
 function getTokenFromCookie() {
   // Check for demo token first
   const demoToken = getDemoToken();
   if (demoToken) {
     return demoToken;
   }
-  // Otherwise, get token from cookie using cookieUtils logic
-  const name = 'token';
-  const nameEQ = name + '=';
-  const cookies = document.cookie.split(';');
-  for (let i = 0; i < cookies.length; i++) {
-    let cookie = cookies[i];
-    while (cookie.charAt(0) === ' ') {
-      cookie = cookie.substring(1, cookie.length);
-    }
-    if (cookie.indexOf(nameEQ) === 0) {
-      return cookie.substring(nameEQ.length, cookie.length);
-    }
-  }
-  return null;
+  // Otherwise get token from cookie: try token then patientToken (parent app may set either)
+  return getCookie('token') || getCookie('patientToken') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt') || null;
 }
 
 // Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
@@ -454,11 +442,11 @@ window.config = {
   ],
   defaultDataSourceName: getDefaultDataSourceName(), // synchronous with localStorage cache
   // Cookie-based authentication configuration
-  // Set the cookie name that contains the authentication token
-  // The token will be automatically read from cookies and passed in all API request headers
+  // Token (or patientToken) is read from cookies and passed in all API request headers, including PACS (study, series, instance)
   cookieAuth: {
     enabled: true, // Set to false to disable cookie-based auth
-    cookieName: 'token', // Name of the cookie containing the token (common names: 'token', 'accessToken', 'authToken', 'jwt')
+    cookieName: 'token', // Primary cookie for token (clinician app)
+    patientTokenCookieName: 'patientToken', // Fallback cookie for patient-facing app; either token or patientToken is used for PACS API
   },
   /* Dynamic config allows user to pass "configUrl" query string this allows to load config without recompiling application. The regex will ensure valid configuration source */
   // dangerouslyUseDynamicConfig: {

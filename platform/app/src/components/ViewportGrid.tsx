@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef, useMemo, useState } from 'react';
 import { Types } from '@ohif/core';
 import { ViewportGrid, ViewportPane } from '@ohif/ui-next';
 import { useViewportGrid } from '@ohif/ui-next';
@@ -297,6 +297,46 @@ function ViewerViewportGrid(props: withAppTypes) {
   }, [viewports, activeViewportId, viewportComponents, dataSource]);
 
   /**
+   * Show a simple loading state when an advanced layout (MPR, 3D, etc.) is applied
+   * and viewport data is still loading. Not the full-screen OHIF default loader.
+   */
+  const hasPendingHPViewports = useMemo(() => {
+    if (!isHangingProtocolLayout || !viewports?.size) {
+      return false;
+    }
+    for (const vp of viewports.values()) {
+      if (vp.displaySetInstanceUIDs?.length && vp.isReady === false) {
+        return true;
+      }
+    }
+    return false;
+  }, [isHangingProtocolLayout, viewports]);
+
+  // Debounce the overlay so it doesn't flash for instant cached switches.
+  const [layoutLoading, setLayoutLoading] = useState(false);
+  useEffect(() => {
+    let debounceTimer: number | undefined;
+    let maxDurationTimer: number | undefined;
+
+    if (hasPendingHPViewports) {
+      debounceTimer = window.setTimeout(() => {
+        setLayoutLoading(true);
+        // Force-hide overlay after 4s so it never stays stuck (e.g. MPR → single, or ready event missed).
+        maxDurationTimer = window.setTimeout(() => {
+          setLayoutLoading(false);
+        }, 4000);
+      }, 150);
+    } else {
+      setLayoutLoading(false);
+    }
+
+    return () => {
+      if (debounceTimer) window.clearTimeout(debounceTimer);
+      if (maxDurationTimer) window.clearTimeout(maxDurationTimer);
+    };
+  }, [hasPendingHPViewports]);
+
+  /**
    * Loading indicator until numCols and numRows are gotten from the HangingProtocolService
    */
   if (!numRows || !numCols) {
@@ -304,13 +344,24 @@ function ViewerViewportGrid(props: withAppTypes) {
   }
 
   return (
-    <div className="border-input h-[calc(100%-0.25rem)] w-full border">
+    <div className="border-input relative h-[calc(100%-0.25rem)] w-full border">
       <ViewportGrid
         numRows={numRows}
         numCols={numCols}
       >
         {getViewportPanes()}
       </ViewportGrid>
+      {layoutLoading && (
+        <div
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/70"
+          aria-busy="true"
+          aria-label="Loading layout"
+        >
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-light border-t-transparent" />
+          <p className="text-primary-light mt-3 text-sm font-medium">Preparing view…</p>
+          <p className="text-primary-light/80 mt-1 text-xs">Loading data for this layout</p>
+        </div>
+      )}
     </div>
   );
 }

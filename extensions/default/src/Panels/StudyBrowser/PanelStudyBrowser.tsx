@@ -26,7 +26,7 @@ function PanelStudyBrowser({
   onDoubleClickThumbnailHandlerCallBack,
 }) {
   const { servicesManager, commandsManager, extensionManager } = useSystem();
-  const { displaySetService, customizationService } = servicesManager.services;
+  const { displaySetService, customizationService, studyPrefetcherService } = servicesManager.services;
   const navigate = useNavigate();
   const studyMode = (customizationService.getCustomization('studyBrowser.studyMode') as string) || 'all';
 
@@ -74,6 +74,37 @@ function PanelStudyBrowser({
   };
 
   const mapDisplaySetsWithState = customMapDisplaySets || _mapDisplaySets;
+
+  // Subscribe to instance load progress (prefetcher + viewport loads) for study panel progress bar
+  useEffect(() => {
+    if (!studyPrefetcherService?.subscribe) return;
+    const subProgress = studyPrefetcherService.subscribe(
+      studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_PROGRESS,
+      ({ displaySetInstanceUID, numInstances, loadingProgress }) => {
+        setDisplaySetsLoadingState(prev => ({
+          ...prev,
+          [displaySetInstanceUID]: { loadingProgress, numInstances },
+        }));
+      }
+    );
+    const subComplete = studyPrefetcherService.subscribe(
+      studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_COMPLETE,
+      ({ displaySetInstanceUID }) => {
+        setDisplaySetsLoadingState(prev => {
+          const next = { ...prev };
+          const cur = next[displaySetInstanceUID];
+          if (cur && typeof cur === 'object' && cur.numInstances != null) {
+            next[displaySetInstanceUID] = { loadingProgress: 1, numInstances: cur.numInstances };
+          }
+          return next;
+        });
+      }
+    );
+    return () => {
+      subProgress?.unsubscribe?.();
+      subComplete?.unsubscribe?.();
+    };
+  }, [studyPrefetcherService]);
 
   const onDoubleClickThumbnailHandler = useCallback(
     async displaySetInstanceUID => {
@@ -222,11 +253,25 @@ function PanelStudyBrowser({
       return;
     }
 
+    // Merge prefetcher loading state so progress bar shows current progress on mount
+    let loadingState = displaySetsLoadingState;
+    if (studyPrefetcherService?.getDisplaySetLoadProgress) {
+      loadingState = { ...displaySetsLoadingState };
+      currentDisplaySets.forEach(ds => {
+        const uid = ds.displaySetInstanceUID;
+        if (loadingState[uid] == null) {
+          const p = studyPrefetcherService.getDisplaySetLoadProgress(uid);
+          if (p) loadingState[uid] = p;
+        }
+      });
+    }
+
     const mappedDisplaySets = mapDisplaySetsWithState(
       currentDisplaySets,
-      displaySetsLoadingState,
+      loadingState,
       thumbnailImageSrcMap,
-      viewports
+      viewports,
+      isHangingProtocolLayout
     );
 
     if (!customMapDisplaySets) {
@@ -240,6 +285,8 @@ function PanelStudyBrowser({
     viewports,
     thumbnailImageSrcMap,
     customMapDisplaySets,
+    isHangingProtocolLayout,
+    studyPrefetcherService,
   ]);
 
   // ~~ subscriptions --> displaySets
@@ -304,7 +351,8 @@ function PanelStudyBrowser({
           changedDisplaySets,
           displaySetsLoadingState,
           thumbnailImageSrcMap,
-          viewports
+          viewports,
+          isHangingProtocolLayout
         );
 
         if (!customMapDisplaySets) {
@@ -322,7 +370,8 @@ function PanelStudyBrowser({
           displaySetService.getActiveDisplaySets(),
           displaySetsLoadingState,
           thumbnailImageSrcMap,
-          viewports
+          viewports,
+          isHangingProtocolLayout
         );
 
         if (!customMapDisplaySets) {
@@ -343,6 +392,7 @@ function PanelStudyBrowser({
     viewports,
     displaySetService,
     customMapDisplaySets,
+    isHangingProtocolLayout,
   ]);
 
   const tabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
@@ -428,6 +478,11 @@ function PanelStudyBrowser({
         onClickThumbnail={() => {}}
         onDoubleClickThumbnail={onDoubleClickThumbnailHandler}
         activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
+        onPrefetchDisplaySet={
+          studyPrefetcherService?.prefetchDisplaySet
+            ? displaySetInstanceUID => studyPrefetcherService.prefetchDisplaySet(displaySetInstanceUID)
+            : undefined
+        }
         showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
         viewPresets={viewPresets}
         ThumbnailMenuItems={MoreDropdownMenu({
@@ -469,7 +524,30 @@ function _mapDataSourceStudies(studies) {
   });
 }
 
-function _mapDisplaySets(displaySets, displaySetLoadingState, thumbnailImageSrcMap, viewports) {
+/**
+ * Display set UIDs that are currently in viewports which are still loading (e.g. after switching to MPR/3D).
+ */
+function _getLayoutLoadingDisplaySetUIDs(viewports, isHangingProtocolLayout) {
+  if (!isHangingProtocolLayout || !viewports || !viewports.size) {
+    return new Set();
+  }
+  const uids = new Set();
+  for (const viewport of viewports.values()) {
+    if (viewport.isReady === false && viewport.displaySetInstanceUIDs?.length) {
+      viewport.displaySetInstanceUIDs.forEach(uid => uids.add(uid));
+    }
+  }
+  return uids;
+}
+
+function _mapDisplaySets(
+  displaySets,
+  displaySetLoadingState,
+  thumbnailImageSrcMap,
+  viewports,
+  isHangingProtocolLayout = false
+) {
+  const layoutLoadingUIDs = _getLayoutLoadingDisplaySetUIDs(viewports, isHangingProtocolLayout);
   const thumbnailDisplaySets = [];
   const thumbnailNoImageDisplaySets = [];
   displaySets
@@ -481,7 +559,10 @@ function _mapDisplaySets(displaySets, displaySetLoadingState, thumbnailImageSrcM
       const array =
         componentType === 'thumbnail' ? thumbnailDisplaySets : thumbnailNoImageDisplaySets;
 
-      const loadingProgress = displaySetLoadingState?.[displaySetInstanceUID];
+      const raw = displaySetLoadingState?.[displaySetInstanceUID];
+      const loadingProgress =
+        typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
+      const isLayoutLoading = layoutLoadingUIDs.has(displaySetInstanceUID);
 
       array.push({
         displaySetInstanceUID,
@@ -491,6 +572,7 @@ function _mapDisplaySets(displaySets, displaySetLoadingState, thumbnailImageSrcM
         seriesDate: formatDate(ds.SeriesDate),
         numInstances: ds.numImageFrames,
         loadingProgress,
+        isLayoutLoading,
         countIcon: ds.countIcon,
         messages: ds.messages,
         StudyInstanceUID: ds.StudyInstanceUID,

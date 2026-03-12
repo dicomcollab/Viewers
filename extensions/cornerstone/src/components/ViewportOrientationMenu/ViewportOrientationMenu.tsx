@@ -34,7 +34,20 @@ function ViewportOrientationMenu({
     typeof viewportOrientation === 'string' ? viewportOrientation : 'axial'
   );
 
+  // In advanced layouts (MPR, axial primary, etc.), lock each viewport to its current orientation
+  // so only that option is selectable; others are disabled to avoid breaking the layout.
+  const isAdvancedLayout =
+    Boolean(gridState?.isHangingProtocolLayout) &&
+    Boolean(gridState?.viewports?.size && gridState.viewports.size > 1);
+  const currentOrientationNormalized = String(
+    viewportInfo?.getOrientation?.() ?? currentOrientation
+  ).toLowerCase();
+
+  const isOptionDisabled = (option: string) =>
+    isAdvancedLayout && option.toLowerCase() !== currentOrientationNormalized;
+
   const handleOrientationChange = (orientation: string) => {
+    if (isOptionDisabled(orientation)) return;
     setCurrentOrientation(orientation);
     const viewportInfo = cornerstoneViewportService.getViewportInfo(viewportIdToUse);
     const currentViewportType = viewportInfo?.getViewportType();
@@ -157,6 +170,7 @@ function ViewportOrientationMenu({
         <Button
           variant="ghost"
           className="flex h-7 w-full flex-shrink-0 items-center justify-start self-stretch px-1 py-0"
+          disabled={isOptionDisabled('axial')}
           onClick={() => handleOrientationChange('axial')}
         >
           <div className="mr-1 flex w-6 items-center justify-start">
@@ -169,6 +183,7 @@ function ViewportOrientationMenu({
         <Button
           variant="ghost"
           className="flex h-7 w-full flex-shrink-0 items-center justify-start self-stretch px-1 py-0"
+          disabled={isOptionDisabled('sagittal')}
           onClick={() => handleOrientationChange('sagittal')}
         >
           <div className="mr-1 flex w-6 items-center justify-start">
@@ -181,6 +196,7 @@ function ViewportOrientationMenu({
         <Button
           variant="ghost"
           className="flex h-7 w-full flex-shrink-0 items-center justify-start self-stretch px-1 py-0"
+          disabled={isOptionDisabled('coronal')}
           onClick={() => handleOrientationChange('coronal')}
         >
           <div className="mr-1 flex w-6 items-center justify-start">
@@ -193,6 +209,7 @@ function ViewportOrientationMenu({
         <Button
           variant="ghost"
           className="flex h-7 w-full flex-shrink-0 items-center justify-start self-stretch px-1 py-0"
+          disabled={isOptionDisabled('acquisition')}
           onClick={() => handleOrientationChange('acquisition')}
         >
           <div className="mr-1 flex w-6 items-center justify-start">
@@ -207,6 +224,7 @@ function ViewportOrientationMenu({
         <Button
           variant="ghost"
           className="flex h-7 w-full flex-shrink-0 items-center justify-start self-stretch px-1 py-0"
+          disabled={isOptionDisabled('reformat')}
           onClick={() => handleOrientationChange('reformat')}
         >
           <div className="mr-1 flex w-6 items-center justify-start">

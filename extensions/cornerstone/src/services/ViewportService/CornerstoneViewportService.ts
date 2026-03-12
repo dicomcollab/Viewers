@@ -48,6 +48,25 @@ const MIN_VOLUME_VIEWPORTS_TO_ENQUEUE_RESIZE = 6;
 export const WITH_NAVIGATION = { withNavigation: true, withOrientation: false };
 export const WITH_ORIENTATION = { withNavigation: true, withOrientation: true };
 
+/** Catch VTK/cornerstone render errors (e.g. isAttributeUsed on null after layout/series change) so the app does not crash. */
+function safeViewportRender(viewport: Types.IViewport | null | undefined): void {
+  if (!viewport?.render) return;
+  try {
+    viewport.render();
+  } catch (e) {
+    console.warn('[CornerstoneViewportService] viewport.render() failed (layout/series change can cause this):', e);
+  }
+}
+
+function safeRenderingEngineRender(engine: Types.IRenderingEngine | null | undefined): void {
+  if (!engine?.render) return;
+  try {
+    engine.render();
+  } catch (e) {
+    console.warn('[CornerstoneViewportService] renderingEngine.render() failed:', e);
+  }
+}
+
 /**
  * Handles cornerstone viewport logic including enabling, disabling, and
  * updating the viewport.
@@ -513,6 +532,21 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     const viewport = this.renderingEngine.getViewport(viewportId);
 
     return viewport;
+  }
+
+  /**
+   * Call viewport.render() inside try/catch so VTK/cornerstone errors
+   * (e.g. isAttributeUsed on null after layout/series change) do not crash the app.
+   */
+  public safeRenderViewport(viewport: Types.IViewport | null | undefined): void {
+    safeViewportRender(viewport);
+  }
+
+  /**
+   * Call renderingEngine.render() inside try/catch to avoid crashes from pipeline errors.
+   */
+  public safeRenderRenderingEngine(engine?: Types.IRenderingEngine | null): void {
+    safeRenderingEngineRender(engine ?? this.renderingEngine);
   }
 
   /**
@@ -1016,12 +1050,12 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         }
       });
     }
-    viewport.render();
+    safeViewportRender(viewport);
 
     volumesProperties.forEach(({ properties, volumeId }) => {
       timeoutViewportCallback(() => {
         viewport.setProperties(properties, volumeId);
-        viewport.render();
+        safeViewportRender(viewport);
       });
     });
 
@@ -1112,7 +1146,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       displaySetPromise = this._setVolumeViewport(viewport, viewportData, viewportInfo).then(() => {
         if (keepCamera) {
           viewport.setCamera(viewportCamera);
-          viewport.render();
+          safeViewportRender(viewport);
         }
       });
     }
@@ -1263,7 +1297,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       // Resize the rendering engine and render.
       const renderingEngine = this.renderingEngine;
       renderingEngine.resize(isImmediate);
-      renderingEngine.render();
+      safeRenderingEngineRender(renderingEngine);
 
       // Reset the camera for all viewports using position presentation to maintain relative size/position
       // which means only those viewports that have a zoom level of 1.
@@ -1275,7 +1309,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
 
       // Resize and render the rendering engine again.
       renderingEngine.resize(isImmediate);
-      renderingEngine.render();
+      safeRenderingEngineRender(renderingEngine);
     } catch (e) {
       // This can happen if the resize is too close to navigation or shutdown
       console.warn('Caught resize exception', e);

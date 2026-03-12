@@ -2152,7 +2152,6 @@ function commandsModule({
         return;
       }
 
-      // Get display sets for this viewport to verify at least one is reconstructable
       const displaySetUIDs = viewportGridService.getDisplaySetsUIDsForViewport(viewportId);
       const displaySets = displaySetUIDs.map(uid => displaySetService.getDisplaySetByUID(uid));
 
@@ -2161,12 +2160,81 @@ function commandsModule({
         return;
       }
 
-      viewport.setOrientation(orientation);
-      viewport.render();
-
-      // update the orientation in the viewport info
       const viewportInfo = cornerstoneViewportService.getViewportInfo(viewportId);
+      const currentOrientation = viewportInfo.getOrientation();
+      if (currentOrientation === orientation) {
+        return;
+      }
+
+      // In multi-viewport layouts (MPR, axial primary, etc.), swap with the viewport that
+      // currently has the target orientation so we keep distinct orientations and avoid
+      // breaking synchronizers or leaving viewports black.
+      const gridState = viewportGridService.getState();
+      const viewportsMap = gridState.viewports;
+      let otherViewportId = null;
+      if (viewportsMap && viewportsMap.size > 1) {
+        for (const [vpId, vp] of viewportsMap) {
+          if (vpId === viewportId || !vp.displaySetInstanceUIDs?.length) continue;
+          try {
+            const info = cornerstoneViewportService.getViewportInfo(vpId);
+            if (info && info.getOrientation() === orientation) {
+              otherViewportId = vpId;
+              break;
+            }
+          } catch {
+            // skip viewport
+          }
+        }
+      }
+
+      const viewportsToUpdate = [];
+
+      if (otherViewportId) {
+        const otherViewport = cornerstoneViewportService.getCornerstoneViewport(otherViewportId);
+        const otherInfo = cornerstoneViewportService.getViewportInfo(otherViewportId);
+        if (
+          otherViewport &&
+          otherViewport.type === CoreEnums.ViewportType.ORTHOGRAPHIC &&
+          otherInfo
+        ) {
+          otherViewport.setOrientation(currentOrientation);
+          if (typeof otherViewport.resetCamera === 'function') {
+            otherViewport.resetCamera();
+          }
+          cornerstoneViewportService.safeRenderViewport(otherViewport);
+          otherInfo.setOrientation(currentOrientation);
+          const otherDisplaySetUIDs =
+            viewportGridService.getDisplaySetsUIDsForViewport(otherViewportId);
+          viewportsToUpdate.push({
+            viewportId: otherViewportId,
+            displaySetInstanceUIDs: otherDisplaySetUIDs,
+            viewportOptions: { orientation: currentOrientation },
+          });
+        }
+      }
+
+      viewport.setOrientation(orientation);
+      if (typeof viewport.resetCamera === 'function') {
+        viewport.resetCamera();
+      }
+      cornerstoneViewportService.safeRenderViewport(viewport);
       viewportInfo.setOrientation(orientation);
+      viewportsToUpdate.push({
+        viewportId,
+        displaySetInstanceUIDs: displaySetUIDs,
+        viewportOptions: { orientation },
+      });
+
+      const cineState = cineService.getState();
+      viewportsToUpdate.forEach(vp => {
+        const currentCineState = cineState.cines?.[vp.viewportId];
+        cineService.setCine({
+          id: vp.viewportId,
+          frameRate: currentCineState?.frameRate ?? cineState.default?.frameRate ?? 24,
+          isPlaying: false,
+        });
+      });
+      viewportGridService.setDisplaySetsForViewports(viewportsToUpdate);
     },
     /**
      * Toggles the horizontal flip state of the viewport.
