@@ -24,7 +24,7 @@ import {
 // Main header component
 const SegmentationCollapsedHeader = ({ children }: { children: React.ReactNode }) => {
   return (
-    <div className="bg-primary-dark flex h-10 w-full items-center space-x-1 rounded-t px-1.5">
+    <div className="bg-primary-active border-b border-primary-active/50 flex h-10 w-full items-center space-x-1 rounded-t px-1.5">
       {children}
     </div>
   );
@@ -38,6 +38,7 @@ const SegmentationCollapsedDropdownMenu = ({ children }: { children: React.React
         <Button
           variant="ghost"
           size="icon"
+          className="text-white hover:bg-primary-light/30 hover:text-white"
         >
           <Icons.More className="h-6 w-6" />
         </Button>
@@ -104,11 +105,12 @@ const SegmentationCollapsedInfo = () => {
   const info = activeSegmentationObj?.segmentation.cachedStats?.info;
 
   return (
-    <Tooltip delayDuration={100}>
+      <Tooltip delayDuration={100}>
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
           size="icon"
+          className="text-white hover:bg-primary-light/30 hover:text-white"
         >
           <Icons.Info className="h-6 w-6" />
         </Button>
@@ -125,7 +127,7 @@ const SegmentationCollapsedInfo = () => {
 
 // Content component - for the main collapsed view content
 const SegmentationCollapsedContent = ({ children }: { children: React.ReactNode }) => {
-  return <div className="collapsed-content">{children}</div>;
+  return <div className="collapsed-content bg-primary-active/10">{children}</div>;
 };
 
 // Main compound component

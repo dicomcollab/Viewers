@@ -55,6 +55,10 @@ module.exports = {
         primary: {
           DEFAULT: '#004152',
           foreground: '#FFFFFF',
+          main: '#005A6E',
+          light: '#007ba3',
+          dark: '#002d3a',
+          active: '#005A6E', // Theme accent for selection/hover
         },
         secondary: {
           DEFAULT: '#003a4a',

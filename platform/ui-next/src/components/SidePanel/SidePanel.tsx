@@ -111,7 +111,8 @@ const getTabClassNames = (
   isActiveTab: boolean,
   isTabDisabled: boolean
 ) =>
-  classnames('h-[28px] mb-[2px] cursor-pointer text-white bg-black', {
+  classnames('h-[28px] mb-[2px] cursor-pointer text-white bg-black transition-colors', {
+    'hover:bg-primary-active/40': !isActiveTab && !isTabDisabled,
     'hover:text-white': !isActiveTab && !isTabDisabled,
     'rounded-l': tabIndex % numColumns === 0,
     'rounded-r': (tabIndex + 1) % numColumns === 0 || tabIndex === numTabs - 1,
@@ -125,7 +126,7 @@ const getTabStyle = (numTabs: number) => {
 
 const getTabIconClassNames = (numTabs: number, isActiveTab: boolean) => {
   return classnames('h-full w-full flex items-center justify-center', {
-    'bg-customblue-40': isActiveTab,
+    'bg-primary-light': isActiveTab, // Lighter teal so selected tab stands out from header (#005A6E)
     rounded: isActiveTab,
   });
 };
@@ -285,7 +286,7 @@ const SidePanel = ({
       <>
         <div
           className={classnames(
-            'bg-secondary-dark flex h-[28px] w-full cursor-pointer items-center rounded-md',
+            'bg-secondary-dark hover:bg-primary-active/50 flex h-[28px] w-full cursor-pointer items-center rounded-md transition-colors',
             side === 'left' ? 'justify-end pr-2' : 'justify-start pl-2'
           )}
           onClick={() => {
@@ -443,7 +444,7 @@ const SidePanel = ({
   const getOpenStateComponent = () => {
     return (
       <>
-        <div className="bg-primary-main flex h-[40px] flex-shrink-0 select-none rounded-t p-2">
+        <div className="bg-primary-active flex h-[40px] flex-shrink-0 select-none rounded-t p-2">
           {tabs.length === 1 ? getOneTabComponent() : getTabGridComponent()}
         </div>
         <Separator

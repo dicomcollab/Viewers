@@ -10,13 +10,16 @@ export function StudyMeasurementsActions({ items, StudyInstanceUID, measurementF
     return null;
   }
 
+  const actionButtonClass =
+    'rounded transition-colors text-white hover:bg-primary-active/50 hover:text-white pl-1.5';
+
   return (
     <div className="bg-background flex h-9 w-full items-center rounded pr-0.5">
       <div className="flex space-x-1">
         <Button
           size="sm"
           variant="ghost"
-          className="pl-1.5"
+          className={actionButtonClass}
           onClick={() => {
             commandsManager.runCommand('downloadCSVMeasurementsReport', {
               StudyInstanceUID,
@@ -31,7 +34,7 @@ export function StudyMeasurementsActions({ items, StudyInstanceUID, measurementF
         <Button
           size="sm"
           variant="ghost"
-          className="pl-0.5"
+          className={`${actionButtonClass} pl-0.5`}
           onClick={e => {
             e.stopPropagation();
             if (actions?.createSR) {
@@ -50,7 +53,7 @@ export function StudyMeasurementsActions({ items, StudyInstanceUID, measurementF
         <Button
           size="sm"
           variant="ghost"
-          className="pl-0.5"
+          className={`${actionButtonClass} pl-0.5`}
           onClick={e => {
             e.stopPropagation();
             if (actions?.onDelete) {

@@ -105,16 +105,22 @@ const ViewportDialog: React.FC<ViewportDialogProps> = ({
       </div>
       <div className="mt-2 flex flex-wrap justify-end gap-2">
         {actions?.map((action, index) => {
+          const isPrimary = action.type !== 'secondary';
           return (
             <Button
               name={action.id}
               key={index}
-              variant={action.type === 'secondary' ? 'secondary' : 'default'}
+              variant="outline"
               size={action.size === 'sm' ? 'sm' : 'default'}
               onClick={() => {
                 onSubmit(action.value);
               }}
-              className="min-w-16"
+              className={classnames(
+                'min-w-16 border-white/40 text-white',
+                isPrimary
+                  ? 'bg-white/20 hover:bg-white/30 border-white/50'
+                  : 'bg-white/10 hover:bg-white/20'
+              )}
             >
               {action.text}
             </Button>

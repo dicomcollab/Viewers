@@ -19,7 +19,7 @@ const SegmentationExpandedHeader = ({ children }: { children: React.ReactNode })
 
   return (
     <PanelSection.Header
-      className={`bg-muted my-0 rounded-none border-l-[2px] pl-0 ${isActive ? 'border-primary/70' : 'border-primary/35'}`}
+      className={`bg-muted my-0 rounded-none border-l-[2px] pl-0 ${isActive ? 'border-primary-light' : 'border-primary-active/50'}`}
       onClick={e => {
         e.stopPropagation();
         onSegmentationClick(segmentation.segmentationId);

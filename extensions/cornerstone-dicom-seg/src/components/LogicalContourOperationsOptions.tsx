@@ -61,14 +61,14 @@ function SegmentSelector({
   placeholder?: string;
 }) {
   return (
-    <div className="flex justify-between gap-6">
-      <div>{label}</div>
+    <div className="flex justify-between gap-6 items-center text-white">
+      <div className="text-white font-medium">{label}</div>
       <Select
         key={`select-segment-${label}`}
         onValueChange={onValueChange}
         value={value}
       >
-        <SelectTrigger className="overflow-hidden">
+        <SelectTrigger className="overflow-hidden bg-primary-active/30 border-primary-active/50 hover:bg-primary-active/50 text-white">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -165,11 +165,11 @@ function LogicalContourOperationOptions() {
   ]);
 
   return (
-    <div className="flex w-[245px] flex-col gap-4">
+    <div className="text-white flex w-[245px] flex-col gap-4">
       <div className="flex items-start justify-between">
         <div className="flex w-auto flex-col items-center gap-2 text-base font-normal leading-none">
           <Tabs value={operation.value}>
-            <TabsList className="inline-flex space-x-1">
+            <TabsList className="inline-flex space-x-1 bg-primary-active/40">
               {options.map(option => {
                 const { value, icon } = option;
                 return (
@@ -177,6 +177,7 @@ function LogicalContourOperationOptions() {
                     value={value}
                     key={`logical-contour-operation-${value}`}
                     onClick={() => setOperation(option)}
+                    className="data-[state=active]:bg-primary-light data-[state=active]:text-white"
                   >
                     <Icons.ByName name={icon}></Icons.ByName>
                   </TabsTrigger>
@@ -184,10 +185,10 @@ function LogicalContourOperationOptions() {
               })}
             </TabsList>
           </Tabs>
-          <div>{operation.label}</div>
+          <div className="text-white">{operation.label}</div>
         </div>
-        <div className="bg-primary-dark flex h-[62px] w-[88px] items-center justify-center rounded-lg">
-          <Icons.ByName name={operation.helperIcon}></Icons.ByName>
+        <div className="bg-primary-light/30 border border-primary-light/50 flex h-[62px] w-[88px] items-center justify-center rounded-lg">
+          <Icons.ByName name={operation.helperIcon} className="text-white"></Icons.ByName>
         </div>
       </div>
       <SegmentSelector
@@ -204,8 +205,8 @@ function LogicalContourOperationOptions() {
       />
       <div className="flex justify-end pl-[34px]">
         <Button
-          className="border-primary/60 grow border"
-          variant="ghost"
+          className="grow bg-primary-light hover:bg-primary-light/90 text-white border border-primary-light font-medium"
+          variant="default"
           onClick={() => {
             applyLogicalContourOperation();
           }}
@@ -213,20 +214,27 @@ function LogicalContourOperationOptions() {
           {operation.label}
         </Button>
       </div>
-      <Separator className="bg-input mt-2 h-[1px]" />
+      <Separator className="bg-primary-active/60 mt-2 h-[1px]" />
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-start gap-2">
           <Switch
             id="logical-contour-operations-create-new-segment-switch"
+            checked={createNewSegment}
             onCheckedChange={setCreateNewSegment}
-          ></Switch>
-          <Label htmlFor="logical-contour-operations-create-new-segment-switch">
+          />
+          <Label
+            htmlFor="logical-contour-operations-create-new-segment-switch"
+            className="text-white cursor-pointer"
+          >
             Create a new segment
           </Label>
         </div>
         <div className="pl-9">
           <Input
-            className={cn(createNewSegment ? 'visible' : 'hidden')}
+            className={cn(
+              createNewSegment ? 'visible' : 'hidden',
+              'bg-primary-active/40 border-primary-light/50 text-white placeholder:text-white/60'
+            )}
             disabled={!createNewSegment}
             id="logical-contour-operations-create-new-segment-input"
             type="text"

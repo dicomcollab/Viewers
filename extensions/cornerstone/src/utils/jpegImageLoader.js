@@ -165,33 +165,33 @@ async function processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve
 
   img.src = URL.createObjectURL(jpegBlob);
 }
+// Get a cookie value by name (used for token or patientToken - both are sent to PACS WADO-URI)
+function getCookie(name) {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const nameEQ = name + '=';
+  const cookies = document.cookie.split(';');
+  for (let i = 0; i < cookies.length; i++) {
+    let cookie = cookies[i].trim();
+    if (cookie.indexOf(nameEQ) === 0) {
+      return decodeURIComponent(cookie.substring(nameEQ.length).trim());
+    }
+  }
+  return null;
+}
+
+// Token or patientToken from cookie - either is passed in Authorization header for WADO-URI (study/series/instance)
 function getTokenFromCookie() {
-  // Check for demo token first using global helper functions
+  // Demo token from global helper
   if (
     typeof window !== 'undefined' &&
     window.getDemoToken &&
     typeof window.getDemoToken === 'function'
   ) {
     const demoToken = window.getDemoToken();
-    if (demoToken) {
-      return demoToken;
-    }
+    if (demoToken) return demoToken;
   }
-
-  // Otherwise, get token from cookie using cookieUtils logic
-  const name = 'token';
-  const nameEQ = name + '=';
-  const cookies = document.cookie.split(';');
-  for (let i = 0; i < cookies.length; i++) {
-    let cookie = cookies[i];
-    while (cookie.charAt(0) === ' ') {
-      cookie = cookie.substring(1, cookie.length);
-    }
-    if (cookie.indexOf(nameEQ) === 0) {
-      return cookie.substring(nameEQ.length, cookie.length);
-    }
-  }
-  return null;
+  // Get token or patientToken from cookie (parent app may set either for PACS API)
+  return getCookie('token') || getCookie('patientToken') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt') || null;
 }
 /**
  * Custom image loader for JPEG images from WADO-URI endpoints

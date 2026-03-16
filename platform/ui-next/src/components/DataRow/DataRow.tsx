@@ -238,23 +238,23 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
       >
         <div
           className={`flex items-center ${
-            isSelected ? 'bg-popover' : 'bg-muted'
-          } group relative cursor-pointer`}
+            isSelected ? 'bg-primary-active' : 'bg-muted'
+          } group relative cursor-pointer transition-colors`}
           onClick={onSelect}
           data-cy="data-row"
         >
           {/* Secondary Selection Tint (below hover, always visible when secondary-selected) */}
           {isSecondarySelected && (
-            <div className="bg-primary/20 pointer-events-none absolute inset-0"></div>
+            <div className="bg-primary-active/30 pointer-events-none absolute inset-0"></div>
           )}
 
-          <div className="bg-primary/20 pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100"></div>
+          <div className="bg-primary-active/20 pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100"></div>
 
           {/* Number Box */}
           {number !== null && (
             <div
               className={`flex h-7 max-h-7 w-7 flex-shrink-0 items-center justify-center rounded-l border-r border-black text-base ${
-                isSelected ? 'bg-highlight text-black' : 'bg-muted text-muted-foreground'
+                isSelected ? 'bg-primary-light text-white' : 'bg-muted text-muted-foreground'
               } overflow-hidden`}
             >
               {number}
@@ -279,7 +279,7 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
                 <TooltipTrigger asChild>
                   <span
                     className={`cursor-default text-base ${
-                      isSelected ? 'text-highlight' : 'text-muted-foreground'
+                      isSelected ? 'text-white' : 'text-muted-foreground'
                     } [overflow:hidden] [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]`}
                   >
                     {title}
@@ -295,7 +295,7 @@ const DataRowComponent = React.forwardRef<HTMLDivElement, DataRowProps>(
             ) : (
               <span
                 className={`text-base ${
-                  isSelected ? 'text-highlight' : 'text-muted-foreground'
+                  isSelected ? 'text-white' : 'text-muted-foreground'
                 } [overflow:hidden] [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]`}
               >
                 {title}
