@@ -158,6 +158,14 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           return xhrRequestHeaders;
         }
 
+        // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
+        // @ts-expect-error - Share link helpers from app config
+        const shareLinkToken = typeof window !== 'undefined' && window.getShareLinkBasicToken && typeof window.getShareLinkBasicToken === 'function' ? window.getShareLinkBasicToken() : null;
+        if (shareLinkToken) {
+          xhrRequestHeaders.Authorization = `Basic ${shareLinkToken}`;
+          return xhrRequestHeaders;
+        }
+
         const authHeaders = userAuthenticationService.getAuthorizationHeader();
         if (authHeaders && authHeaders.Authorization) {
           xhrRequestHeaders.Authorization = authHeaders.Authorization;

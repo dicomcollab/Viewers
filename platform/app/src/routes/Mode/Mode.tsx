@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'react-router';
 import PropTypes from 'prop-types';
-import { utils } from '@ohif/core';
+import { utils, ViewportGridService } from '@ohif/core';
 import { ImageViewerProvider, DragAndDropProvider } from '@ohif/ui-next';
 import { useSearchParams } from '../../hooks';
 import { useAppConfig } from '@state';
@@ -62,6 +62,7 @@ export default function ModeRoute({
     hangingProtocolService,
     userAuthenticationService,
     customizationService,
+    viewportGridService,
   } = servicesManager.services;
 
   const { extensions, sopClassHandlers, hangingProtocol } = mode;
@@ -69,6 +70,7 @@ export default function ModeRoute({
   const runTimeHangingProtocolId = lowerCaseSearchParams.get('hangingprotocolid');
   const runTimeStageId = lowerCaseSearchParams.get('stageid');
   const token = lowerCaseSearchParams.get('token');
+  const shortCode = query.get('ShortCode') || query.get('shortcode') || lowerCaseSearchParams.get('shortcode');
 
   if (token) {
     updateAuthServiceAndCleanUrl(token, location, userAuthenticationService);
@@ -115,13 +117,26 @@ export default function ModeRoute({
       return;
     }
 
-    // Todo: this should not be here, data source should not care about params
+    const shortCodeInUrl = query.get('ShortCode') || query.get('shortcode') || lowerCaseSearchParams.get('shortcode');
+
     const initializeDataSource = async (params, query) => {
+      if (shortCodeInUrl && typeof window !== 'undefined' && window.checkShortCodeExpiry) {
+        const result = await window.checkShortCodeExpiry(shortCodeInUrl);
+        if (result?.data?.isExpired === true || (result?.error && !result?.data)) {
+          window.alert('This share link has expired. This tab will close.');
+          window.close();
+          if (!window.closed) window.location.href = '/';
+          return;
+        }
+      }
+
       await dataSource.initialize({
         params,
         query,
       });
-      setStudyInstanceUIDs(dataSource.getStudyInstanceUIDs({ params, query }));
+      if (isMounted.current) {
+        setStudyInstanceUIDs(dataSource.getStudyInstanceUIDs({ params, query }));
+      }
     };
 
     initializeDataSource(params, query);
@@ -264,7 +279,7 @@ export default function ModeRoute({
         );
       }
 
-      return defaultRouteInit(
+      const defaultUnsubs = await defaultRouteInit(
         {
           servicesManager,
           studyInstanceUIDs,
@@ -275,6 +290,37 @@ export default function ModeRoute({
         hangingProtocolIdToUse,
         stageIndexToUse
       );
+
+      const allUnsubs = [...(unsubs || []), ...(defaultUnsubs || [])];
+
+      // When viewing via share link (ShortCode), re-check expiry on series/viewport change
+      const shortCodeInRoute = typeof window !== 'undefined' && window.getShortCodeFromUrl ? window.getShortCodeFromUrl() : null;
+      if (shortCodeInRoute && viewportGridService) {
+        const checkShareLinkExpiry = async () => {
+          const sc = window.getShortCodeFromUrl?.();
+          if (!sc || !window.checkShortCodeExpiry) return;
+          const result = await window.checkShortCodeExpiry(sc);
+          if (result?.data?.isExpired === true) {
+            window.alert('This share link has expired. This tab will close.');
+            window.close();
+            if (!window.closed) window.location.href = '/';
+          }
+        };
+        const unsubActive = viewportGridService.subscribe(
+          ViewportGridService.EVENTS.ACTIVE_VIEWPORT_ID_CHANGED,
+          checkShareLinkExpiry
+        );
+        const unsubGrid = viewportGridService.subscribe(
+          ViewportGridService.EVENTS.GRID_STATE_CHANGED,
+          checkShareLinkExpiry
+        );
+        allUnsubs.push(() => {
+          unsubActive?.unsubscribe?.();
+          unsubGrid?.unsubscribe?.();
+        });
+      }
+
+      return allUnsubs;
     };
 
     let unsubscriptions;

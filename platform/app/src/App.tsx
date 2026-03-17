@@ -169,6 +169,17 @@ function App({
         };
       }
 
+      // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
+      // @ts-ignore - Share link helpers from app config
+      const isShareLink = window.isShareLinkMode && typeof window.isShareLinkMode === 'function' ? window.isShareLinkMode() : false;
+      // @ts-ignore
+      const shareLinkToken = window.getShareLinkBasicToken && typeof window.getShareLinkBasicToken === 'function' ? window.getShareLinkBasicToken() : null;
+      if (isShareLink && shareLinkToken) {
+        return {
+          Authorization: `Basic ${shareLinkToken}`,
+        };
+      }
+
       // Get token from cookie - use configured cookie name, then patientToken (for patient-facing app), then common names
       // Either token or patientToken is passed by the parent application; both are sent to PACS API (study, series, instance)
       const cookieName = cookieAuth.cookieName || 'token';

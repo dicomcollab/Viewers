@@ -30,6 +30,58 @@ function getDemoToken() {
   return null;
 }
 
+// Share link (ShortCode) - RIS API base and basic token for PACS when viewing via share link
+const RIS_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+// Use same token as demo for share links, or set a dedicated share-link read-only token
+const SHARE_LINK_BASIC_TOKEN = DEMO_TOKEN;
+
+function getShortCodeFromUrl() {
+  if (typeof window === 'undefined' || !window.location) return null;
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('ShortCode') || urlParams.get('shortcode') || null;
+}
+
+/**
+ * Call RIS API to check if the share link (short code) is expired.
+ * Stores result in window._shareLinkExpiry for use by getAuthorizationHeader.
+ * @param {string} shortCode
+ * @returns {Promise<{ error: boolean, data?: { isExpired: boolean, expiresAt?: string, studyInstanceUID?: string }, errorMessage?: string }>}
+ */
+async function checkShortCodeExpiry(shortCode) {
+  if (!shortCode) return { error: true, errorMessage: 'No shortCode' };
+  const url = `${RIS_API_BASE}/api/v1/shorturl/check-expiry/${encodeURIComponent(shortCode)}`;
+  try {
+    const res = await fetch(url);
+    const json = await res.json();
+    if (typeof window !== 'undefined') {
+      window['_shareLinkExpiry'] = json.error === false && json.data
+        ? { shortCode: json.data.shortCode, isExpired: json.data.isExpired, expiresAt: json.data.expiresAt, studyInstanceUID: json.data.studyInstanceUID }
+        : { isExpired: true };
+    }
+    return json;
+  } catch (err) {
+    if (typeof window !== 'undefined') {
+      window['_shareLinkExpiry'] = { isExpired: true, error: err?.message };
+    }
+    return { error: true, errorMessage: err?.message || 'check-expiry failed' };
+  }
+}
+
+function isShareLinkMode() {
+  return !!getShortCodeFromUrl();
+}
+
+function getShareLinkExpiryResult() {
+  return typeof window !== 'undefined' ? window['_shareLinkExpiry'] : null;
+}
+
+function getShareLinkBasicToken() {
+  if (!isShareLinkMode()) return null;
+  const result = getShareLinkExpiryResult();
+  if (!result || result.isExpired) return null;
+  return SHARE_LINK_BASIC_TOKEN && SHARE_LINK_BASIC_TOKEN !== 'YOUR_DEMO_TOKEN_HERE' ? SHARE_LINK_BASIC_TOKEN : null;
+}
+
 // Make demo token globally accessible for extensions
 if (typeof window !== 'undefined') {
   // @ts-expect-error - Adding custom property to window
@@ -38,6 +90,12 @@ if (typeof window !== 'undefined') {
   window.DEMO_STUDY_UID = DEMO_STUDY_UID;
   window.isDemoRoute = isDemoRoute;
   window.getDemoToken = getDemoToken;
+  // Share link (ShortCode) helpers
+  window.getShortCodeFromUrl = getShortCodeFromUrl;
+  window.checkShortCodeExpiry = checkShortCodeExpiry;
+  window.isShareLinkMode = isShareLinkMode;
+  window.getShareLinkExpiryResult = getShareLinkExpiryResult;
+  window.getShareLinkBasicToken = getShareLinkBasicToken;
 }
 
 // Helper function to get token from cookie (token or patientToken - either is passed to PACS API)
