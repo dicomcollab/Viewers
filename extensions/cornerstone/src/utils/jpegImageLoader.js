@@ -239,11 +239,22 @@ function loadJPEGImage(imageId) {
             ? window.getDemoToken()
             : null;
 
+        // Share link (ShortCode): when URL has ShortCode and not expired, use Basic token for WADO-URI
+        const shareLinkToken =
+          typeof window !== 'undefined' &&
+          window.getShareLinkBasicToken &&
+          typeof window.getShareLinkBasicToken === 'function'
+            ? window.getShareLinkBasicToken()
+            : null;
+
         // Build authorization header
         let authHeader = '';
         if (isDemo && demoToken) {
           // Use Basic auth for demo token
           authHeader = `Basic ${demoToken}`;
+        } else if (shareLinkToken) {
+          // Use Basic auth for share link (ShortCode) - same as PACS studies/series/instances
+          authHeader = `Basic ${shareLinkToken}`;
         } else if (token) {
           // Use Bearer token for regular requests
           authHeader = `Bearer ${token}`;
