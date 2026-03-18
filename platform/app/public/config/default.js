@@ -41,29 +41,48 @@ function getShortCodeFromUrl() {
   return urlParams.get('ShortCode') || urlParams.get('shortcode') || null;
 }
 
+// Cache for check-expiry to avoid multiple API calls (e.g. on load + initial layout events)
+var _shareLinkExpiryCache = { apiResponse: null, expiryState: null, shortCode: null, ts: 0 };
+var SHARE_LINK_EXPIRY_CACHE_MS = 60000; // 1 minute - same shortCode reuses result
+
 /**
  * Call RIS API to check if the share link (short code) is expired.
  * Stores result in window._shareLinkExpiry for use by getAuthorizationHeader.
+ * Uses a short-lived cache so the API is only called once per shortCode per minute.
  * @param {string} shortCode
  * @returns {Promise<{ error: boolean, data?: { isExpired: boolean, expiresAt?: string, studyInstanceUID?: string }, errorMessage?: string }>}
  */
 async function checkShortCodeExpiry(shortCode) {
   if (!shortCode) return { error: true, errorMessage: 'No shortCode' };
+
+  const now = Date.now();
+  if (_shareLinkExpiryCache.shortCode === shortCode && _shareLinkExpiryCache.apiResponse != null && (now - _shareLinkExpiryCache.ts) < SHARE_LINK_EXPIRY_CACHE_MS) {
+    if (typeof window !== 'undefined' && _shareLinkExpiryCache.expiryState) {
+      window['_shareLinkExpiry'] = _shareLinkExpiryCache.expiryState;
+    }
+    return _shareLinkExpiryCache.apiResponse;
+  }
+
   const url = `${RIS_API_BASE}/api/v1/shorturl/check-expiry/${encodeURIComponent(shortCode)}`;
   try {
     const res = await fetch(url);
     const json = await res.json();
+    const expiryState = json.error === false && json.data
+      ? { shortCode: json.data.shortCode, isExpired: json.data.isExpired, expiresAt: json.data.expiresAt, studyInstanceUID: json.data.studyInstanceUID }
+      : { isExpired: true };
     if (typeof window !== 'undefined') {
-      window['_shareLinkExpiry'] = json.error === false && json.data
-        ? { shortCode: json.data.shortCode, isExpired: json.data.isExpired, expiresAt: json.data.expiresAt, studyInstanceUID: json.data.studyInstanceUID }
-        : { isExpired: true };
+      window['_shareLinkExpiry'] = expiryState;
     }
+    _shareLinkExpiryCache = { apiResponse: json, expiryState: expiryState, shortCode: shortCode, ts: now };
     return json;
   } catch (err) {
+    const expiryState = { isExpired: true, error: err?.message };
     if (typeof window !== 'undefined') {
-      window['_shareLinkExpiry'] = { isExpired: true, error: err?.message };
+      window['_shareLinkExpiry'] = expiryState;
     }
-    return { error: true, errorMessage: err?.message || 'check-expiry failed' };
+    const apiResponse = { error: true, errorMessage: err?.message || 'check-expiry failed' };
+    _shareLinkExpiryCache = { apiResponse: apiResponse, expiryState: expiryState, shortCode: shortCode, ts: now };
+    return apiResponse;
   }
 }
 
