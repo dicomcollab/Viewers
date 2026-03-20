@@ -178,10 +178,45 @@ const sortImagesByPatientPosition = images => {
     );
     return { distance, image };
   });
-  // Sort images based on the computed distances
-  distanceInstancePairs.sort((a, b) => b.distance - a.distance);
+  // Candidate orders by patient position (both directions are valid geometrically).
+  const descendingByDistance = [...distanceInstancePairs].sort((a, b) => b.distance - a.distance);
+  const ascendingByDistance = [...descendingByDistance].reverse();
+
+  // If InstanceNumber is available, pick direction that keeps it increasing.
+  // This prevents reversed stack navigation when server ordering and spatial
+  // direction are opposite.
+  const getInstanceNumber = image => {
+    const value = parseInt(image?.InstanceNumber, 10);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  const firstAscendingInstanceNumber = getInstanceNumber(ascendingByDistance[0]?.image);
+  const lastAscendingInstanceNumber = getInstanceNumber(
+    ascendingByDistance[ascendingByDistance.length - 1]?.image
+  );
+  const firstDescendingInstanceNumber = getInstanceNumber(descendingByDistance[0]?.image);
+  const lastDescendingInstanceNumber = getInstanceNumber(
+    descendingByDistance[descendingByDistance.length - 1]?.image
+  );
+
+  const hasAscendingInstanceRange =
+    firstAscendingInstanceNumber !== null &&
+    lastAscendingInstanceNumber !== null &&
+    firstAscendingInstanceNumber <= lastAscendingInstanceNumber;
+  const hasDescendingInstanceRange =
+    firstDescendingInstanceNumber !== null &&
+    lastDescendingInstanceNumber !== null &&
+    firstDescendingInstanceNumber <= lastDescendingInstanceNumber;
+
+  const chosenOrder =
+    hasAscendingInstanceRange && !hasDescendingInstanceRange
+      ? ascendingByDistance
+      : hasDescendingInstanceRange && !hasAscendingInstanceRange
+      ? descendingByDistance
+      : descendingByDistance;
+
   // Reorder the images in the original array
-  for (const [index, item] of distanceInstancePairs.entries()) {
+  for (const [index, item] of chosenOrder.entries()) {
     images[index] = item.image;
   }
 
