@@ -73,6 +73,27 @@ function PanelStudyBrowser({
     setViewPresets(newViewPresets);
   };
 
+  /**
+   * StudyBrowserSort only mounts when the settings row is visible; with settings off (default),
+   * active display sets never get sorted and stay in server/insertion order. Hanging protocols
+   * still use series number, so the main viewport and the thumbnail strip disagree. Apply the
+   * default study-browser sort (first customization entry, ascending) when settings are hidden.
+   */
+  const applyDefaultStudyBrowserSortIfNeeded = useCallback(() => {
+    const showStudyBrowserSettings = actionIcons.find(icon => icon.id === 'settings')?.value;
+    if (showStudyBrowserSettings) {
+      return;
+    }
+    const sortFunctions = customizationService.getCustomization('studyBrowser.sortFunctions') as
+      | { sortFunction: (a: unknown, b: unknown) => number }[]
+      | undefined;
+    const sortFn = sortFunctions?.[0]?.sortFunction;
+    if (typeof sortFn !== 'function') {
+      return;
+    }
+    displaySetService.sortDisplaySets(sortFn, 'ascending', true);
+  }, [actionIcons, customizationService, displaySetService]);
+
   const mapDisplaySetsWithState = customMapDisplaySets || _mapDisplaySets;
 
   // Subscribe to instance load progress (prefetcher + viewport loads) for study panel progress bar
@@ -247,6 +268,7 @@ function PanelStudyBrowser({
 
   // ~~ displaySets
   useEffect(() => {
+    applyDefaultStudyBrowserSortIfNeeded();
     const currentDisplaySets = displaySetService.activeDisplaySets;
 
     if (!currentDisplaySets.length) {
@@ -280,6 +302,7 @@ function PanelStudyBrowser({
 
     setDisplaySets(mappedDisplaySets);
   }, [
+    applyDefaultStudyBrowserSortIfNeeded,
     displaySetService.activeDisplaySets,
     displaySetsLoadingState,
     viewports,
@@ -347,6 +370,7 @@ function PanelStudyBrowser({
     const SubscriptionDisplaySetsChanged = displaySetService.subscribe(
       displaySetService.EVENTS.DISPLAY_SETS_CHANGED,
       changedDisplaySets => {
+        applyDefaultStudyBrowserSortIfNeeded();
         const mappedDisplaySets = mapDisplaySetsWithState(
           changedDisplaySets,
           displaySetsLoadingState,
@@ -366,6 +390,7 @@ function PanelStudyBrowser({
     const SubscriptionDisplaySetMetaDataInvalidated = displaySetService.subscribe(
       displaySetService.EVENTS.DISPLAY_SET_SERIES_METADATA_INVALIDATED,
       () => {
+        applyDefaultStudyBrowserSortIfNeeded();
         const mappedDisplaySets = mapDisplaySetsWithState(
           displaySetService.getActiveDisplaySets(),
           displaySetsLoadingState,
@@ -387,6 +412,7 @@ function PanelStudyBrowser({
       SubscriptionDisplaySetMetaDataInvalidated.unsubscribe();
     };
   }, [
+    applyDefaultStudyBrowserSortIfNeeded,
     displaySetsLoadingState,
     thumbnailImageSrcMap,
     viewports,

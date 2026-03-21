@@ -22,7 +22,25 @@ export default {
     {
       label: i18n.t('StudyBrowser:Series Number'),
       sortFunction: (a, b) => {
-        return a?.SeriesNumber - b?.SeriesNumber;
+        const numA = Number(a?.SeriesNumber);
+        const numB = Number(b?.SeriesNumber);
+        const finiteA = Number.isFinite(numA);
+        const finiteB = Number.isFinite(numB);
+        if (finiteA && finiteB) {
+          if (numA !== numB) {
+            return numA - numB;
+          }
+        } else {
+          if (finiteA !== finiteB) {
+            return finiteA ? -1 : 1;
+          }
+        }
+        const dateA = Date.parse(`${a?.SeriesDate ?? ''} ${a?.SeriesTime ?? ''}`);
+        const dateB = Date.parse(`${b?.SeriesDate ?? ''} ${b?.SeriesTime ?? ''}`);
+        if (Number.isFinite(dateA) && Number.isFinite(dateB) && dateA !== dateB) {
+          return dateA - dateB;
+        }
+        return (a?.SeriesInstanceUID ?? '').localeCompare(b?.SeriesInstanceUID ?? '');
       },
     },
     {
