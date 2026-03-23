@@ -455,6 +455,16 @@ window.config = {
     prefetch: 25,
   },
   showErrorDetails: 'always', // 'always', 'dev', 'production'
+  // RIS → viewer: postMessage LOAD_STUDY to reuse one tab (SPA navigate, no new tab / full reload).
+  // Set enabled true and list your RIS origins (exact event.origin strings).
+  risPostMessage: {
+    enabled: true,
+    allowedOrigins: [
+      'http://localhost:5173',
+      'https://synapse.med-pacs.com',
+      // 'https://your-ris-production-origin',
+    ],
+  },
   // filterQueryParam: false,
   // Defines multi-monitor layouts
   multimonitor: [
