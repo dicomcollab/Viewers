@@ -38,6 +38,7 @@ import OpenIdConnectRoutes from './utils/OpenIdConnectRoutes';
 import { ShepherdJourneyProvider } from 'react-shepherd';
 import { getCookie } from './utils/cookieUtils';
 import { queryClient } from './utils/queryClient';
+import RisPostMessageBridge from './components/RisPostMessageBridge';
 import './App.css';
 
 let commandsManager: CommandsManager,
@@ -246,6 +247,7 @@ function App({
         basename={routerBasename}
         future={routerFutureFlags}
       >
+        <RisPostMessageBridge />
         {authRoutes}
         {appRoutes}
       </BrowserRouter>

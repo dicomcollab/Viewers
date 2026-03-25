@@ -156,6 +156,12 @@ declare global {
         maxNumPrefetchRequests: number;
         order: 'closest' | 'downward' | 'upward';
       };
+      /** Parent RIS postMessage bridge: switch study in-tab without full reload */
+      risPostMessage?: {
+        enabled?: boolean;
+        /** Exact origins allowed to send LOAD_STUDY (event.origin must match) */
+        allowedOrigins?: string[];
+      };
     }
 
     export interface Test {
