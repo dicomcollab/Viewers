@@ -9,9 +9,15 @@ import {
   Button,
   ToolButton,
 } from '../';
-import { IconPresentationProvider } from '@ohif/ui-next';
+import { IconPresentationProvider, useIconPresentation } from '../../contextProviders';
 
 import NavBar from '../NavBar';
+
+/** Settings gear must read icon size from IconPresentationProvider (same as toolbar ToolButtons). */
+function HeaderSettingsGearIcon() {
+  const { className } = useIconPresentation();
+  return <Icons.GearSettings className={className} />;
+}
 
 // Todo: we should move this component to composition and remove props base
 
@@ -31,6 +37,8 @@ interface HeaderProps {
   Secondary?: ReactNode;
   UndoRedo?: ReactNode;
   isIframeMode?: boolean;
+  /** When set, shows “← Report” after the logo; full navigation to RIS/Synapse. */
+  reportNavigationHref?: string;
 }
 
 function Header({
@@ -43,6 +51,7 @@ function Header({
   UndoRedo,
   Secondary,
   isIframeMode = false,
+  reportNavigationHref,
   ...props
 }: HeaderProps): ReactNode {
   const onClickReturn = () => {
@@ -53,32 +62,51 @@ function Header({
 
   return (
     <IconPresentationProvider
-      size="large"
+      size={isIframeMode ? 30 : 'large'}
       IconContainer={ToolButton}
     >
       <NavBar
         isSticky={isSticky}
         {...props}
       >
-        <div className={`relative ${isIframeMode ? 'h-[36px]' : 'h-[48px]'} flex items-center overflow-hidden ${isIframeMode ? 'iframe-toolbar-compact' : ''}`}>
+        <div
+          className={`relative flex items-center overflow-hidden ${isIframeMode ? 'h-[44px] iframe-toolbar-compact' : 'h-[48px]'}`}
+        >
           {/* Left section: Logo and return button */}
-          <div className={`flex-shrink-0 flex items-center z-10 bg-primary-main ${isIframeMode ? 'pr-1' : 'pr-2'}`}>
-            <div
-              className={classNames(
-                'inline-flex items-center',
-                isReturnEnabled && 'cursor-pointer'
-              )}
-              onClick={onClickReturn}
-              data-cy="return-to-work-list"
-            >
-              {/* {isReturnEnabled && <Icons.ArrowLeft className={`text-white ml-1 flex-shrink-0 ${isIframeMode ? 'h-5 w-5' : 'h-7 w-7'}`} />} */}
-              <div className={`flex-shrink-0 ${isIframeMode ? 'ml-0.5' : 'ml-1'}`}>
-                {WhiteLabeling?.createLogoComponentFn?.(React, props) ||
-                  <div className={isIframeMode ? 'scale-75 origin-left' : ''}>
-                    <Icons.OHIFLogo />
-                  </div>
-                }
+          <div className={`flex-shrink-0 flex items-center gap-1 z-10 bg-primary-main ${isIframeMode ? 'pr-1' : 'pr-2'}`}>
+            <div className="flex items-center gap-5">
+              <div
+                className={classNames(
+                  'inline-flex items-center',
+                  isReturnEnabled && 'cursor-pointer'
+                )}
+                onClick={onClickReturn}
+                data-cy="return-to-work-list"
+              >
+                <div className={`flex-shrink-0 ${isIframeMode ? 'ml-0.5' : 'ml-1'}`}>
+                  {WhiteLabeling?.createLogoComponentFn?.(React, props) ||
+                    <div className={isIframeMode ? 'scale-[0.88] origin-left' : ''}>
+                      <Icons.OHIFLogo />
+                    </div>
+                  }
+                </div>
               </div>
+              {reportNavigationHref ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  data-cy="header-report-ris"
+                  className={classNames(
+                    'shrink-0 whitespace-nowrap px-2 font-medium bg-[#00000080] rounded-md text-white',
+                    isIframeMode ? 'h-8 text-xs' : 'h-9 text-sm'
+                  )}
+                  onClick={() => {
+                    window.location.assign(reportNavigationHref);
+                  }}
+                >
+                  ← Report
+                </Button>
+              ) : null}
             </div>
             {Secondary && !isIframeMode && (
               <div className="ml-4 h-8 flex items-center flex-shrink-0">{Secondary}</div>
@@ -104,9 +132,9 @@ function Header({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`text-white hover:bg-primary-active h-full w-full ${isIframeMode ? 'scale-90' : ''}`}
+                    className={`text-white hover:bg-primary-active h-full w-full ${isIframeMode ? 'scale-100' : ''}`}
                   >
-                    <Icons.GearSettings />
+                    <HeaderSettingsGearIcon />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

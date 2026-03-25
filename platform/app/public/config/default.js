@@ -427,6 +427,13 @@ window.config = {
   modes: [],
   customizationService: {},
   showStudyList: true,
+  // “← Report” → /createreport/{createReportContextId}/{StudyInstanceUID}?tempId=
+  // Local dev (localhost): createReportAppBaseUrl. Lens live / production: origin of risWorklistUrl (Synapse), or set createReportAppBaseUrlProduction to override.
+  createReportAppBaseUrl: 'http://localhost:5173',
+  // createReportAppBaseUrlProduction: 'https://synapse.med-pacs.com', // optional; default = new URL(risWorklistUrl).origin
+  createReportContextId: '69bcdb60fa67f3975d725096',
+  risWorklistUrl: 'https://synapse.med-pacs.com/worklist',
+  // risReportUrl: 'https://synapse.med-pacs.com/report',
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,
   // below flag is for performance reasons, but it might not work for all servers
@@ -868,12 +875,29 @@ window.config = {
     },
   ],
   httpErrorHandler: error => {
-    // This is 429 when rejected from the public idc sandbox too often.
-    // @ts-expect-error - error may have status property
-    console.warn(error.status);
-
-    // Could use services manager here to bring up a dialog/modal if needed.
-    console.warn('test, navigate to https://ohif.org/');
+    // dicomweb-client rejects with Error('request failed') + status, request (XHR), response
+    // @ts-expect-error - augmented error from dicomweb-client
+    const status = error?.status ?? error?.statusCode;
+    // @ts-expect-error
+    const xhr = error?.request;
+    const url =
+      (xhr && (xhr.responseURL || xhr._url || xhr.url)) || '(see Network tab for failing URL)';
+    console.error('[DICOMweb] request failed', {
+      status,
+      url,
+      message: error?.message,
+    });
+    if (status === 401 || status === 403) {
+      console.warn(
+        '[DICOMweb] Auth rejected — check cookie token / Basic auth for your PACS (and ShortCode share link if used).'
+      );
+    } else if (status === 404) {
+      console.warn('[DICOMweb] Not found — study/series/instance may be missing or wrong data source.');
+    } else if (status === 0 || status == null) {
+      console.warn(
+        '[DICOMweb] Status 0 / unknown — often CORS, blocked network, wrong HTTPS, or adblock.'
+      );
+    }
   },
   // segmentation: {
   //   segmentLabel: {

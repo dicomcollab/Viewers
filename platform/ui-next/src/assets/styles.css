@@ -37,42 +37,44 @@
 
 /* IFRAME MODE OPTIMIZATIONS */
 .iframe-toolbar-compact {
-  /* Compact toolbar for iframe mode */
-  height: 36px !important;
+  /* Slightly compact iframe bar — between “tiny” and the previous 48px pass */
+  height: 44px !important;
 }
 
 .iframe-toolbar-compact button,
 .iframe-toolbar-compact [data-tool] button,
 .iframe-toolbar-compact .tool-button {
-  /* Make toolbar buttons more compact in iframe */
-  width: 28px !important;
-  height: 28px !important;
-  min-width: 28px !important;
-  min-height: 28px !important;
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  min-height: 34px !important;
   padding: 2px !important;
 }
 
+/* Override SVG width/height attributes + Tailwind utilities */
 .iframe-toolbar-compact svg,
 .iframe-toolbar-compact [data-tool] svg,
+.iframe-toolbar-compact [data-tool] button svg,
+.iframe-toolbar-compact button svg,
 .iframe-toolbar-compact .tool-button svg {
-  /* Smaller icons in iframe mode */
-  width: 16px !important;
-  height: 16px !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  flex-shrink: 0 !important;
 }
 
 .iframe-toolbar-compact .dropdown-trigger,
 .iframe-toolbar-compact [role="button"] {
-  /* Compact dropdown triggers */
-  width: 24px !important;
-  height: 28px !important;
-  min-width: 24px !important;
-  padding: 1px 2px !important;
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  padding: 2px 4px !important;
 }
 
 .iframe-toolbar-compact .dropdown-trigger svg {
-  /* Smaller dropdown icons */
-  width: 14px !important;
-  height: 14px !important;
+  width: 30px !important;
+  height: 30px !important;
 }
 
 /* Make More Tools button more prominent in iframe mode */
@@ -87,19 +89,19 @@
 
 /* Override any conflicting button styles in iframe mode */
 .iframe-toolbar-compact .w-10 {
-  width: 28px !important;
+  width: 34px !important;
 }
 
 .iframe-toolbar-compact .h-10 {
-  height: 28px !important;
+  height: 34px !important;
 }
 
 .iframe-toolbar-compact .w-8 {
-  width: 24px !important;
+  width: 30px !important;
 }
 
 .iframe-toolbar-compact .h-8 {
-  height: 24px !important;
+  height: 30px !important;
 }
 
 /* Compact spacing */

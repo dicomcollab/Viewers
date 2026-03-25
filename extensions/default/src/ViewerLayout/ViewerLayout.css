@@ -1,17 +1,21 @@
-/* Compact toolbar styles for iframe mode */
+/* Iframe toolbar: match ui-next (~34px hit area, ~30px icon) */
 .iframe-toolbar-compact button,
 .iframe-toolbar-compact [data-tool] button {
-  width: 1.75rem !important;
-  height: 1.75rem !important;
-  min-width: 1.75rem !important;
-  min-height: 1.75rem !important;
-  padding: 0.25rem !important;
+  width: 2.125rem !important;
+  height: 2.125rem !important;
+  min-width: 2.125rem !important;
+  min-height: 2.125rem !important;
+  padding: 0.125rem !important;
 }
 
 .iframe-toolbar-compact svg,
-.iframe-toolbar-compact [data-tool] svg {
-  width: 1rem !important;
-  height: 1rem !important;
+.iframe-toolbar-compact [data-tool] svg,
+.iframe-toolbar-compact [data-tool] button svg,
+.iframe-toolbar-compact button svg {
+  width: 1.875rem !important;
+  height: 1.875rem !important;
+  min-width: 1.875rem !important;
+  min-height: 1.875rem !important;
 }
 
 .iframe-toolbar-compact .gap-\\[4px\\] {
@@ -23,21 +27,25 @@
   margin: 0 0.125rem;
 }
 
-/* Responsive toolbar for small screens and iframe */
+/* Narrow iframe */
 @media (max-width: 768px), (max-height: 600px) {
   .iframe-toolbar-compact button,
   .iframe-toolbar-compact [data-tool] button {
-    width: 1.5rem !important;
-    height: 1.5rem !important;
-    min-width: 1.5rem !important;
-    min-height: 1.5rem !important;
+    width: 2rem !important;
+    height: 2rem !important;
+    min-width: 2rem !important;
+    min-height: 2rem !important;
     padding: 0.125rem !important;
   }
 
   .iframe-toolbar-compact svg,
-  .iframe-toolbar-compact [data-tool] svg {
-    width: 0.875rem !important;
-    height: 0.875rem !important;
+  .iframe-toolbar-compact [data-tool] svg,
+  .iframe-toolbar-compact [data-tool] button svg,
+  .iframe-toolbar-compact button svg {
+    width: 1.75rem !important;
+    height: 1.75rem !important;
+    min-width: 1.75rem !important;
+    min-height: 1.75rem !important;
   }
 
   .iframe-toolbar-compact .gap-\\[4px\\] {

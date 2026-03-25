@@ -1,5 +1,18 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // IconPresentationProvider builds classes like h-[36px] w-[36px] at runtime — must exist in CSS.
+  safelist: [
+    'h-[28px]',
+    'w-[28px]',
+    'h-[30px]',
+    'w-[30px]',
+    'h-[32px]',
+    'w-[32px]',
+    'h-[36px]',
+    'w-[36px]',
+    'h-[40px]',
+    'w-[40px]',
+  ],
   // Note: in Tailwind 3.0, JIT will purge unused styles by default
   // but in development, it is often useful to disable this to see
   // and try out all the styles that are available.

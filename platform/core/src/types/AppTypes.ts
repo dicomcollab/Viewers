@@ -127,6 +127,16 @@ declare global {
       activateViewportBeforeInteraction?: boolean;
       autoPlayCine?: boolean;
       showStudyList?: boolean;
+      /** RIS / Synapse worklist URL (used for root redirect and optional header link). */
+      risWorklistUrl?: string;
+      /** RIS report / return URL for the viewer header; falls back to risWorklistUrl when unset. */
+      risReportUrl?: string;
+      /** Local/dev report SPA origin (default http://localhost:5173). Used when the viewer runs on localhost / 127.0.0.1. */
+      createReportAppBaseUrl?: string;
+      /** Production report SPA origin (e.g. https://synapse.med-pacs.com). Used when the viewer is not local; falls back to risWorklistUrl origin if unset. */
+      createReportAppBaseUrlProduction?: string;
+      /** Default path segment for createreport (order/patient id). Override per session with ?reportContextId= on the viewer URL. */
+      createReportContextId?: string;
       whiteLabeling?: Record<string, unknown>;
       httpErrorHandler?: (error: Error) => void;
       dangerouslyUseDynamicConfig?: {
