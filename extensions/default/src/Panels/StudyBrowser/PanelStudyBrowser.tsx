@@ -497,25 +497,40 @@ function PanelStudyBrowser({
       return 100;
     }
 
-    let progressSum = 0;
-    activeDisplaySets.forEach(ds => {
-      const uid = ds.displaySetInstanceUID;
-      const fromState = displaySetsLoadingState?.[uid];
-      const fromPrefetcher = studyPrefetcherService?.getDisplaySetLoadProgress?.(uid);
-      const raw = fromState ?? fromPrefetcher;
-      const progress = typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
-      const normalized =
-        typeof progress === 'number' && !Number.isNaN(progress)
-          ? Math.max(0, Math.min(1, progress))
-          : 0;
-      progressSum += normalized;
-    });
-
-    return Math.round((progressSum / activeDisplaySets.length) * 100);
+    // Initial study panel loading should track only the first display set.
+    // Remaining instances/series continue in background without blocking the panel.
+    const firstDisplaySet = activeDisplaySets[0];
+    const uid = firstDisplaySet?.displaySetInstanceUID;
+    if (!uid) {
+      return 100;
+    }
+    const fromState = displaySetsLoadingState?.[uid];
+    const fromPrefetcher = studyPrefetcherService?.getDisplaySetLoadProgress?.(uid);
+    const raw = fromState ?? fromPrefetcher;
+    const progress = typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
+    const normalized =
+      typeof progress === 'number' && !Number.isNaN(progress)
+        ? Math.max(0, Math.min(1, progress))
+        : 0;
+    return Math.round(normalized * 100);
   }, [displaySetService, displaySetsLoadingState, studyPrefetcherService, displaySets.length]);
 
   const hasRenderableDisplaySets = displaySetService.getActiveDisplaySets?.().length > 0;
-  const showInitialStudyLoading = isStudyPanelLoading || (hasRenderableDisplaySets && studyLoadingPercent < 100);
+  const hasViewportReadyWithDisplaySet = useMemo(() => {
+    if (!viewports?.size) {
+      return false;
+    }
+    for (const viewport of viewports.values()) {
+      if (viewport?.displaySetInstanceUIDs?.length && viewport?.isReady === true) {
+        return true;
+      }
+    }
+    return false;
+  }, [viewports]);
+
+  // Hide study panel loader as soon as first viewport is ready (first image available).
+  const showInitialStudyLoading =
+    isStudyPanelLoading || (hasRenderableDisplaySets && !hasViewportReadyWithDisplaySet);
 
   return (
     <>

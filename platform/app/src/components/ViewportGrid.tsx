@@ -4,6 +4,81 @@ import { ViewportGrid, ViewportPane, ProgressLoadingBar } from '@ohif/ui-next';
 import { useViewportGrid } from '@ohif/ui-next';
 import EmptyViewport from './EmptyViewport';
 import { useAppConfig } from '@state';
+import { EVENTS, eventTarget } from '@cornerstonejs/core';
+
+type WadoUidKey = { studyUID: string | null; seriesUID: string | null; objectUID: string | null };
+
+function normalizeImageIdToUrl(imageId?: string) {
+  if (!imageId || typeof imageId !== 'string') {
+    return null;
+  }
+
+  const idx = imageId.indexOf(':');
+  const proto = idx > -1 ? imageId.slice(0, idx) : null;
+  const hasKnownPrefix = proto && ['dicomweb', 'dicomweb-jpeg', 'wadouri'].includes(proto);
+  let url = hasKnownPrefix ? imageId.slice(idx + 1) : imageId;
+  if (url.startsWith('//')) {
+    url = url.slice(2);
+  }
+  return url || null;
+}
+
+function extractWadoUids(url: string | null) {
+  if (!url || typeof url !== 'string') {
+    return null;
+  }
+
+  try {
+    // Use a dummy base to handle relative URLs.
+    const parsed = new URL(url, 'http://ohif.local');
+    const params = parsed.searchParams;
+    const studyUID = params.get('studyUID') || params.get('studyInstanceUID') || null;
+    const seriesUID = params.get('seriesUID') || null;
+    const objectUID = params.get('objectUID') || params.get('sopInstanceUID') || null;
+    if (!studyUID && !seriesUID && !objectUID) {
+      return null;
+    }
+    return { studyUID, seriesUID, objectUID };
+  } catch {
+    // Fallback: quick parsing for strings that aren't valid URLs.
+    const get = (key: string) => {
+      const m = url.match(new RegExp(`[?&]${key}=([^&]+)`));
+      return m ? decodeURIComponent(m[1]) : null;
+    };
+    const studyUID = get('studyUID') || get('studyInstanceUID');
+    const seriesUID = get('seriesUID');
+    const objectUID = get('objectUID') || get('sopInstanceUID');
+    if (!studyUID && !seriesUID && !objectUID) {
+      return null;
+    }
+    return { studyUID, seriesUID, objectUID };
+  }
+}
+
+function isVolumeLikeViewport(viewportOptions: any) {
+  const viewportType = viewportOptions?.viewportType;
+  if (typeof viewportType !== 'string') {
+    return false;
+  }
+
+  // Common OHIF/CS viewport types: 'stack', 'volume', 'orthographic', etc.
+  return viewportType.toLowerCase().includes('volume') || viewportType.toLowerCase().includes('orthographic');
+}
+
+function doesUidMatch(targetKey: WadoUidKey | null, requestKey: WadoUidKey | null) {
+  if (!targetKey || !requestKey) {
+    return false;
+  }
+
+  const isSameObject =
+    targetKey.objectUID && requestKey.objectUID && targetKey.objectUID === requestKey.objectUID;
+  const isSameSeries =
+    !targetKey.seriesUID || !requestKey.seriesUID || targetKey.seriesUID === requestKey.seriesUID;
+  const isSameStudy =
+    !targetKey.studyUID || !requestKey.studyUID || targetKey.studyUID === requestKey.studyUID;
+
+  return Boolean(isSameObject && isSameSeries && isSameStudy);
+}
 
 function ViewerViewportGrid(props: withAppTypes) {
   const { servicesManager, viewportComponents = [], dataSource, commandsManager } = props;
@@ -168,6 +243,84 @@ function ViewerViewportGrid(props: withAppTypes) {
     viewportGridService.publishViewportOnDropHandled({ displaySetInstanceUID });
   };
 
+  /**
+   * Show a simple loading state when an advanced layout (MPR, 3D, etc.) is applied
+   * and viewport data is still loading. Not the full-screen OHIF default loader.
+   */
+  const hasPendingHPViewports = useMemo(() => {
+    if (!isHangingProtocolLayout || !viewports?.size) {
+      return false;
+    }
+    for (const vp of viewports.values()) {
+      if (vp.displaySetInstanceUIDs?.length && vp.isReady === false) {
+        return true;
+      }
+    }
+    return false;
+  }, [isHangingProtocolLayout, viewports]);
+
+  // Debounce the overlay so it doesn't flash for instant cached switches.
+  const [layoutLoading, setLayoutLoading] = useState(false);
+  const [viewportLoadingState, setViewportLoadingState] = useState({});
+  const [viewportFirstImageRenderedById, setViewportFirstImageRenderedById] = useState<Record<string, boolean>>({});
+  const [viewportFirstImageDownloadedById, setViewportFirstImageDownloadedById] = useState<Record<string, boolean>>({});
+  const [viewportByteProgressById, setViewportByteProgressById] = useState<Record<string, number | null>>({});
+  const [viewportIsProgressComputableById, setViewportIsProgressComputableById] = useState<Record<string, boolean>>({});
+  const [viewportInFlightById, setViewportInFlightById] = useState<Record<string, boolean>>({});
+
+  const viewportFirstTargets = useMemo(() => {
+    const targets: Record<
+      string,
+      {
+        viewportId: string;
+        targetImageId: string | null;
+        targetUrl: string | null;
+        targetUidKey: WadoUidKey | null;
+        isIndeterminate: boolean;
+        hasDisplaySets: boolean;
+      }
+    > = {};
+
+    for (const vp of viewports.values()) {
+      const viewportId = vp?.viewportOptions?.viewportId;
+      if (!viewportId) {
+        continue;
+      }
+
+      const displaySetInstanceUIDs: string[] = vp?.displaySetInstanceUIDs || [];
+      const displaySets = displaySetInstanceUIDs
+        .map(uid => displaySetService.getDisplaySetByUID(uid) || {})
+        .filter(ds => !ds?.unsupported);
+
+      const hasDisplaySets = displaySets.length > 0;
+      const isIndeterminate = isVolumeLikeViewport(vp?.viewportOptions);
+
+      const firstDisplaySet: any = displaySets[0];
+      const firstImageId =
+        Array.isArray(firstDisplaySet?.images) && firstDisplaySet.images.length > 0
+          ? firstDisplaySet.images[0]?.imageId ?? null
+          : null;
+      const firstUrl = normalizeImageIdToUrl(firstImageId ?? undefined);
+      const firstUidKey = extractWadoUids(firstUrl);
+
+      targets[viewportId] = {
+        viewportId,
+        targetImageId: firstImageId,
+        targetUrl: firstUrl,
+        targetUidKey: firstUidKey,
+        isIndeterminate,
+        hasDisplaySets,
+      };
+    }
+
+    return targets;
+  }, [viewports, displaySetService]);
+
+  const viewportFirstTargetsRef = useRef(viewportFirstTargets);
+  useEffect(() => {
+    viewportFirstTargetsRef.current = viewportFirstTargets;
+  }, [viewportFirstTargets]);
+
   const getViewportPanes = useCallback(() => {
     const viewportPanes = [];
 
@@ -187,6 +340,27 @@ function ViewerViewportGrid(props: withAppTypes) {
 
       const viewportId = viewportOptions.viewportId;
       const isActive = activeViewportId === viewportId;
+      const firstTarget = viewportFirstTargets[viewportId];
+      const hasFirstRendered = Boolean(viewportFirstImageRenderedById[viewportId]);
+      const hasFirstDownloaded = Boolean(viewportFirstImageDownloadedById[viewportId]);
+      const inFlight = Boolean(viewportInFlightById[viewportId]);
+      const progressValue = viewportByteProgressById[viewportId];
+      const progressComputable = Boolean(viewportIsProgressComputableById[viewportId]);
+      const canShowPercent =
+        Boolean(firstTarget?.hasDisplaySets) &&
+        !firstTarget?.isIndeterminate &&
+        progressComputable &&
+        typeof progressValue === 'number' &&
+        !Number.isNaN(progressValue);
+      const displayedPercent = canShowPercent
+        ? Math.round(Math.max(0, Math.min(1, progressValue as number)) * 100)
+        : undefined;
+      const showViewportLoader =
+        Boolean(firstTarget?.hasDisplaySets) &&
+        !hasFirstRendered &&
+        !hasFirstDownloaded;
+      const loadingText =
+        typeof displayedPercent === 'number' ? `Loading images... ${displayedPercent}%` : 'Loading images...';
 
       const displaySetInstanceUIDsToUse = displaySetInstanceUIDs || [];
 
@@ -273,7 +447,7 @@ function ViewerViewportGrid(props: withAppTypes) {
         >
           <div
             data-cy="viewport-pane"
-            className="flex h-full w-full min-w-[5px] flex-col"
+            className="relative flex h-full w-full min-w-[5px] flex-col"
           >
             <ViewportComponent
               displaySets={displaySets}
@@ -288,42 +462,127 @@ function ViewerViewportGrid(props: withAppTypes) {
                 viewportGridService.setViewportIsReady(viewportId, true);
               }}
               onFirstImageRendered={() => {
-                setHasFirstViewportImageRendered(true);
+                setViewportFirstImageRenderedById(prev => ({ ...prev, [viewportId]: true }));
+                setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+                setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+                setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
+                setViewportByteProgressById(prev => ({ ...prev, [viewportId]: 1 }));
               }}
             />
+            {showViewportLoader && (
+              <div
+                className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/70"
+                aria-busy="true"
+                aria-label="Loading images"
+              >
+                <div className="w-[280px] space-y-3">
+                  <p className="text-primary-light text-center text-sm font-medium">{loadingText}</p>
+                  <ProgressLoadingBar progress={canShowPercent ? displayedPercent : undefined} />
+                </div>
+              </div>
+            )}
           </div>
         </ViewportPane>
       );
     }
 
     return viewportPanes;
-  }, [viewports, activeViewportId, viewportComponents, dataSource]);
+  }, [
+    viewports,
+    activeViewportId,
+    viewportComponents,
+    dataSource,
+    viewportFirstTargets,
+    viewportFirstImageRenderedById,
+    viewportFirstImageDownloadedById,
+    viewportInFlightById,
+    viewportByteProgressById,
+    viewportIsProgressComputableById,
+  ]);
 
-  /**
-   * Show a simple loading state when an advanced layout (MPR, 3D, etc.) is applied
-   * and viewport data is still loading. Not the full-screen OHIF default loader.
-   */
-  const hasPendingHPViewports = useMemo(() => {
-    if (!isHangingProtocolLayout || !viewports?.size) {
-      return false;
-    }
-    for (const vp of viewports.values()) {
-      if (vp.displaySetInstanceUIDs?.length && vp.isReady === false) {
-        return true;
+  // Reset per-viewport loader state when a viewport is reassigned to a different first image.
+  const prevViewportFirstTargetsRef = useRef(viewportFirstTargets);
+  useEffect(() => {
+    const prevTargets = prevViewportFirstTargetsRef.current || {};
+    const nextTargets = viewportFirstTargets || {};
+    prevViewportFirstTargetsRef.current = nextTargets;
+
+    const allViewportIds = new Set([...Object.keys(prevTargets), ...Object.keys(nextTargets)]);
+    const viewportIdsToReset: string[] = [];
+
+    for (const viewportId of allViewportIds) {
+      const prev = prevTargets[viewportId];
+      const next = nextTargets[viewportId];
+
+      if (!next) {
+        viewportIdsToReset.push(viewportId);
+        continue;
+      }
+
+      const prevObjectUID = prev?.targetUidKey?.objectUID ?? null;
+      const nextObjectUID = next?.targetUidKey?.objectUID ?? null;
+      const prevImageId = prev?.targetImageId ?? null;
+      const nextImageId = next?.targetImageId ?? null;
+
+      const changed = prevObjectUID !== nextObjectUID || prevImageId !== nextImageId;
+      if (changed) {
+        viewportIdsToReset.push(viewportId);
       }
     }
-    return false;
-  }, [isHangingProtocolLayout, viewports]);
 
-  // Debounce the overlay so it doesn't flash for instant cached switches.
-  const [layoutLoading, setLayoutLoading] = useState(false);
-  const [viewportLoadingState, setViewportLoadingState] = useState({});
-  const [jpegByteProgressByImageId, setJpegByteProgressByImageId] = useState({});
-  const [jpegLengthComputableByImageId, setJpegLengthComputableByImageId] = useState({});
-  const [wadoInFlightByRequestId, setWadoInFlightByRequestId] = useState({});
-  const [wadoProgressByRequestId, setWadoProgressByRequestId] = useState({});
-  const [wadoLengthComputableByRequestId, setWadoLengthComputableByRequestId] = useState({});
-  const [hasFirstViewportImageRendered, setHasFirstViewportImageRendered] = useState(false);
+    if (!viewportIdsToReset.length) {
+      return;
+    }
+
+    setViewportFirstImageRenderedById(prev => {
+      const next = { ...prev };
+      viewportIdsToReset.forEach(id => delete next[id]);
+      return next;
+    });
+    setViewportFirstImageDownloadedById(prev => {
+      const next = { ...prev };
+      viewportIdsToReset.forEach(id => delete next[id]);
+      return next;
+    });
+    setViewportByteProgressById(prev => {
+      const next = { ...prev };
+      viewportIdsToReset.forEach(id => delete next[id]);
+      return next;
+    });
+    setViewportIsProgressComputableById(prev => {
+      const next = { ...prev };
+      viewportIdsToReset.forEach(id => delete next[id]);
+      return next;
+    });
+    setViewportInFlightById(prev => {
+      const next = { ...prev };
+      viewportIdsToReset.forEach(id => delete next[id]);
+      return next;
+    });
+  }, [viewportFirstTargets]);
+
+  // Robust fallback: if Cornerstone reports that an image was rendered, mark that viewport complete.
+  useEffect(() => {
+    const handleImageRendered = evt => {
+      if (evt?.detail?.viewportStatus === 'preRender') {
+        return;
+      }
+      const renderedViewportId = evt?.detail?.viewportId;
+      if (renderedViewportId) {
+        setViewportFirstImageRenderedById(prev => {
+          if (prev[renderedViewportId]) {
+            return prev;
+          }
+          return { ...prev, [renderedViewportId]: true };
+        });
+      }
+    };
+
+    eventTarget.addEventListener(EVENTS.IMAGE_RENDERED, handleImageRendered);
+    return () => {
+      eventTarget.removeEventListener(EVENTS.IMAGE_RENDERED, handleImageRendered);
+    };
+  }, []);
   useEffect(() => {
     let debounceTimer: number | undefined;
     let maxDurationTimer: number | undefined;
@@ -352,44 +611,46 @@ function ViewerViewportGrid(props: withAppTypes) {
       const progress = evt?.detail?.progress;
       const done = Boolean(evt?.detail?.done);
       const lengthComputable = Boolean(evt?.detail?.lengthComputable);
+      const requestUrl = evt?.detail?.requestUrl;
       if (!requestId) {
         return;
       }
 
-      if (done) {
-        setWadoInFlightByRequestId(prev => {
-          if (!prev[requestId]) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[requestId];
-          return next;
-        });
-        setWadoProgressByRequestId(prev => {
-          if (!(requestId in prev)) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[requestId];
-          return next;
-        });
-        setWadoLengthComputableByRequestId(prev => {
-          if (!(requestId in prev)) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[requestId];
-          return next;
-        });
+      if (!requestUrl || typeof requestUrl !== 'string') {
         return;
       }
 
-      setWadoInFlightByRequestId(prev => ({ ...prev, [requestId]: true }));
-      if (typeof progress === 'number' && !Number.isNaN(progress)) {
-        const clamped = Math.max(0, Math.min(1, progress));
-        setWadoProgressByRequestId(prev => ({ ...prev, [requestId]: clamped }));
+      // Scope progress to the matching viewport's first-image identity.
+      // WADO URLs can differ, so we match by objectUID (and study/series when available).
+      const requestKey = extractWadoUids(requestUrl);
+      if (!requestKey) {
+        return;
       }
-      setWadoLengthComputableByRequestId(prev => ({ ...prev, [requestId]: lengthComputable }));
+
+      const targets = viewportFirstTargetsRef.current || {};
+      const matchingViewportIds = Object.keys(targets).filter(viewportId =>
+        doesUidMatch(targets[viewportId]?.targetUidKey ?? null, requestKey)
+      );
+      if (!matchingViewportIds.length) {
+        return;
+      }
+
+      for (const viewportId of matchingViewportIds) {
+        if (done) {
+          setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportByteProgressById(prev => ({ ...prev, [viewportId]: 1 }));
+          continue;
+        }
+
+        setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+        setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: lengthComputable }));
+        if (typeof progress === 'number' && !Number.isNaN(progress)) {
+          const clamped = Math.max(0, Math.min(1, progress));
+          setViewportByteProgressById(prev => ({ ...prev, [viewportId]: clamped }));
+        }
+      }
     };
 
     window.addEventListener('ohif:wado-image-request-progress', handleWadoRequestProgress);
@@ -406,26 +667,26 @@ function ViewerViewportGrid(props: withAppTypes) {
       if (!imageId || typeof progress !== 'number' || Number.isNaN(progress)) {
         return;
       }
+
       const clamped = Math.max(0, Math.min(1, progress));
-      setJpegByteProgressByImageId(prev => {
-        if (prev[imageId] === clamped) {
-          return prev;
+
+      const targets = viewportFirstTargetsRef.current || {};
+      const matchingViewportIds = Object.keys(targets).filter(viewportId => targets[viewportId]?.targetImageId === imageId);
+      if (!matchingViewportIds.length) {
+        return;
+      }
+
+      for (const viewportId of matchingViewportIds) {
+        if (clamped >= 1) {
+          setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+        } else {
+          setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
         }
-        return {
-          ...prev,
-          [imageId]: clamped,
-        };
-      });
-      setJpegLengthComputableByImageId(prev => {
-        const nextValue = Boolean(lengthComputable);
-        if (prev[imageId] === nextValue) {
-          return prev;
-        }
-        return {
-          ...prev,
-          [imageId]: nextValue,
-        };
-      });
+
+        setViewportByteProgressById(prev => ({ ...prev, [viewportId]: clamped }));
+        setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: Boolean(lengthComputable) }));
+      }
     };
 
     window.addEventListener('ohif:jpeg-image-progress', handleJpegImageProgress);
@@ -470,75 +731,6 @@ function ViewerViewportGrid(props: withAppTypes) {
     return null;
   }
 
-  const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
-  const hasViewportDisplaySets =
-    activeDisplaySets.length > 0 || Array.from(viewports.values()).some(vp => vp?.displaySetInstanceUIDs?.length);
-  const rawViewportLoadingPercent = activeDisplaySets.length
-    ? Math.round(
-        (activeDisplaySets.reduce((sum, ds) => {
-          const uid = ds.displaySetInstanceUID;
-          const fromState = viewportLoadingState[uid];
-          const fromPrefetcher = studyPrefetcherService?.getDisplaySetLoadProgress?.(uid);
-          const raw = fromState ?? fromPrefetcher;
-          const progress = typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
-          const normalized =
-            typeof progress === 'number' && !Number.isNaN(progress)
-              ? Math.max(0, Math.min(1, progress))
-              : 0;
-          const imageIds = Array.isArray(ds?.images)
-            ? ds.images.map(image => image?.imageId).filter(Boolean)
-            : [];
-          const imageProgressValues = imageIds
-            .map(imageId => jpegByteProgressByImageId[imageId])
-            .filter(value => typeof value === 'number' && !Number.isNaN(value));
-          const jpegByteProgress =
-            imageProgressValues.length > 0
-              ? imageProgressValues.reduce((acc, value) => acc + value, 0) /
-                imageProgressValues.length
-              : 0;
-          return sum + Math.max(normalized, jpegByteProgress);
-        }, 0) /
-          activeDisplaySets.length) *
-          100
-      )
-    : 0;
-  const viewportLoadingPercent = rawViewportLoadingPercent;
-  const activeWadoRequestIds = Object.keys(wadoInFlightByRequestId);
-  const hasInFlightWadoRequests = activeWadoRequestIds.length > 0;
-  const computableWadoProgressValues = activeWadoRequestIds
-    .filter(requestId => wadoLengthComputableByRequestId[requestId] === true)
-    .map(requestId => wadoProgressByRequestId[requestId])
-    .filter(value => typeof value === 'number' && !Number.isNaN(value));
-  const hasComputableWadoProgress = computableWadoProgressValues.length > 0;
-  const wadoLoadingPercent = hasComputableWadoProgress
-    ? Math.round(
-        (computableWadoProgressValues.reduce((sum, value) => sum + value, 0) /
-          computableWadoProgressValues.length) *
-          100
-      )
-    : null;
-  const hasAnyNonComputableByteProgress = activeDisplaySets.some(ds => {
-    const imageIds = Array.isArray(ds?.images)
-      ? ds.images.map(image => image?.imageId).filter(Boolean)
-      : [];
-    return imageIds.some(imageId => jpegLengthComputableByImageId[imageId] === false);
-  });
-  const hasFinishedDownloading =
-    hasViewportDisplaySets && viewportLoadingPercent >= 100 && !hasInFlightWadoRequests;
-  // Hide the initial image-loading overlay as soon as download progress completes.
-  // This avoids a stuck "100%" message over the viewport when first-render event is delayed/missed.
-  const showInitialViewportLoading =
-    hasInFlightWadoRequests || (!hasFirstViewportImageRendered && !hasFinishedDownloading);
-  const shouldShowPercent =
-    hasViewportDisplaySets &&
-    !hasAnyNonComputableByteProgress &&
-    (!hasInFlightWadoRequests || hasComputableWadoProgress);
-  const displayedLoadingPercent =
-    hasInFlightWadoRequests && hasComputableWadoProgress ? wadoLoadingPercent : viewportLoadingPercent;
-  const loadingText = shouldShowPercent
-    ? `Loading images... ${displayedLoadingPercent}%`
-    : 'Loading images...';
-
   return (
     <div className="border-input relative h-[calc(100%-0.25rem)] w-full border">
       <ViewportGrid
@@ -547,28 +739,17 @@ function ViewerViewportGrid(props: withAppTypes) {
       >
         {getViewportPanes()}
       </ViewportGrid>
-      {(layoutLoading || showInitialViewportLoading) && (
+      {layoutLoading && (
         <div
           className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/70"
           aria-busy="true"
-          aria-label={showInitialViewportLoading ? 'Loading images' : 'Loading layout'}
+          aria-label="Loading layout"
         >
-          {showInitialViewportLoading ? (
-            <div className="w-[320px] space-y-3">
-              <p className="text-primary-light text-center text-sm font-medium">
-                {loadingText}
-              </p>
-              <ProgressLoadingBar
-                progress={hasViewportDisplaySets && shouldShowPercent ? displayedLoadingPercent : undefined}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-light border-t-transparent" />
-              <p className="text-primary-light mt-3 text-sm font-medium">Preparing view...</p>
-              <p className="text-primary-light/80 mt-1 text-xs">Loading data for this layout</p>
-            </>
-          )}
+          <>
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-light border-t-transparent" />
+            <p className="text-primary-light mt-3 text-sm font-medium">Preparing view...</p>
+            <p className="text-primary-light/80 mt-1 text-xs">Loading data for this layout</p>
+          </>
         </div>
       )}
     </div>
