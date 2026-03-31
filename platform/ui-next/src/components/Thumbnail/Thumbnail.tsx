@@ -60,6 +60,8 @@ const Thumbnail = ({
     numInstances != null && normalizedLoadingProgress != null && normalizedLoadingProgress < 1
       ? Math.round(normalizedLoadingProgress * numInstances) || 0
       : null;
+  const loadingPercent =
+    normalizedLoadingProgress != null ? Math.round(normalizedLoadingProgress * 100) : null;
   // TODO: We should wrap our thumbnail to create a "DraggableThumbnail", as
   // this will still allow for "drag", even if there is no drop target for the
   // specified item.
@@ -167,7 +169,7 @@ const Thumbnail = ({
             <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
               {loadedCount != null ? (
                 <span>
-                  {loadedCount}/{numInstances}
+                  {loadedCount}/{numInstances} ({loadingPercent}%)
                 </span>
               ) : (
                 <span>Loading…</span>

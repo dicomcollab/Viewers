@@ -1,5 +1,21 @@
 import { imageLoader } from '@cornerstonejs/core';
 
+function dispatchJPEGLoadProgress(imageId, progress, lengthComputable = true) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('ohif:jpeg-image-progress', {
+      detail: {
+        imageId,
+        progress: Math.max(0, Math.min(1, progress)),
+        lengthComputable: Boolean(lengthComputable),
+      },
+    })
+  );
+}
+
 /**
  * Detect if an image is a color image (like fundus) vs grayscale (like X-ray)
  */
@@ -197,6 +213,7 @@ function getTokenFromCookie() {
  * Custom image loader for JPEG images from WADO-URI endpoints
  */
 function loadJPEGImage(imageId) {
+  let xhr;
   const promise = new Promise((resolve, reject) => {
     (async () => {
       try {
@@ -277,11 +294,11 @@ function loadJPEGImage(imageId) {
         // Handle 401 (Unauthorized) - token expired
         if (jpegResponse.status === 401) {
           // Try to get userAuthenticationService from global errorHandler
-          const errorHandler = window.__OHIF_ERROR_HANDLER__;
-          if (errorHandler && errorHandler._servicesManager) {
+              const errorHandler = window.__OHIF_ERROR_HANDLER__;
+              if (errorHandler && errorHandler._servicesManager) {
             const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
             if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
-              userAuthenticationService.handleUnauthenticated();
+                  userAuthenticationService.handleUnauthenticated();
               return; // Don't reject, just redirect
             }
           }
@@ -296,7 +313,7 @@ function loadJPEGImage(imageId) {
 
         if (!jpegResponse.ok) {
           throw new Error(`HTTP ${jpegResponse.status}: ${jpegResponse.statusText}`);
-        }
+          }
 
         const jpegBlob = await jpegResponse.blob();
 
@@ -331,7 +348,9 @@ function loadJPEGImage(imageId) {
   return {
     promise: promise,
     cancel: () => {
-      // Add cancellation logic if needed
+      if (xhr && xhr.readyState !== 4) {
+        xhr.abort();
+      }
     },
   };
 }

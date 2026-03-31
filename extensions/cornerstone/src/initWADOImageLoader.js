@@ -20,6 +20,18 @@ const originalLoadFileRequest = dicomImageLoader.wadouri.loadFileRequest;
 let isWrapped = false;
 let isXHRIntercepted = false;
 
+function dispatchWADORequestProgress(detail) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('ohif:wado-image-request-progress', {
+      detail,
+    })
+  );
+}
+
 /**
  * Intercept XMLHttpRequest to cache WADO-URI image requests
  * This catches all XHR requests, including those made by dicom-image-loader
@@ -66,6 +78,7 @@ function interceptXHRForImageCaching() {
       if (!isImageRequest || !requestUrl || !imageCache) {
         return originalSend.apply(this, args);
       }
+      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       // Check cache first (synchronously check if possible, but async is fine)
       const cachePromise = imageCache.getCachedImage(requestUrl);
@@ -168,6 +181,51 @@ function interceptXHRForImageCaching() {
         });
 
       const proceedWithNetworkRequest = () => {
+        dispatchWADORequestProgress({
+          requestId,
+          requestUrl,
+          progress: 0,
+          lengthComputable: false,
+          done: false,
+        });
+
+        if (xhr.addEventListener) {
+          xhr.addEventListener('progress', event => {
+            if (!event.total) {
+              dispatchWADORequestProgress({
+                requestId,
+                requestUrl,
+                progress: 0,
+                lengthComputable: false,
+                done: false,
+              });
+              return;
+            }
+
+            dispatchWADORequestProgress({
+              requestId,
+              requestUrl,
+              progress: event.loaded / event.total,
+              lengthComputable: Boolean(event.lengthComputable),
+              done: false,
+            });
+          });
+
+          const finishRequest = () => {
+            dispatchWADORequestProgress({
+              requestId,
+              requestUrl,
+              progress: 1,
+              lengthComputable: true,
+              done: true,
+            });
+          };
+
+          xhr.addEventListener('loadend', finishRequest);
+          xhr.addEventListener('error', finishRequest);
+          xhr.addEventListener('abort', finishRequest);
+        }
+
         // Restore original event handlers and add caching logic
         const cacheResponse = () => {
           if (xhr.status === 200 && xhr.response instanceof ArrayBuffer) {

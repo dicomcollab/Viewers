@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import * as cs3DTools from '@cornerstonejs/tools';
-import { Enums, eventTarget, getEnabledElement } from '@cornerstonejs/core';
+import { Enums, EVENTS, eventTarget, getEnabledElement } from '@cornerstonejs/core';
 import { MeasurementService, useViewportRef } from '@ohif/core';
 import { useViewportDialog } from '@ohif/ui-next';
 import type { Types as csTypes } from '@cornerstonejs/core';
@@ -57,6 +57,7 @@ const OHIFCornerstoneViewport = React.memo(
       // viewportId dependent and
       // eslint-disable-next-line react/prop-types
       isHangingProtocolLayout,
+      onFirstImageRendered,
     } = props;
     const viewportId = viewportOptions.viewportId;
 
@@ -87,6 +88,7 @@ const OHIFCornerstoneViewport = React.memo(
       orientation: string;
       displaySetUIDs: string;
     } | null>(null);
+    const hasReportedFirstImageRef = useRef(false);
 
     const {
       displaySetService,
@@ -321,6 +323,8 @@ const OHIFCornerstoneViewport = React.memo(
         viewportOptions.viewportType = STACK;
       }
 
+      hasReportedFirstImageRef.current = false;
+
       // Layout change (e.g. MPR → single on double-click) resets isReady in grid state.
       // Allow this viewport to mark ready again when VIEWPORT_DATA_CHANGED fires.
       hasMarkedReadyRef.current = false;
@@ -395,6 +399,33 @@ const OHIFCornerstoneViewport = React.memo(
 
       loadViewportData();
     }, [viewportOptions, displaySets, dataSource]);
+
+    useEffect(() => {
+      if (!onFirstImageRendered) {
+        return;
+      }
+
+      const handleImageRendered = evt => {
+        const renderedViewportId = evt?.detail?.viewportId;
+        const renderedElement = evt?.detail?.element;
+        const isSameViewport =
+          renderedViewportId === viewportId || renderedElement === elementRef.current;
+        if (
+          !isSameViewport ||
+          evt?.detail?.viewportStatus === 'preRender' ||
+          hasReportedFirstImageRef.current
+        ) {
+          return;
+        }
+        hasReportedFirstImageRef.current = true;
+        onFirstImageRendered();
+      };
+
+      eventTarget.addEventListener(EVENTS.IMAGE_RENDERED, handleImageRendered);
+      return () => {
+        eventTarget.removeEventListener(EVENTS.IMAGE_RENDERED, handleImageRendered);
+      };
+    }, [onFirstImageRendered, viewportId]);
 
     const Notification = customizationService.getCustomization('ui.notificationComponent');
 

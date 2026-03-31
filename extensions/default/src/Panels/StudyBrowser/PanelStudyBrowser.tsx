@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useImageViewer } from '@ohif/ui-next';
 import { useSystem, utils } from '@ohif/core';
 import { useNavigate } from 'react-router-dom';
-import { useViewportGrid, StudyBrowser, Separator } from '@ohif/ui-next';
+import { useViewportGrid, StudyBrowser, Separator, ProgressLoadingBar } from '@ohif/ui-next';
 import { PanelStudyBrowserHeader } from './PanelStudyBrowserHeader';
 import { defaultActionIcons } from './constants';
 import MoreDropdownMenu from '../../Components/MoreDropdownMenu';
@@ -42,6 +42,7 @@ function PanelStudyBrowser({
       : [...StudyInstanceUIDs]
   );
   const [hasLoadedViewports, setHasLoadedViewports] = useState(false);
+  const [isStudyPanelLoading, setIsStudyPanelLoading] = useState(true);
   const [studyDisplayList, setStudyDisplayList] = useState([]);
   const [displaySets, setDisplaySets] = useState([]);
   const [displaySetsLoadingState, setDisplaySetsLoadingState] = useState({});
@@ -159,6 +160,14 @@ function PanelStudyBrowser({
 
   // ~~ studyDisplayList
   useEffect(() => {
+    if (!StudyInstanceUIDs.length) {
+      setIsStudyPanelLoading(false);
+      return;
+    }
+
+    let isUnmounted = false;
+    setIsStudyPanelLoading(true);
+
     // Fetch all studies for the patient in each primary study
     async function fetchStudiesForPatient(StudyInstanceUID) {
       // Skip fetching if we've already fetched this study
@@ -210,7 +219,15 @@ function PanelStudyBrowser({
       });
     }
 
-    StudyInstanceUIDs.forEach(sid => fetchStudiesForPatient(sid));
+    Promise.all(StudyInstanceUIDs.map(sid => fetchStudiesForPatient(sid))).finally(() => {
+      if (!isUnmounted) {
+        setIsStudyPanelLoading(false);
+      }
+    });
+
+    return () => {
+      isUnmounted = true;
+    };
   }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate]);
 
   // ~~ Initial Thumbnails
@@ -474,6 +491,31 @@ function PanelStudyBrowser({
   }, [expandedStudyInstanceUIDs, jumpToDisplaySet, tabs]);
 
   const activeDisplaySetInstanceUIDs = viewports.get(activeViewportId)?.displaySetInstanceUIDs;
+  const studyLoadingPercent = useMemo(() => {
+    const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
+    if (!activeDisplaySets.length) {
+      return 100;
+    }
+
+    let progressSum = 0;
+    activeDisplaySets.forEach(ds => {
+      const uid = ds.displaySetInstanceUID;
+      const fromState = displaySetsLoadingState?.[uid];
+      const fromPrefetcher = studyPrefetcherService?.getDisplaySetLoadProgress?.(uid);
+      const raw = fromState ?? fromPrefetcher;
+      const progress = typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
+      const normalized =
+        typeof progress === 'number' && !Number.isNaN(progress)
+          ? Math.max(0, Math.min(1, progress))
+          : 0;
+      progressSum += normalized;
+    });
+
+    return Math.round((progressSum / activeDisplaySets.length) * 100);
+  }, [displaySetService, displaySetsLoadingState, studyPrefetcherService, displaySets.length]);
+
+  const hasRenderableDisplaySets = displaySetService.getActiveDisplaySets?.().length > 0;
+  const showInitialStudyLoading = isStudyPanelLoading || (hasRenderableDisplaySets && studyLoadingPercent < 100);
 
   return (
     <>
@@ -491,37 +533,48 @@ function PanelStudyBrowser({
         />
       </>
 
-      <StudyBrowser
-        tabs={tabs}
-        servicesManager={servicesManager}
-        activeTabName={activeTabName}
-        expandedStudyInstanceUIDs={expandedStudyInstanceUIDs}
-        onClickStudy={_handleStudyClick}
-        onClickTab={clickedTabName => {
-          setActiveTabName(clickedTabName);
-        }}
-        onClickUntrack={onClickUntrack}
-        onClickThumbnail={() => {}}
-        onDoubleClickThumbnail={onDoubleClickThumbnailHandler}
-        activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
-        onPrefetchDisplaySet={
-          studyPrefetcherService?.prefetchDisplaySet
-            ? displaySetInstanceUID => studyPrefetcherService.prefetchDisplaySet(displaySetInstanceUID)
-            : undefined
-        }
-        showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
-        viewPresets={viewPresets}
-        ThumbnailMenuItems={MoreDropdownMenu({
-          commandsManager,
-          servicesManager,
-          menuItemsKey: 'studyBrowser.thumbnailMenuItems',
-        })}
-        StudyMenuItems={MoreDropdownMenu({
-          commandsManager,
-          servicesManager,
-          menuItemsKey: 'studyBrowser.studyMenuItems',
-        })}
-      />
+      {showInitialStudyLoading ? (
+        <div className="flex h-full min-h-[120px] items-center justify-center px-3">
+          <div className="w-full max-w-[240px] space-y-2">
+            <div className="text-primary-light text-center text-xs font-medium">
+              Loading studies... {studyLoadingPercent}%
+            </div>
+            <ProgressLoadingBar progress={studyLoadingPercent} />
+          </div>
+        </div>
+      ) : (
+        <StudyBrowser
+          tabs={tabs}
+          servicesManager={servicesManager}
+          activeTabName={activeTabName}
+          expandedStudyInstanceUIDs={expandedStudyInstanceUIDs}
+          onClickStudy={_handleStudyClick}
+          onClickTab={clickedTabName => {
+            setActiveTabName(clickedTabName);
+          }}
+          onClickUntrack={onClickUntrack}
+          onClickThumbnail={() => {}}
+          onDoubleClickThumbnail={onDoubleClickThumbnailHandler}
+          activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
+          onPrefetchDisplaySet={
+            studyPrefetcherService?.prefetchDisplaySet
+              ? displaySetInstanceUID => studyPrefetcherService.prefetchDisplaySet(displaySetInstanceUID)
+              : undefined
+          }
+          showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
+          viewPresets={viewPresets}
+          ThumbnailMenuItems={MoreDropdownMenu({
+            commandsManager,
+            servicesManager,
+            menuItemsKey: 'studyBrowser.thumbnailMenuItems',
+          })}
+          StudyMenuItems={MoreDropdownMenu({
+            commandsManager,
+            servicesManager,
+            menuItemsKey: 'studyBrowser.studyMenuItems',
+          })}
+        />
+      )}
     </>
   );
 }
