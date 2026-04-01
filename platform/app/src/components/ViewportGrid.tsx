@@ -264,6 +264,11 @@ function ViewerViewportGrid(props: withAppTypes) {
   const [viewportLoadingState, setViewportLoadingState] = useState({});
   const [viewportFirstImageRenderedById, setViewportFirstImageRenderedById] = useState<Record<string, boolean>>({});
   const [viewportFirstImageDownloadedById, setViewportFirstImageDownloadedById] = useState<Record<string, boolean>>({});
+  // User requirement: show the "Loading images..." overlay only for the initial
+  // first image of the first series shown in a viewport, not on subsequent series changes.
+  const [viewportInitialFirstImageCompleteById, setViewportInitialFirstImageCompleteById] = useState<
+    Record<string, boolean>
+  >({});
   const [viewportByteProgressById, setViewportByteProgressById] = useState<Record<string, number | null>>({});
   const [viewportIsProgressComputableById, setViewportIsProgressComputableById] = useState<Record<string, boolean>>({});
   const [viewportInFlightById, setViewportInFlightById] = useState<Record<string, boolean>>({});
@@ -321,6 +326,18 @@ function ViewerViewportGrid(props: withAppTypes) {
     viewportFirstTargetsRef.current = viewportFirstTargets;
   }, [viewportFirstTargets]);
 
+  const viewportTargetKeyById = useMemo(() => {
+    const result: Record<string, string> = {};
+    const targets = viewportFirstTargets || {};
+    Object.keys(targets).forEach(viewportId => {
+      const t = targets[viewportId];
+      const objectUID = t?.targetUidKey?.objectUID ?? '';
+      const imageId = t?.targetImageId ?? '';
+      result[viewportId] = `${objectUID}|${imageId}`;
+    });
+    return result;
+  }, [viewportFirstTargets]);
+
   const getViewportPanes = useCallback(() => {
     const viewportPanes = [];
 
@@ -344,6 +361,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       const hasFirstRendered = Boolean(viewportFirstImageRenderedById[viewportId]);
       const hasFirstDownloaded = Boolean(viewportFirstImageDownloadedById[viewportId]);
       const inFlight = Boolean(viewportInFlightById[viewportId]);
+      const initialComplete = Boolean(viewportInitialFirstImageCompleteById[viewportId]);
       const progressValue = viewportByteProgressById[viewportId];
       const progressComputable = Boolean(viewportIsProgressComputableById[viewportId]);
       const canShowPercent =
@@ -355,10 +373,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       const displayedPercent = canShowPercent
         ? Math.round(Math.max(0, Math.min(1, progressValue as number)) * 100)
         : undefined;
-      const showViewportLoader =
-        Boolean(firstTarget?.hasDisplaySets) &&
-        !hasFirstRendered &&
-        !hasFirstDownloaded;
+      const showViewportLoader = Boolean(firstTarget?.hasDisplaySets) && !initialComplete;
       const loadingText =
         typeof displayedPercent === 'number' ? `Loading images... ${displayedPercent}%` : 'Loading images...';
 
@@ -464,6 +479,7 @@ function ViewerViewportGrid(props: withAppTypes) {
               onFirstImageRendered={() => {
                 setViewportFirstImageRenderedById(prev => ({ ...prev, [viewportId]: true }));
                 setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+                setViewportInitialFirstImageCompleteById(prev => ({ ...prev, [viewportId]: true }));
                 setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
                 setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
                 setViewportByteProgressById(prev => ({ ...prev, [viewportId]: 1 }));
@@ -501,73 +517,88 @@ function ViewerViewportGrid(props: withAppTypes) {
   ]);
 
   // Reset per-viewport loader state when a viewport is reassigned to a different first image.
-  const prevViewportFirstTargetsRef = useRef(viewportFirstTargets);
+  const prevViewportTargetKeyByIdRef = useRef(viewportTargetKeyById);
   useEffect(() => {
-    const prevTargets = prevViewportFirstTargetsRef.current || {};
-    const nextTargets = viewportFirstTargets || {};
-    prevViewportFirstTargetsRef.current = nextTargets;
+    const prevKeys = prevViewportTargetKeyByIdRef.current || {};
+    const nextKeys = viewportTargetKeyById || {};
+    prevViewportTargetKeyByIdRef.current = nextKeys;
 
-    const allViewportIds = new Set([...Object.keys(prevTargets), ...Object.keys(nextTargets)]);
+    const allViewportIds = new Set([...Object.keys(prevKeys), ...Object.keys(nextKeys)]);
     const viewportIdsToReset: string[] = [];
+    const viewportIdsToRemove: string[] = [];
 
     for (const viewportId of allViewportIds) {
-      const prev = prevTargets[viewportId];
-      const next = nextTargets[viewportId];
+      const prevKey = prevKeys[viewportId];
+      const nextKey = nextKeys[viewportId];
 
-      if (!next) {
-        viewportIdsToReset.push(viewportId);
+      if (!nextKey) {
+        viewportIdsToRemove.push(viewportId);
         continue;
       }
 
-      const prevObjectUID = prev?.targetUidKey?.objectUID ?? null;
-      const nextObjectUID = next?.targetUidKey?.objectUID ?? null;
-      const prevImageId = prev?.targetImageId ?? null;
-      const nextImageId = next?.targetImageId ?? null;
-
-      const changed = prevObjectUID !== nextObjectUID || prevImageId !== nextImageId;
-      if (changed) {
+      if (prevKey !== nextKey) {
         viewportIdsToReset.push(viewportId);
       }
     }
 
-    if (!viewportIdsToReset.length) {
+    if (!viewportIdsToReset.length && !viewportIdsToRemove.length) {
       return;
     }
 
+    // IMPORTANT: do not "delete" keys for resets; explicitly set them back to false/null.
+    // This avoids races where a fast render sets the flag true, then a reset deletes it.
     setViewportFirstImageRenderedById(prev => {
       const next = { ...prev };
-      viewportIdsToReset.forEach(id => delete next[id]);
+      viewportIdsToRemove.forEach(id => delete next[id]);
+      viewportIdsToReset.forEach(id => {
+        next[id] = false;
+      });
       return next;
     });
     setViewportFirstImageDownloadedById(prev => {
       const next = { ...prev };
-      viewportIdsToReset.forEach(id => delete next[id]);
+      viewportIdsToRemove.forEach(id => delete next[id]);
+      viewportIdsToReset.forEach(id => {
+        next[id] = false;
+      });
       return next;
     });
     setViewportByteProgressById(prev => {
       const next = { ...prev };
-      viewportIdsToReset.forEach(id => delete next[id]);
+      viewportIdsToRemove.forEach(id => delete next[id]);
+      viewportIdsToReset.forEach(id => {
+        next[id] = null;
+      });
       return next;
     });
     setViewportIsProgressComputableById(prev => {
       const next = { ...prev };
-      viewportIdsToReset.forEach(id => delete next[id]);
+      viewportIdsToRemove.forEach(id => delete next[id]);
+      viewportIdsToReset.forEach(id => {
+        next[id] = false;
+      });
       return next;
     });
     setViewportInFlightById(prev => {
       const next = { ...prev };
-      viewportIdsToReset.forEach(id => delete next[id]);
+      viewportIdsToRemove.forEach(id => delete next[id]);
+      viewportIdsToReset.forEach(id => {
+        next[id] = false;
+      });
       return next;
     });
-  }, [viewportFirstTargets]);
+  }, [viewportTargetKeyById]);
 
   // Robust fallback: if Cornerstone reports that an image was rendered, mark that viewport complete.
   useEffect(() => {
     const handleImageRendered = evt => {
-      if (evt?.detail?.viewportStatus === 'preRender') {
-        return;
-      }
-      const renderedViewportId = evt?.detail?.viewportId;
+      // Cornerstone may not always include viewportId; element is more reliable.
+      const renderedViewportId =
+        evt?.detail?.viewportId ||
+        evt?.detail?.element?.getAttribute?.('data-viewportid') ||
+        evt?.detail?.element?.dataset?.viewportid ||
+        evt?.detail?.element?.dataset?.viewportId;
+
       if (renderedViewportId) {
         setViewportFirstImageRenderedById(prev => {
           if (prev[renderedViewportId]) {
@@ -575,6 +606,13 @@ function ViewerViewportGrid(props: withAppTypes) {
           }
           return { ...prev, [renderedViewportId]: true };
         });
+        // If we rendered anything for this viewport, clear the loader state as well.
+        // This covers cases where `onFirstImageRendered` or network progress events are missed.
+        setViewportFirstImageDownloadedById(prev => ({ ...prev, [renderedViewportId]: true }));
+        setViewportInitialFirstImageCompleteById(prev => ({ ...prev, [renderedViewportId]: true }));
+        setViewportInFlightById(prev => ({ ...prev, [renderedViewportId]: false }));
+        setViewportIsProgressComputableById(prev => ({ ...prev, [renderedViewportId]: true }));
+        setViewportByteProgressById(prev => ({ ...prev, [renderedViewportId]: 1 }));
       }
     };
 
@@ -638,6 +676,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       for (const viewportId of matchingViewportIds) {
         if (done) {
           setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportInitialFirstImageCompleteById(prev => ({ ...prev, [viewportId]: true }));
           setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
           setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
           setViewportByteProgressById(prev => ({ ...prev, [viewportId]: 1 }));
@@ -649,6 +688,11 @@ function ViewerViewportGrid(props: withAppTypes) {
         if (typeof progress === 'number' && !Number.isNaN(progress)) {
           const clamped = Math.max(0, Math.min(1, progress));
           setViewportByteProgressById(prev => ({ ...prev, [viewportId]: clamped }));
+          if (clamped >= 1) {
+            setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+            setViewportInitialFirstImageCompleteById(prev => ({ ...prev, [viewportId]: true }));
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          }
         }
       }
     };
@@ -679,6 +723,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       for (const viewportId of matchingViewportIds) {
         if (clamped >= 1) {
           setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportInitialFirstImageCompleteById(prev => ({ ...prev, [viewportId]: true }));
           setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
         } else {
           setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));

@@ -169,6 +169,9 @@ async function processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve
         pixelRepresentation: 0,
       };
 
+      // Mark this image as fully ready for UI loaders that rely on progress events.
+      // We don't get streaming progress from `fetch()` here, but we can guarantee completion.
+      dispatchJPEGLoadProgress(imageId, 1, true);
       resolve(image);
     } catch (error) {
       reject(new Error(`Failed to process JPEG image: ${error.message}`));
@@ -213,10 +216,14 @@ function getTokenFromCookie() {
  * Custom image loader for JPEG images from WADO-URI endpoints
  */
 function loadJPEGImage(imageId) {
+  /** @type {any} */
   let xhr;
   const promise = new Promise((resolve, reject) => {
     (async () => {
       try {
+        // Notify UI that this image has started loading.
+        dispatchJPEGLoadProgress(imageId, 0, false);
+
         // Extract the original DICOM URL by removing the protocol prefix
         // Handle both 'dicomweb-jpeg:' and 'dicomweb:' prefixes
         let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
@@ -295,7 +302,7 @@ function loadJPEGImage(imageId) {
         if (jpegResponse.status === 401) {
           // Try to get userAuthenticationService from global errorHandler
               const errorHandler = window.__OHIF_ERROR_HANDLER__;
-              if (errorHandler && errorHandler._servicesManager) {
+          if (errorHandler && errorHandler._servicesManager) {
             const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
             if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
                   userAuthenticationService.handleUnauthenticated();
@@ -316,6 +323,10 @@ function loadJPEGImage(imageId) {
           }
 
         const jpegBlob = await jpegResponse.blob();
+
+        // We can't reliably compute byte-level progress with fetch+blob across browsers,
+        // but blob acquisition indicates the download stage is complete.
+        dispatchJPEGLoadProgress(imageId, 1, true);
 
         // Process the JPEG image
         await processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve, reject);

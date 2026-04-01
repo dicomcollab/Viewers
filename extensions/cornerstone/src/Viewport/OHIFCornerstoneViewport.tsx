@@ -90,6 +90,17 @@ const OHIFCornerstoneViewport = React.memo(
     } | null>(null);
     const hasReportedFirstImageRef = useRef(false);
 
+    // Reset "first image rendered" reporting when the displayed content changes.
+    // The viewport component is keyed by `viewportId` (not by series), so it is not remounted
+    // on series changes; without this reset, `onFirstImageRendered` may only fire once.
+    const displaySetUIDsKey = displaySets
+      ?.map(ds => (ds as any)?.displaySetInstanceUID ?? (ds as any)?.displaySetUID ?? '')
+      .filter(Boolean)
+      .join('|');
+    useEffect(() => {
+      hasReportedFirstImageRef.current = false;
+    }, [viewportId, displaySetUIDsKey]);
+
     const {
       displaySetService,
       toolbarService,
@@ -412,7 +423,6 @@ const OHIFCornerstoneViewport = React.memo(
           renderedViewportId === viewportId || renderedElement === elementRef.current;
         if (
           !isSameViewport ||
-          evt?.detail?.viewportStatus === 'preRender' ||
           hasReportedFirstImageRef.current
         ) {
           return;
