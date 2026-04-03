@@ -55,6 +55,7 @@ import PanelMeasurement from './panels/PanelMeasurement';
 import { useSegmentations } from './hooks/useSegmentations';
 import { StudySummaryFromMetadata } from './components/StudySummaryFromMetadata';
 import CornerstoneViewportDownloadForm from './utils/CornerstoneViewportDownloadForm';
+import { captureViewportImage } from './utils/captureViewport';
 import utils from './utils';
 import { useMeasurementTracking } from './hooks/useMeasurementTracking';
 import { setUpSegmentationEventHandlers } from './utils/setUpSegmentationEventHandlers';
@@ -274,6 +275,7 @@ export {
   PanelMeasurement,
   StudySummaryFromMetadata,
   CornerstoneViewportDownloadForm,
+  captureViewportImage,
   utils,
   OHIFCornerstoneViewport,
   useMeasurementTracking,

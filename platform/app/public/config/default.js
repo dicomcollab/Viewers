@@ -433,6 +433,11 @@ window.config = {
   // createReportAppBaseUrlProduction: 'https://synapse.med-pacs.com', // optional; default = new URL(risWorklistUrl).origin
   createReportContextId: '69bcdb60fa67f3975d725096',
   risWorklistUrl: 'https://synapse.med-pacs.com/worklist',
+  keyImagesUploadUrl:
+    'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/key-images/upload',
+  // For curl-style basic auth: -u "USER:PASS"
+  // Prefer setting this via dynamic config / env per deployment (do not commit real creds).
+  keyImagesBasicAuth: 'B7X9V3LQ2ZW8M6RFD0J5PYT4KN1GHSU:Z4M1K9F8QX7TRD5W2LCV0BJN6SGYHP3v',
   // risReportUrl: 'https://synapse.med-pacs.com/report',
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import html2canvas from 'html2canvas';
 import { getEnabledElement, StackViewport, BaseVolumeViewport } from '@cornerstonejs/core';
 import { ToolGroupManager, segmentation, Enums } from '@cornerstonejs/tools';
 import { getEnabledElement as OHIFgetEnabledElement } from '../state';
 import { useSystem } from '@ohif/core/src';
+import { captureViewportImage } from './captureViewport';
 
 const DEFAULT_SIZE = 512;
 const MAX_TEXTURE_SIZE = 10000;
@@ -208,19 +208,19 @@ const CornerstoneViewportDownloadForm = ({
   }, [viewportDimensions, showAnnotations]);
 
   const handleDownload = async (filename: string, fileType: string) => {
-    const divForDownloadViewport = document.querySelector(
-      `div[data-viewport-uid="${VIEWPORT_ID}"]`
-    );
+    const { dataUrl } = await captureViewportImage({
+      activeViewportId: activeViewportIdProp,
+      cornerstoneViewportService,
+      showAnnotations,
+      width: viewportDimensions.width,
+      height: viewportDimensions.height,
+      fileType: fileType as 'png' | 'jpg' | 'jpeg',
+      quality: 1,
+    });
 
-    if (!divForDownloadViewport) {
-      console.debug('No viewport found for download');
-      return;
-    }
-
-    const canvas = await html2canvas(divForDownloadViewport as HTMLElement);
     const link = document.createElement('a');
     link.download = `${filename}.${fileType}`;
-    link.href = canvas.toDataURL(`image/${fileType}`, 1.0);
+    link.href = dataUrl;
     link.click();
   };
 

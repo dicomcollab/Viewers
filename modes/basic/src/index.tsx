@@ -31,6 +31,10 @@ export const cornerstone = {
   viewport: '@ohif/extension-cornerstone.viewportModule.cornerstone',
 };
 
+export const keyimages = {
+  panel: '@ohif/extension-key-images.panelModule.keyImages',
+};
+
 export const dicomsr = {
   sopClassHandler: '@ohif/extension-cornerstone-dicom-sr.sopClassHandlerModule.dicom-sr',
   sopClassHandler3D: '@ohif/extension-cornerstone-dicom-sr.sopClassHandlerModule.dicom-sr-3d',
@@ -66,6 +70,7 @@ export const extensionDependencies = {
   // Can derive the versions at least process.env.from npm_package_version
   '@ohif/extension-default': '^3.0.0',
   '@ohif/extension-cornerstone': '^3.0.0',
+  '@ohif/extension-key-images': '^3.0.0',
   '@ohif/extension-cornerstone-dicom-sr': '^3.0.0',
   '@ohif/extension-cornerstone-dicom-seg': '^3.0.0',
   '@ohif/extension-cornerstone-dicom-pmap': '^3.0.0',
@@ -235,6 +240,8 @@ export const toolbarSections = {
     'Crosshairs',
     'TrackballRotate',
     'Capture',
+    'AddKeyImage',
+    'SaveKeyImages',
     'Reset',
     'MoreTools',
   ],
@@ -377,6 +384,8 @@ export const iframeToolbarSections = {
     'Crosshairs',
     'TrackballRotate',
     'Capture',
+    'AddKeyImage',
+    'SaveKeyImages',
     'Reset',
     'ImageSliceSync',
     'ReferenceLines',
@@ -398,8 +407,9 @@ export const basicLayout = {
   props: {
     leftPanels: [ohif.thumbnailList],
     leftPanelResizable: true,
-    rightPanels: [cornerstone.segmentation, cornerstone.measurements],
-    rightPanelClosed: true,
+    rightPanels: [keyimages.panel, cornerstone.segmentation, cornerstone.measurements],
+    // Key Images are a primary workflow; keep the right panel open by default
+    rightPanelClosed: false,
     rightPanelResizable: true,
     viewports: [
       {

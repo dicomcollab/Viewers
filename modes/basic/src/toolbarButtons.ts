@@ -779,6 +779,34 @@ const toolbarButtons: Button[] = [
     },
   },
   {
+    id: 'AddKeyImage',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-capture',
+      label: 'Add Key Image',
+      tooltip: 'Add current image to Key Images',
+      commands: 'addKeyImage',
+      evaluate: [
+        'evaluate.action',
+        {
+          name: 'evaluate.viewport.supported',
+          unsupportedViewportTypes: ['video', 'wholeSlide'],
+        },
+      ],
+    },
+  },
+  {
+    id: 'SaveKeyImages',
+    uiType: 'ohif.toolButton',
+    props: {
+      icon: 'tool-capture',
+      label: 'Save Key Images',
+      tooltip: 'Upload all key images in one API call',
+      commands: 'saveKeyImages',
+      evaluate: 'evaluate.action',
+    },
+  },
+  {
     id: 'HangingProtocol',
     uiType: 'ohif.hangingProtocolSelector',
     props: {
