@@ -47,6 +47,20 @@ import calculateScanAxisNormal from './calculateScanAxisNormal';
 import areAllImageOrientationsEqual from './areAllImageOrientationsEqual';
 import { structuredCloneWithFunctions } from './structuredCloneWithFunctions';
 import { buildButtonCommands } from './buildButtonCommands';
+import {
+  fetchRisViewDicomImg,
+  getDefaultRisApiBase,
+  getDefaultRisLoginUrl,
+  getDefaultRisPortalOrigin,
+  getDefaultRisWorklistUrl,
+  getRisAuthTokenFromBrowserCookies,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
+  resolveRisApiBaseFromConfig,
+  resolveRisPreferencesApiBaseUrl,
+  resolveRisRootRedirectUrlFromConfig,
+  resolveRisWorklistUrlFromConfig,
+} from './risEnvironmentDefaults';
 
 // Commented out unused functionality.
 // Need to implement new mechanism for derived displaySets using the displaySetManager.
@@ -99,6 +113,18 @@ const utils = {
   getClosestOrientationFromIOP,
   calculateScanAxisNormal,
   areAllImageOrientationsEqual,
+  fetchRisViewDicomImg,
+  getDefaultRisApiBase,
+  getDefaultRisLoginUrl,
+  getDefaultRisPortalOrigin,
+  getDefaultRisWorklistUrl,
+  getRisAuthTokenFromBrowserCookies,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
+  resolveRisApiBaseFromConfig,
+  resolveRisPreferencesApiBaseUrl,
+  resolveRisRootRedirectUrlFromConfig,
+  resolveRisWorklistUrlFromConfig,
 };
 
 export {
@@ -137,6 +163,18 @@ export {
   MeasurementFilters,
   getClosestOrientationFromIOP,
   buildButtonCommands,
+  fetchRisViewDicomImg,
+  getDefaultRisApiBase,
+  getDefaultRisLoginUrl,
+  getDefaultRisPortalOrigin,
+  getDefaultRisWorklistUrl,
+  getRisAuthTokenFromBrowserCookies,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
+  resolveRisApiBaseFromConfig,
+  resolveRisPreferencesApiBaseUrl,
+  resolveRisRootRedirectUrlFromConfig,
+  resolveRisWorklistUrlFromConfig,
 };
 
 export default utils;

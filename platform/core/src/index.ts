@@ -11,6 +11,20 @@ import object from './object.js';
 import string from './string.js';
 import user from './user';
 import utils from './utils';
+import {
+  fetchRisViewDicomImg,
+  getDefaultRisApiBase,
+  getDefaultRisLoginUrl,
+  getDefaultRisPortalOrigin,
+  getDefaultRisWorklistUrl,
+  getRisAuthTokenFromBrowserCookies,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
+  resolveRisApiBaseFromConfig,
+  resolveRisPreferencesApiBaseUrl,
+  resolveRisRootRedirectUrlFromConfig,
+  resolveRisWorklistUrlFromConfig,
+} from './utils/risEnvironmentDefaults';
 import defaults from './defaults';
 import * as Types from './types';
 import * as Enums from './enums';
@@ -94,6 +108,18 @@ const OHIF = {
 };
 
 export {
+  fetchRisViewDicomImg,
+  getDefaultRisApiBase,
+  getDefaultRisLoginUrl,
+  getDefaultRisPortalOrigin,
+  getDefaultRisWorklistUrl,
+  getRisAuthTokenFromBrowserCookies,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
+  resolveRisApiBaseFromConfig,
+  resolveRisPreferencesApiBaseUrl,
+  resolveRisRootRedirectUrlFromConfig,
+  resolveRisWorklistUrlFromConfig,
   MODULE_TYPES,
   //
   CommandsManager,
@@ -145,5 +171,9 @@ export {
 export { OHIF };
 
 export type { Types };
+export type {
+  RisAppConfigSlice,
+  RisViewDicomImgResult,
+} from './utils/risEnvironmentDefaults';
 
 export default OHIF;

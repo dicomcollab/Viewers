@@ -32,6 +32,8 @@ function getDemoToken() {
 
 // Share link (ShortCode) - RIS API base and basic token for PACS when viewing via share link
 const RIS_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+/** Synapse / RIS web portal origin. Align with platform/core risEnvironmentDefaults fallbacks when changing. */
+const RIS_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
 // Use same token as demo for share links, or set a dedicated share-link read-only token
 const SHARE_LINK_BASIC_TOKEN = DEMO_TOKEN;
 
@@ -322,7 +324,7 @@ async function fetchPreferences() {
         return null;
       }
       const response = await fetch(
-        `https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences/getPreferences`,
+        `${RIS_API_BASE}/api/v1/preferences/getPreferences`,
         {
           method: 'GET',
           headers: {
@@ -362,7 +364,7 @@ async function savePreferences(payload) {
       return null;
     }
     const response = await fetch(
-      `https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences/savePreferences`,
+      `${RIS_API_BASE}/api/v1/preferences/savePreferences`,
       {
         method: 'POST',
         headers: {
@@ -427,18 +429,24 @@ window.config = {
   modes: [],
   customizationService: {},
   showStudyList: true,
-  // “← Report” → /createreport/{createReportContextId}/{StudyInstanceUID}?tempId=
-  // Local dev (localhost): createReportAppBaseUrl. Lens live / production: origin of risWorklistUrl (Synapse), or set createReportAppBaseUrlProduction to override.
-  createReportAppBaseUrl: 'http://localhost:5173',
-  // createReportAppBaseUrlProduction: 'https://synapse.med-pacs.com', // optional; default = new URL(risWorklistUrl).origin
-  createReportContextId: '69bcdb60fa67f3975d725096',
-  risWorklistUrl: 'https://synapse.med-pacs.com/worklist',
-  keyImagesUploadUrl:
-    'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/key-images/upload',
+  // Report: createreport base — local dev: createReportAppBaseUrl. Production: createReportAppBaseUrlProduction or risWorklistUrl origin (used with viewDicomImg dicomData._id).
+  // createReportAppBaseUrl: 'http://localhost:5173',
+  createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
+  // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
+  redirectRootToRis: true,
+  redirectToRisOn401: true,
+  // Optional: override targets (else risWorklistUrl + built-in fallbacks)
+  // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
+  // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
+  risWorklistUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
+  /** “← Report” → POST viewDicomImg, then Synapse `/createreport/{dicomData._id}/{studyUID}?tempId=`. */
+  risReportUseViewDicomApi: true,
+  risApiBase: RIS_API_BASE,
+  keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images/upload`,
   // For curl-style basic auth: -u "USER:PASS"
   // Prefer setting this via dynamic config / env per deployment (do not commit real creds).
   keyImagesBasicAuth: 'B7X9V3LQ2ZW8M6RFD0J5PYT4KN1GHSU:Z4M1K9F8QX7TRD5W2LCV0BJN6SGYHP3v',
-  // risReportUrl: 'https://synapse.med-pacs.com/report',
+  // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,
   // below flag is for performance reasons, but it might not work for all servers
@@ -473,7 +481,7 @@ window.config = {
     enabled: true,
     allowedOrigins: [
       'http://localhost:5173',
-      'https://synapse.med-pacs.com',
+      RIS_PORTAL_ORIGIN,
       // 'https://your-ris-production-origin',
     ],
   },

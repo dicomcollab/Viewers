@@ -1,5 +1,6 @@
 import objectHash from 'object-hash';
 import { hotkeys as mouseTrapAPI } from '../utils';
+import { resolveRisPreferencesApiBaseUrl } from '../utils/risEnvironmentDefaults';
 import Hotkey from './Hotkey';
 import migrateOldHotkeyDefinitions from '../utils/hotkeys/migrateHotkeys';
 import pubSubServiceInterface from '../services/_shared/pubSubServiceInterface';
@@ -21,17 +22,16 @@ function getTokenFromCookie() {
 // Function to get backend URL from environment or config
 function getBackendUrl() {
   if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_BACKEND_HOTKEY_URL) {
-    return process.env.REACT_APP_BACKEND_HOTKEY_URL;
-  } else if (
+    return String(process.env.REACT_APP_BACKEND_HOTKEY_URL).replace(/\/$/, '');
+  }
+  if (
     typeof window !== 'undefined' &&
     (window as any).config &&
     (window as any).config.backendHotkeyUrl
   ) {
-    return (window as any).config.backendHotkeyUrl;
-  } else {
-    // Fallback to default URL if environment variable is not available
-    return 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences';
+    return String((window as any).config.backendHotkeyUrl).replace(/\/$/, '');
   }
+  return resolveRisPreferencesApiBaseUrl();
 }
 
 /**

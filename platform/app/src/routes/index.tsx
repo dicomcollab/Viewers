@@ -15,6 +15,7 @@ import PropTypes from 'prop-types';
 import { routerBasename } from '../utils/publicUrl';
 import { useAppConfig } from '@state';
 import { history } from '../utils/history';
+import { resolveRisRootRedirectUrlFromConfig } from '@ohif/core';
 
 const NotFoundServer = ({
   message = 'Unable to query for studies at this time. Check your data source configuration or network connection',
@@ -113,8 +114,8 @@ const createRoutes = ({
   console.log('Registering worklist route', routerBasename, path);
 
   // Get redirect configuration from appConfig
-  // Default to true if risWorklistUrl is provided, otherwise false
-  const risWorklistUrl = (appConfig as any)?.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
+  // Default to true if a root RIS URL can be resolved, otherwise false
+  const risWorklistUrl = resolveRisRootRedirectUrlFromConfig(appConfig as any);
   const redirectRootToRis = (appConfig as any)?.redirectRootToRis !== undefined
     ? (appConfig as any).redirectRootToRis
     : risWorklistUrl ? true : false; // Default to true if risWorklistUrl exists

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PropTypes from 'prop-types';
+import { resolveRisRootRedirectUrlFromConfig } from '@ohif/core';
 
 /**
  * Component that redirects root route (/) to RIS worklist if configured
@@ -17,7 +18,8 @@ const RootRedirect = ({ risWorklistUrl: propRisWorklistUrl, redirectRootToRis: p
       : appConfig.redirectRootToRis !== undefined
       ? appConfig.redirectRootToRis
       : true; // Default to true if not specified
-    const risWorklistUrl = propRisWorklistUrl || appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
+    const risWorklistUrl =
+      propRisWorklistUrl || resolveRisRootRedirectUrlFromConfig(appConfig);
 
     // Only redirect if we're on the root path and redirect is enabled
     const currentPath = location.pathname;

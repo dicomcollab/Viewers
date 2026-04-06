@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useState } from 'react';
 import classNames from 'classnames';
 import {
   DropdownMenu,
@@ -39,6 +39,8 @@ interface HeaderProps {
   isIframeMode?: boolean;
   /** When set, shows “← Report” after the logo; full navigation to RIS/Synapse. */
   reportNavigationHref?: string;
+  /** When set (e.g. RIS viewDicomImg), called on click instead of navigating to reportNavigationHref. */
+  onReportNavigation?: () => void | Promise<void>;
 }
 
 function Header({
@@ -52,8 +54,11 @@ function Header({
   Secondary,
   isIframeMode = false,
   reportNavigationHref,
+  onReportNavigation,
   ...props
 }: HeaderProps): ReactNode {
+  const [reportBusy, setReportBusy] = useState(false);
+
   const onClickReturn = () => {
     if (isReturnEnabled && onClickReturnButton) {
       onClickReturnButton();
@@ -91,20 +96,30 @@ function Header({
                   }
                 </div>
               </div>
-              {reportNavigationHref ? (
+              {reportNavigationHref || onReportNavigation ? (
                 <Button
                   type="button"
                   variant="ghost"
+                  disabled={reportBusy}
                   data-cy="header-report-ris"
                   className={classNames(
                     'shrink-0 whitespace-nowrap px-2 font-medium bg-[#00000080] rounded-md text-white',
                     isIframeMode ? 'h-8 text-xs' : 'h-9 text-sm'
                   )}
-                  onClick={() => {
-                    window.location.assign(reportNavigationHref);
+                  onClick={async () => {
+                    if (onReportNavigation) {
+                      try {
+                        setReportBusy(true);
+                        await onReportNavigation();
+                      } finally {
+                        setReportBusy(false);
+                      }
+                    } else if (reportNavigationHref) {
+                      window.location.assign(reportNavigationHref);
+                    }
                   }}
                 >
-                  ← Report
+                  {reportBusy ? '…' : '← Report'}
                 </Button>
               ) : null}
             </div>

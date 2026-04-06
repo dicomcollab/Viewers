@@ -453,6 +453,7 @@ function InstanceNumberOverlayItem({
   const { imageIndex, numberOfSlices } = imageSliceData;
   const idx = Number(imageIndex);
   const total = Number(numberOfSlices);
+  const hasValidSliceCount = Number.isFinite(total) && total > 0;
   const safeInstanceNumber =
     instanceNumber !== undefined &&
     instanceNumber !== null &&
@@ -467,7 +468,12 @@ function InstanceNumberOverlayItem({
       style={{ color: (customization && customization.color) || undefined }}
     >
       <span>
-        {safeInstanceNumber !== null ? (
+        {!hasValidSliceCount ? (
+          <>
+            <span className="mr-0.5 shrink-0 opacity-[0.70]">I:</span>
+            <span>—</span>
+          </>
+        ) : safeInstanceNumber !== null ? (
           <>
             <span className="mr-0.5 shrink-0 opacity-[0.70]">I:</span>
             <span>{`${safeInstanceNumber} (${idx + 1}/${total})`}</span>

@@ -51,6 +51,10 @@ const defineValues = {
   'process.env.LOCIZE_API_KEY': JSON.stringify(process.env.LOCIZE_API_KEY || ''),
   'process.env.REACT_APP_I18N_DEBUG': JSON.stringify(process.env.REACT_APP_I18N_DEBUG || ''),
   'process.env.TEST_ENV': JSON.stringify(process.env.TEST_ENV || ''),
+  'process.env.REACT_APP_RIS_WORKLIST_URL': JSON.stringify(process.env.REACT_APP_RIS_WORKLIST_URL || ''),
+  'process.env.REACT_APP_RIS_LOGIN_URL': JSON.stringify(process.env.REACT_APP_RIS_LOGIN_URL || ''),
+  'process.env.REACT_APP_RIS_API_BASE': JSON.stringify(process.env.REACT_APP_RIS_API_BASE || ''),
+  'process.env.REACT_APP_BACKEND_HOTKEY_URL': JSON.stringify(process.env.REACT_APP_BACKEND_HOTKEY_URL || ''),
 };
 
 // Only redefine updated values.  This avoids warning messages in the logs

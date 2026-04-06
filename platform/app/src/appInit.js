@@ -21,6 +21,8 @@ import {
   WorkflowStepsService,
   StudyPrefetcherService,
   MultiMonitorService,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
   // utils,
 } from '@ohif/core';
 
@@ -101,9 +103,11 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
         // Fallback: redirect to RIS URL if no handler is available
         if (typeof window !== 'undefined') {
           const appConfig = errorHandler._servicesManager?.extensionManager?.appConfig || window.config || {};
-          const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/login';
-          console.log('401 error - redirecting to RIS:', risWorklistUrl);
-          window.location.href = risWorklistUrl;
+          if (isRedirectToRisOn401Enabled(appConfig)) {
+            const target = resolveRis401RedirectUrlFromConfig(appConfig);
+            console.log('401 error - redirecting to RIS:', target);
+            window.location.href = target;
+          }
         }
         return;
       }

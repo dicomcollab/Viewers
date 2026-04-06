@@ -89,6 +89,13 @@ const OHIFCornerstoneViewport = React.memo(
       displaySetUIDs: string;
     } | null>(null);
     const hasReportedFirstImageRef = useRef(false);
+    const onFirstImageRenderedRef = useRef(onFirstImageRendered);
+    /** Remove prior CORNERSTONE_IMAGE_RENDERED listener (attached synchronously on ELEMENT_ENABLED). */
+    const imageRenderedCleanupRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => {
+      onFirstImageRenderedRef.current = onFirstImageRendered;
+    }, [onFirstImageRendered]);
 
     // Reset "first image rendered" reporting when the displayed content changes.
     // The viewport component is keyed by `viewportId` (not by series), so it is not remounted
@@ -190,6 +197,31 @@ const OHIFCornerstoneViewport = React.memo(
         setEnabledElement(viewportId, element);
         setEnabledVPElement(element);
 
+        // IMAGE_RENDERED is dispatched on the viewport element only. Subscribing in a useEffect
+        // keyed on enabledVPElement runs after React's state flush and can miss the first render.
+        if (imageRenderedCleanupRef.current) {
+          imageRenderedCleanupRef.current();
+          imageRenderedCleanupRef.current = null;
+        }
+        const onImageRendered = (e: Event) => {
+          if (hasReportedFirstImageRef.current) {
+            return;
+          }
+          const vid = (e as CustomEvent)?.detail?.viewportId;
+          if (vid !== undefined && vid !== viewportId) {
+            return;
+          }
+          hasReportedFirstImageRef.current = true;
+          const cb = onFirstImageRenderedRef.current;
+          if (typeof cb === 'function') {
+            cb();
+          }
+        };
+        element.addEventListener(EVENTS.IMAGE_RENDERED, onImageRendered);
+        imageRenderedCleanupRef.current = () => {
+          element.removeEventListener(EVENTS.IMAGE_RENDERED, onImageRendered);
+        };
+
         const renderingEngineId = viewportInfo.getRenderingEngineId();
         const toolGroupId = viewportInfo.getToolGroupId();
         const syncGroups = viewportInfo.getSyncGroups();
@@ -221,6 +253,11 @@ const OHIFCornerstoneViewport = React.memo(
       setImageScrollBarHeight();
 
       return () => {
+        if (imageRenderedCleanupRef.current) {
+          imageRenderedCleanupRef.current();
+          imageRenderedCleanupRef.current = null;
+        }
+
         const viewportInfo = cornerstoneViewportService.getViewportInfo(viewportId);
 
         if (!viewportInfo) {
@@ -410,32 +447,6 @@ const OHIFCornerstoneViewport = React.memo(
 
       loadViewportData();
     }, [viewportOptions, displaySets, dataSource]);
-
-    useEffect(() => {
-      if (!onFirstImageRendered) {
-        return;
-      }
-
-      const handleImageRendered = evt => {
-        const renderedViewportId = evt?.detail?.viewportId;
-        const renderedElement = evt?.detail?.element;
-        const isSameViewport =
-          renderedViewportId === viewportId || renderedElement === elementRef.current;
-        if (
-          !isSameViewport ||
-          hasReportedFirstImageRef.current
-        ) {
-          return;
-        }
-        hasReportedFirstImageRef.current = true;
-        onFirstImageRendered();
-      };
-
-      eventTarget.addEventListener(EVENTS.IMAGE_RENDERED, handleImageRendered);
-      return () => {
-        eventTarget.removeEventListener(EVENTS.IMAGE_RENDERED, handleImageRendered);
-      };
-    }, [onFirstImageRendered, viewportId]);
 
     const Notification = customizationService.getCustomization('ui.notificationComponent');
 

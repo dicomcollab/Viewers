@@ -32,9 +32,209 @@ function dispatchWADORequestProgress(detail) {
   );
 }
 
+/** Fired from dicom-image-loader xhrRequest via init() callbacks — same bundle as XHR, always has imageId. */
+function dispatchOhifDicomLoaderXhr(detail) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent('ohif:dicom-loader-xhr', {
+      detail,
+    })
+  );
+}
+
 /**
- * Intercept XMLHttpRequest to cache WADO-URI image requests
- * This catches all XHR requests, including those made by dicom-image-loader
+ * GETs that load DICOM bytes (uncompressed, octet-stream, multipart, per-frame, bulkdata, WADO-URI).
+ */
+function isLikelyDicomImageGetRequest(method, url) {
+  if (method.toUpperCase() !== 'GET') {
+    return false;
+  }
+  const urlString = typeof url === 'string' ? url : url != null ? String(url) : '';
+  if (!urlString) {
+    return false;
+  }
+  const u = urlString.toLowerCase();
+
+  if (u.includes('wadouri') || u.includes('requesttype=wado') || u.includes('objectuid=')) {
+    return true;
+  }
+
+  // WADO-RS: full instance, frames/N, or pixel bulkdata (often application/octet-stream)
+  if (u.includes('/instances/') || u.includes('/bulkdata/') || u.includes('/frames/')) {
+    return true;
+  }
+
+  if (
+    u.includes('contenttype=application%2fdicom') ||
+    u.includes('contenttype=application/dicom') ||
+    u.includes('octet-stream') ||
+    u.includes('application%2foctet-stream')
+  ) {
+    return true;
+  }
+
+  if (u.includes('sv=') && u.includes('st=')) {
+    return true;
+  }
+
+  // Azure Blob and similar: path often includes transfer-syntax / DICOM hints; SAS params may vary.
+  if (u.includes('blob.core.windows.net') && u.includes('dicom')) {
+    return true;
+  }
+  if (u.includes('application-dicom') || u.includes('application%2ddicom')) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Final URL after redirects — real DICOM bytes usually come from blob / WADO-RS, not the 302 gateway body. */
+function isLikelyDicomInstanceByteUrl(url) {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  const u = url.toLowerCase();
+  if (u.includes('blob.core.windows.net')) {
+    return true;
+  }
+  if (u.includes('application-dicom') || u.includes('application%2ddicom')) {
+    return true;
+  }
+  if (u.includes('/instances/') || u.includes('/bulkdata/') || u.includes('/frames/')) {
+    return true;
+  }
+  if (u.includes('sv=') && u.includes('sig=')) {
+    return true;
+  }
+  return false;
+}
+
+function isWadoUriGatewayUrl(url) {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  const u = url.toLowerCase();
+  return u.includes('wadouri') || u.includes('requesttype=wado');
+}
+
+/** 302 / gateway responses are tiny; treating them as 100% hid the real blob XHR progress. */
+const TRIVIAL_PRE_INSTANCE_BYTE_LENGTH = 65536;
+
+function shouldIgnoreProgressEventForGatewayRedirectHop(xhr, event, requestUrl) {
+  const finalUrl = xhr.responseURL || '';
+  if (isLikelyDicomInstanceByteUrl(finalUrl)) {
+    return false;
+  }
+  if (!isWadoUriGatewayUrl(requestUrl)) {
+    return false;
+  }
+  const total = event.lengthComputable && typeof event.total === 'number' ? event.total : 0;
+  if (total <= 0 || total >= TRIVIAL_PRE_INSTANCE_BYTE_LENGTH) {
+    return false;
+  }
+  return true;
+}
+
+/** Loader % should track the redirected blob/instance GET, not the wadouri 302 hop. */
+function isPastWadoGatewayToInstanceBytes(xhr, requestUrl, loaded) {
+  if (!isWadoUriGatewayUrl(requestUrl)) {
+    return true;
+  }
+  const ru = xhr.responseURL || '';
+  if (isLikelyDicomInstanceByteUrl(ru)) {
+    return true;
+  }
+  const n = typeof loaded === 'number' ? loaded : 0;
+  return n > TRIVIAL_PRE_INSTANCE_BYTE_LENGTH;
+}
+
+/** Attach progress + completion dispatches for ViewportGrid (works for dicom-image-loader XHR). */
+function wireWadoXhrProgress(xhr, requestId, requestUrl) {
+  let headerContentLength = 0;
+
+  xhr.addEventListener('readystatechange', function onHeaders() {
+    if (xhr.readyState !== 2) {
+      return;
+    }
+    try {
+      const cl = xhr.getResponseHeader && xhr.getResponseHeader('Content-Length');
+      const n = cl ? parseInt(cl, 10) : 0;
+      if (n > 0) {
+        headerContentLength = n;
+      }
+    } catch (_e) {
+      // ignore
+    }
+  });
+
+  // Do not start the viewport loader on the gateway URL; wait for blob/instance responseURL + bytes.
+  if (!isWadoUriGatewayUrl(requestUrl)) {
+    dispatchWADORequestProgress({
+      requestId,
+      requestUrl,
+      responseURL: xhr.responseURL || '',
+      progress: 0,
+      lengthComputable: false,
+      done: false,
+    });
+  }
+
+  xhr.addEventListener('progress', event => {
+    if (shouldIgnoreProgressEventForGatewayRedirectHop(xhr, event, requestUrl)) {
+      return;
+    }
+
+    const loaded = typeof event.loaded === 'number' ? event.loaded : 0;
+    if (!isPastWadoGatewayToInstanceBytes(xhr, requestUrl, loaded)) {
+      return;
+    }
+    const totalFromEvent =
+      event.lengthComputable && typeof event.total === 'number' && event.total > 0 ? event.total : 0;
+    const total = totalFromEvent || (headerContentLength > 0 ? headerContentLength : 0);
+    const computable = total > 0;
+    const ratio = computable ? Math.min(1, loaded / total) : undefined;
+
+    dispatchWADORequestProgress({
+      requestId,
+      requestUrl,
+      responseURL: xhr.responseURL || '',
+      progress: typeof ratio === 'number' ? ratio : undefined,
+      loaded,
+      total: computable ? total : undefined,
+      lengthComputable: computable,
+      done: false,
+    });
+  });
+
+  const finishRequest = () => {
+    const responseURL = xhr.responseURL || '';
+    const status = typeof xhr.status === 'number' ? xhr.status : 0;
+    const ok = status >= 200 && status < 300;
+    // Avoid signaling "done" for a gateway-only response (no redirect to instance bytes yet).
+    if (ok && isWadoUriGatewayUrl(requestUrl) && !isLikelyDicomInstanceByteUrl(responseURL)) {
+      return;
+    }
+    dispatchWADORequestProgress({
+      requestId,
+      requestUrl,
+      responseURL,
+      status,
+      progress: 1,
+      lengthComputable: true,
+      done: true,
+    });
+  };
+
+  xhr.addEventListener('loadend', finishRequest);
+  xhr.addEventListener('error', finishRequest);
+  xhr.addEventListener('abort', finishRequest);
+}
+
+/**
+ * Intercept XMLHttpRequest for WADO/DICOM download progress and optional image cache.
+ * Progress must run even when __OHIF_IMAGE_CACHE__ is unset (dicom-image-loader still uses XHR).
  */
 function interceptXHRForImageCaching() {
   if (isXHRIntercepted || typeof window === 'undefined' || !window.XMLHttpRequest) {
@@ -43,10 +243,6 @@ function interceptXHRForImageCaching() {
 
   const OriginalXHR = window.XMLHttpRequest;
   const imageCache = getImageCache();
-
-  if (!imageCache) {
-    return;
-  }
 
   window.XMLHttpRequest = function(...args) {
     const xhr = new OriginalXHR(...args);
@@ -57,28 +253,26 @@ function interceptXHRForImageCaching() {
 
     // Intercept open() to capture the URL
     xhr.open = function(method, url, ...rest) {
-      requestUrl = url;
-      // Check if this is a WADO-URI image request or DICOM image request
-      // Patterns to match:
-      // - wadouri?requestType=WADO&...
-      // - URLs with objectUID= (DICOM instance identifier)
-      // - Azure blob URLs that might be redirected from WADO-URI (contain sv= and st= query params)
-      isImageRequest =
-        typeof url === 'string' &&
-        (url.includes('wadouri') ||
-         url.includes('requestType=WADO') ||
-         url.includes('objectUID=') ||
-         (url.includes('sv=') && url.includes('st=') && method.toUpperCase() === 'GET')); // Azure blob storage redirects
+      const urlForMatch =
+        typeof url === 'string' ? url : url && typeof url.toString === 'function' ? url.toString() : String(url);
+      requestUrl = urlForMatch;
+      isImageRequest = isLikelyDicomImageGetRequest(method, urlForMatch);
 
       return originalOpen.call(this, method, url, ...rest);
     };
 
     // Intercept send() to check cache before making the request
     xhr.send = function(...args) {
-      if (!isImageRequest || !requestUrl || !imageCache) {
+      if (!isImageRequest || !requestUrl) {
         return originalSend.apply(this, args);
       }
+
       const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      if (!imageCache) {
+        wireWadoXhrProgress(xhr, requestId, requestUrl);
+        return originalSend.apply(this, args);
+      }
 
       // Check cache first (synchronously check if possible, but async is fine)
       const cachePromise = imageCache.getCachedImage(requestUrl);
@@ -181,50 +375,7 @@ function interceptXHRForImageCaching() {
         });
 
       const proceedWithNetworkRequest = () => {
-        dispatchWADORequestProgress({
-          requestId,
-          requestUrl,
-          progress: 0,
-          lengthComputable: false,
-          done: false,
-        });
-
-        if (xhr.addEventListener) {
-          xhr.addEventListener('progress', event => {
-            if (!event.total) {
-              dispatchWADORequestProgress({
-                requestId,
-                requestUrl,
-                progress: 0,
-                lengthComputable: false,
-                done: false,
-              });
-              return;
-            }
-
-            dispatchWADORequestProgress({
-              requestId,
-              requestUrl,
-              progress: event.loaded / event.total,
-              lengthComputable: Boolean(event.lengthComputable),
-              done: false,
-            });
-          });
-
-          const finishRequest = () => {
-            dispatchWADORequestProgress({
-              requestId,
-              requestUrl,
-              progress: 1,
-              lengthComputable: true,
-              done: true,
-            });
-          };
-
-          xhr.addEventListener('loadend', finishRequest);
-          xhr.addEventListener('error', finishRequest);
-          xhr.addEventListener('abort', finishRequest);
-        }
+        wireWadoXhrProgress(xhr, requestId, requestUrl);
 
         // Restore original event handlers and add caching logic
         const cacheResponse = () => {
@@ -297,7 +448,7 @@ export default function initWADOImageLoader(
     cornerstoneStreamingDynamicImageVolumeLoader
   );
 
-  // Intercept XHR requests for image caching (do this early, before any images load)
+  // XHR hook: WADO/DICOM download % (all formats using dicom-image-loader XHR) + optional cache
   interceptXHRForImageCaching();
 
   // Register JPEG image loader when data source is localviewer-image-jpeg
@@ -373,6 +524,56 @@ export default function initWADOImageLoader(
       Math.max(navigator.hardwareConcurrency - 1, 1),
       appConfig.maxNumberOfWebWorkers
     ),
+    onloadstart: function (_event, params) {
+      const imageId = params?.imageId;
+      const url = params?.url;
+      if (typeof imageId !== 'string') {
+        return;
+      }
+      const openUrl = typeof url === 'string' ? url : '';
+      if (isWadoUriGatewayUrl(openUrl) || isWadoUriGatewayUrl(imageId)) {
+        return;
+      }
+      dispatchOhifDicomLoaderXhr({
+        phase: 'start',
+        imageId,
+        url,
+      });
+    },
+    onprogress: function (oProgress, params) {
+      const imageId = params?.imageId;
+      const url = params?.url;
+      if (typeof imageId !== 'string') {
+        return;
+      }
+      const openUrl = typeof url === 'string' ? url : '';
+      if (isWadoUriGatewayUrl(openUrl) || isWadoUriGatewayUrl(imageId)) {
+        return;
+      }
+      const loaded = typeof oProgress?.loaded === 'number' ? oProgress.loaded : 0;
+      const total =
+        oProgress?.lengthComputable && typeof oProgress.total === 'number' ? oProgress.total : 0;
+      dispatchOhifDicomLoaderXhr({
+        phase: 'progress',
+        imageId,
+        url,
+        loaded,
+        total,
+        lengthComputable: Boolean(oProgress?.lengthComputable && total > 0),
+      });
+    },
+    onloadend: function (_event, params) {
+      const imageId = params?.imageId;
+      const url = params?.url;
+      if (typeof imageId !== 'string') {
+        return;
+      }
+      dispatchOhifDicomLoaderXhr({
+        phase: 'end',
+        imageId,
+        url,
+      });
+    },
     beforeSend: function () {
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};

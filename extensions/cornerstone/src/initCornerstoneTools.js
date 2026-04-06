@@ -51,6 +51,7 @@ import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
+import { resolveRisPreferencesApiBaseUrlLocal } from './utils/risRedirectConfig.js';
 
 // Function to get token from cookie
 function getTokenFromCookie() {
@@ -75,15 +76,13 @@ async function fetchPreferences() {
       return null;
     }
 
-    // Get backend URL from environment variable or use fallback
     let backendUrl;
     if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_BACKEND_HOTKEY_URL) {
-      backendUrl = process.env.REACT_APP_BACKEND_HOTKEY_URL;
+      backendUrl = String(process.env.REACT_APP_BACKEND_HOTKEY_URL).replace(/\/$/, '');
     } else if (typeof window !== 'undefined' && window.config && window.config.backendHotkeyUrl) {
-      backendUrl = window.config.backendHotkeyUrl;
+      backendUrl = String(window.config.backendHotkeyUrl).replace(/\/$/, '');
     } else {
-      // Fallback to default URL if environment variable is not available
-      backendUrl = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net/api/v1/preferences';
+      backendUrl = resolveRisPreferencesApiBaseUrlLocal();
     }
 
     const response = await fetch(`${backendUrl}/getPreferences`, {

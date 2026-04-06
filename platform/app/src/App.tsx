@@ -15,6 +15,8 @@ import {
   ServiceProvidersManager,
   SystemContextProvider,
   ViewportRefsProvider,
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
 } from '@ohif/core';
 import {
   ThemeWrapper as ThemeWrapperNext,
@@ -203,13 +205,17 @@ function App({
     };
 
     const handleUnauthenticated = () => {
-      // Redirect to RIS URL when token expires or user is unauthenticated
-      if (typeof window !== 'undefined') {
-        const appConfig = window.config || {};
-        const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/login';
-        console.log('Authentication failed (401) - redirecting to RIS:', risWorklistUrl);
-        window.location.href = risWorklistUrl;
+      if (typeof window === 'undefined') {
+        return;
       }
+      const appConfig = window.config || {};
+      if (!isRedirectToRisOn401Enabled(appConfig)) {
+        console.warn('Authentication failed (401) - RIS redirect disabled (redirectToRisOn401: false).');
+        return;
+      }
+      const target = resolveRis401RedirectUrlFromConfig(appConfig);
+      console.log('Authentication failed (401) - redirecting to RIS:', target);
+      window.location.href = target;
     };
 
     userAuthenticationService.setServiceImplementation({

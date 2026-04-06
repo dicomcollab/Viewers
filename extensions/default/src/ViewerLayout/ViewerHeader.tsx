@@ -1,9 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { Button, Header, Icons, useModal } from '@ohif/ui-next';
-import { DicomMetadataStore, useSystem, Types } from '@ohif/core';
+import {
+  DicomMetadataStore,
+  useSystem,
+  Types,
+  fetchRisViewDicomImg,
+  getDefaultRisPortalOrigin,
+  getRisAuthTokenFromBrowserCookies,
+  resolveRisApiBaseFromConfig,
+  resolveRisWorklistUrlFromConfig,
+} from '@ohif/core';
 import { Toolbar } from '../Toolbar/Toolbar';
 import { preserveQueryParameters } from '@ohif/app';
 
@@ -83,43 +92,17 @@ function getCreateReportBaseUrl(appConfig: AppTypes.Config): string | null {
     return String(appConfig.createReportAppBaseUrlProduction).replace(/\/$/, '');
   }
 
-  const ris = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
+  const ris = resolveRisWorklistUrlFromConfig(appConfig);
   try {
     return new URL(ris).origin;
   } catch {
-    return 'https://synapse.med-pacs.com';
+    return getDefaultRisPortalOrigin();
   }
-}
-
-/**
- * Build report-app URL: {base}/createreport/{contextId}/{studyUid}?tempId={tempId}
- * Matches RIS pattern; study UID kept unencoded in path (dots) like typical PACS UIDs.
- */
-function buildCreateReportHref(
-  appConfig: AppTypes.Config,
-  search: string,
-  params: Readonly<Record<string, string | undefined>>
-): string | null {
-  const base = getCreateReportBaseUrl(appConfig);
-  if (!base) {
-    return null;
-  }
-  const studyUid = resolveStudyInstanceUidForReport(search, params);
-  if (!studyUid) {
-    return null;
-  }
-  const q = new URLSearchParams(search);
-  const contextId = q.get('reportContextId') || appConfig.createReportContextId;
-  if (!contextId) {
-    return null;
-  }
-  const tempId = q.get('tempId') ?? '';
-  const root = String(base).replace(/\/$/, '');
-  return `${root}/createreport/${contextId}/${studyUid}?tempId=${encodeURIComponent(tempId)}`;
 }
 
 function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appConfig: AppTypes.Config; isIframeMode?: boolean }>) {
   const { servicesManager, extensionManager, commandsManager } = useSystem();
+  const useViewDicomForReport = Boolean(appConfig.risReportUseViewDicomApi);
   const { customizationService } = servicesManager.services;
 
   const navigate = useNavigate();
@@ -132,8 +115,7 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
     if (isIframeMode) {
       return;
     }
-    const q = new URLSearchParams(location.search);
-    if (!appConfig.createReportContextId && !q.get('reportContextId')) {
+    if (!useViewDicomForReport) {
       return;
     }
     const refresh = () => setMetadataRev(r => r + 1);
@@ -146,7 +128,74 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
       s2.unsubscribe();
       s3.unsubscribe();
     };
-  }, [appConfig.createReportContextId, location.search, isIframeMode]);
+  }, [isIframeMode, useViewDicomForReport]);
+
+  const handleReportViaViewDicomApi = useCallback(async () => {
+    const { uiNotificationService } = servicesManager.services;
+    const studyUid = resolveStudyInstanceUidForReport(location.search, params);
+    if (!studyUid) {
+      uiNotificationService.show({
+        title: 'Report',
+        message: 'No study is loaded (StudyInstanceUID missing).',
+        type: 'error',
+      });
+      return;
+    }
+    const token = getRisAuthTokenFromBrowserCookies();
+    if (!token) {
+      uiNotificationService.show({
+        title: 'Report',
+        message: 'No RIS session token found. Sign in again or open the viewer from the worklist.',
+        type: 'error',
+      });
+      return;
+    }
+    try {
+      const apiBase = resolveRisApiBaseFromConfig(appConfig);
+      const path = appConfig.risViewDicomImgPath;
+      const { viewerUrl, dicomData } = await fetchRisViewDicomImg({
+        studyUID: studyUid,
+        token,
+        apiBase,
+        ...(path ? { path } : {}),
+      });
+      const dicomEntryId =
+        dicomData?._id != null ? String(dicomData._id).trim() : '';
+      if (dicomEntryId) {
+        const reportBase = getCreateReportBaseUrl(appConfig);
+        if (!reportBase) {
+          uiNotificationService.show({
+            title: 'Report',
+            message: 'Report app base URL is not configured (createReportAppBaseUrl / production / risWorklistUrl).',
+            type: 'error',
+          });
+          return;
+        }
+        const studyForPath =
+          dicomData?.studyUID != null && String(dicomData.studyUID).trim()
+            ? String(dicomData.studyUID).trim()
+            : studyUid;
+        const tempId = new URLSearchParams(location.search).get('tempId') ?? '';
+        const root = reportBase.replace(/\/$/, '');
+        window.location.assign(
+          `${root}/createreport/${dicomEntryId}/${studyForPath}?tempId=${encodeURIComponent(tempId)}`
+        );
+        return;
+      }
+      if (viewerUrl) {
+        window.location.assign(viewerUrl);
+        return;
+      }
+      throw new Error('viewDicomImg: missing dicomData._id and data.url');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Could not open the report screen.';
+      uiNotificationService.show({
+        title: 'Report',
+        message,
+        type: 'error',
+      });
+    }
+  }, [appConfig, location.search, params, servicesManager]);
 
   const onClickReturnButton = () => {
     const { pathname } = location;
@@ -212,20 +261,13 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
     });
   }
 
-  // Createreport URL: local → localhost:5173; Lens live → Synapse origin from risWorklistUrl (or createReportAppBaseUrlProduction).
-  const createReportHref = buildCreateReportHref(appConfig, location.search, params);
-  const reportContextQ = new URLSearchParams(location.search);
-  const wantsCreateReport =
-    Boolean(appConfig.createReportContextId || reportContextQ.get('reportContextId')) &&
-    Boolean(getCreateReportBaseUrl(appConfig));
+  // Without viewDicom API: direct link to risReportUrl or worklist (no static createreport id).
+  const reportNavigationHref = useViewDicomForReport
+    ? undefined
+    : appConfig.risReportUrl || resolveRisWorklistUrlFromConfig(appConfig);
 
-  const reportNavigationHref = createReportHref
-    ? createReportHref
-    : wantsCreateReport
-      ? null
-      : appConfig.risReportUrl ||
-        appConfig.risWorklistUrl ||
-        'https://synapse.med-pacs.com/worklist';
+  const onReportNavigation =
+    !isIframeMode && useViewDicomForReport ? handleReportViaViewDicomApi : undefined;
 
   return (
     <Header
@@ -234,6 +276,7 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
       onClickReturnButton={onClickReturnButton}
       WhiteLabeling={appConfig.whiteLabeling}
       reportNavigationHref={isIframeMode ? undefined : reportNavigationHref}
+      onReportNavigation={onReportNavigation}
       Secondary={<Toolbar buttonSection="secondary" />}
       isIframeMode={isIframeMode}
       UndoRedo={

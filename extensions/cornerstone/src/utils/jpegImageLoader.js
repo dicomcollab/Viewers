@@ -1,4 +1,8 @@
 import { imageLoader } from '@cornerstonejs/core';
+import {
+  isRedirectToRisOn401Enabled,
+  resolveRis401RedirectUrlFromConfig,
+} from './risRedirectConfig.js';
 
 function dispatchJPEGLoadProgress(imageId, progress, lengthComputable = true) {
   if (typeof window === 'undefined') {
@@ -215,145 +219,147 @@ function getTokenFromCookie() {
 /**
  * Custom image loader for JPEG images from WADO-URI endpoints
  */
+function handleJpegLoader401(_xhr, reject) {
+  const appConfig = window.config || {};
+  const errorHandler = window.__OHIF_ERROR_HANDLER__;
+  if (errorHandler && errorHandler._servicesManager) {
+    const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
+    if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
+      userAuthenticationService.handleUnauthenticated();
+      if (isRedirectToRisOn401Enabled(appConfig)) {
+        return true;
+      }
+      reject(new Error('HTTP 401: Unauthorized'));
+      return true;
+    }
+  }
+
+  if (isRedirectToRisOn401Enabled(appConfig)) {
+    const target = resolveRis401RedirectUrlFromConfig(appConfig);
+    console.log('401 error in JPEG loader - redirecting to RIS:', target);
+    window.location.href = target;
+    return true;
+  }
+  reject(new Error('HTTP 401: Unauthorized'));
+  return true;
+}
+
 function loadJPEGImage(imageId) {
   /** @type {any} */
   let xhr;
   const promise = new Promise((resolve, reject) => {
-    (async () => {
-      try {
-        // Notify UI that this image has started loading.
-        dispatchJPEGLoadProgress(imageId, 0, false);
+    try {
+      // Before XHR send: show 0% so the viewport overlay appears as soon as loading starts.
+      dispatchJPEGLoadProgress(imageId, 0, true);
 
-        // Extract the original DICOM URL by removing the protocol prefix
-        // Handle both 'dicomweb-jpeg:' and 'dicomweb:' prefixes
-        let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
+      // Extract the original DICOM URL by removing the protocol prefix
+      // Handle both 'dicomweb-jpeg:' and 'dicomweb:' prefixes
+      let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
 
-        // Extract frame number from URL parameters
-        const dicomUrlParams = new URLSearchParams(dicomUrl.split('?')[1] || '');
-        const frameNumber = dicomUrlParams.get('frame');
+      // Extract frame number from URL parameters
+      const dicomUrlParams = new URLSearchParams(dicomUrl.split('?')[1] || '');
+      const frameNumber = dicomUrlParams.get('frame');
 
-        // Remove frame parameter from URL if present (we'll add it back if needed)
-        const urlWithoutFrame = dicomUrl.split('&frame=')[0];
+      // Remove frame parameter from URL if present (we'll add it back if needed)
+      const urlWithoutFrame = dicomUrl.split('&frame=')[0];
 
-        // Ensure contentType is image/jpeg (replace if it's application/dicom)
-        let jpegUrl = urlWithoutFrame.replace(
-          'contentType=application/dicom',
-          'contentType=image/jpeg'
-        );
+      // Ensure contentType is image/jpeg (replace if it's application/dicom)
+      let jpegUrl = urlWithoutFrame.replace(
+        'contentType=application/dicom',
+        'contentType=image/jpeg'
+      );
 
-        // If contentType is not present, add it
-        if (!jpegUrl.includes('contentType=')) {
-          const separator = jpegUrl.includes('?') ? '&' : '?';
-          jpegUrl = `${jpegUrl}${separator}contentType=image/jpeg`;
-        }
-
-        const token = getTokenFromCookie();
-
-        // Check if we're on a demo route and use demo token
-        const isDemo =
-          typeof window !== 'undefined' &&
-          window.isDemoRoute &&
-          typeof window.isDemoRoute === 'function'
-            ? window.isDemoRoute()
-            : false;
-        const demoToken =
-          typeof window !== 'undefined' &&
-          window.getDemoToken &&
-          typeof window.getDemoToken === 'function'
-            ? window.getDemoToken()
-            : null;
-
-        // Share link (ShortCode): when URL has ShortCode and not expired, use Basic token for WADO-URI
-        const shareLinkToken =
-          typeof window !== 'undefined' &&
-          window.getShareLinkBasicToken &&
-          typeof window.getShareLinkBasicToken === 'function'
-            ? window.getShareLinkBasicToken()
-            : null;
-
-        // Build authorization header
-        let authHeader = '';
-        if (isDemo && demoToken) {
-          // Use Basic auth for demo token
-          authHeader = `Basic ${demoToken}`;
-        } else if (shareLinkToken) {
-          // Use Basic auth for share link (ShortCode) - same as PACS studies/series/instances
-          authHeader = `Basic ${shareLinkToken}`;
-        } else if (token) {
-          // Use Bearer token for regular requests
-          authHeader = `Bearer ${token}`;
-        }
-
-        // Fetch JPEG image with proper headers
-        const fetchHeaders = {
-          'Content-Type': 'image/jpeg',
-          Accept: 'image/jpeg',
-        };
-
-        if (authHeader) {
-          fetchHeaders.Authorization = authHeader;
-        }
-
-        const jpegResponse = await fetch(jpegUrl, {
-          headers: fetchHeaders,
-        });
-
-        // Handle 401 (Unauthorized) - token expired
-        if (jpegResponse.status === 401) {
-          // Try to get userAuthenticationService from global errorHandler
-              const errorHandler = window.__OHIF_ERROR_HANDLER__;
-          if (errorHandler && errorHandler._servicesManager) {
-            const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
-            if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
-                  userAuthenticationService.handleUnauthenticated();
-              return; // Don't reject, just redirect
-            }
-          }
-
-          // Fallback: redirect to RIS URL
-          const appConfig = window.config || {};
-          const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/login';
-          console.log('401 error in JPEG loader - redirecting to RIS:', risWorklistUrl);
-          window.location.href = risWorklistUrl;
-          return; // Don't reject, just redirect
-        }
-
-        if (!jpegResponse.ok) {
-          throw new Error(`HTTP ${jpegResponse.status}: ${jpegResponse.statusText}`);
-          }
-
-        const jpegBlob = await jpegResponse.blob();
-
-        // We can't reliably compute byte-level progress with fetch+blob across browsers,
-        // but blob acquisition indicates the download stage is complete.
-        dispatchJPEGLoadProgress(imageId, 1, true);
-
-        // Process the JPEG image
-        await processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve, reject);
-      } catch (error) {
-        // Check if error is 401 related
-        if (error.message && error.message.includes('401')) {
-          // Try to get userAuthenticationService from global errorHandler
-          const errorHandler = window.__OHIF_ERROR_HANDLER__;
-          if (errorHandler && errorHandler._servicesManager) {
-            const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
-            if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
-              userAuthenticationService.handleUnauthenticated();
-              return; // Don't reject, just redirect
-            }
-          }
-
-          // Fallback: redirect to RIS URL
-          const appConfig = window.config || {};
-          const risWorklistUrl = appConfig.risWorklistUrl || 'https://synapse.med-pacs.com/worklist';
-          console.log('401 error in JPEG loader catch - redirecting to RIS:', risWorklistUrl);
-          window.location.href = risWorklistUrl;
-          return; // Don't reject, just redirect
-        }
-
-        reject(new Error(`Failed to load JPEG image: ${error.message}`));
+      // If contentType is not present, add it
+      if (!jpegUrl.includes('contentType=')) {
+        const separator = jpegUrl.includes('?') ? '&' : '?';
+        jpegUrl = `${jpegUrl}${separator}contentType=image/jpeg`;
       }
-    })();
+
+      const token = getTokenFromCookie();
+
+      // Check if we're on a demo route and use demo token
+      const isDemo =
+        typeof window !== 'undefined' &&
+        window.isDemoRoute &&
+        typeof window.isDemoRoute === 'function'
+          ? window.isDemoRoute()
+          : false;
+      const demoToken =
+        typeof window !== 'undefined' &&
+        window.getDemoToken &&
+        typeof window.getDemoToken === 'function'
+          ? window.getDemoToken()
+          : null;
+
+      // Share link (ShortCode): when URL has ShortCode and not expired, use Basic token for WADO-URI
+      const shareLinkToken =
+        typeof window !== 'undefined' &&
+        window.getShareLinkBasicToken &&
+        typeof window.getShareLinkBasicToken === 'function'
+          ? window.getShareLinkBasicToken()
+          : null;
+
+      // Build authorization header
+      let authHeader = '';
+      if (isDemo && demoToken) {
+        authHeader = `Basic ${demoToken}`;
+      } else if (shareLinkToken) {
+        authHeader = `Basic ${shareLinkToken}`;
+      } else if (token) {
+        authHeader = `Bearer ${token}`;
+      }
+
+      xhr = new XMLHttpRequest();
+      xhr.open('GET', jpegUrl, true);
+      xhr.responseType = 'blob';
+
+      xhr.setRequestHeader('Accept', 'image/jpeg');
+      xhr.setRequestHeader('Content-Type', 'image/jpeg');
+      if (authHeader) {
+        xhr.setRequestHeader('Authorization', authHeader);
+      }
+
+      // XHR download progress (reliable % while bytes stream; fetch often lacks this without workarounds)
+      xhr.onprogress = event => {
+        if (event.lengthComputable && event.total > 0) {
+          dispatchJPEGLoadProgress(imageId, Math.min(1, event.loaded / event.total), true);
+        }
+      };
+
+      xhr.onload = () => {
+        try {
+          if (xhr.status === 401) {
+            handleJpegLoader401(xhr, reject);
+            return;
+          }
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+            return;
+          }
+          const jpegBlob = xhr.response;
+          if (!jpegBlob || !(jpegBlob instanceof Blob)) {
+            reject(new Error('Invalid JPEG response'));
+            return;
+          }
+          dispatchJPEGLoadProgress(imageId, 1, true);
+          processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve, reject);
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error loading JPEG'));
+      };
+
+      xhr.onabort = () => {
+        reject(new Error('Request aborted'));
+      };
+
+      xhr.send();
+    } catch (error) {
+      reject(new Error(`Failed to load JPEG image: ${error.message}`));
+    }
   });
 
   return {

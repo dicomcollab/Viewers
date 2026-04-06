@@ -129,14 +129,31 @@ declare global {
       showStudyList?: boolean;
       /** RIS / Synapse worklist URL (used for root redirect and optional header link). */
       risWorklistUrl?: string;
+      /** Optional URL for `/` root redirect; defaults to risWorklistUrl / env / built-in worklist. */
+      risRootRedirectUrl?: string;
+      /** Optional URL for 401 / unauthenticated redirect; defaults to risWorklistUrl or built-in login URL. */
+      risAuthRedirectUrl?: string;
+      /** When false, no RIS navigation on 401 or handleUnauthenticated. Default true. */
+      redirectToRisOn401?: boolean;
+      /** When false, `/` shows OHIF worklist instead of redirecting to RIS. */
+      redirectRootToRis?: boolean;
       /** RIS report / return URL for the viewer header; falls back to risWorklistUrl when unset. */
       risReportUrl?: string;
+      /** RIS API origin for viewDicomImg / overrides; defaults to env REACT_APP_RIS_API_BASE / built-in. */
+      risApiBase?: string;
+      /**
+       * When true, “← Report” POSTs to handleDicom/viewDicomImg with the study UID and JWT (cookie),
+       * then navigates to `data.url` from the response (e.g. Lens report viewer).
+       */
+      risReportUseViewDicomApi?: boolean;
+      /** Path under risApiBase for report redirect API; default `/api/v1/handleDicom/viewDicomImg`. */
+      risViewDicomImgPath?: string;
+      /** Preferences / hotkey API base (…/api/v1/preferences); env REACT_APP_BACKEND_HOTKEY_URL overrides. */
+      backendHotkeyUrl?: string;
       /** Local/dev report SPA origin (default http://localhost:5173). Used when the viewer runs on localhost / 127.0.0.1. */
       createReportAppBaseUrl?: string;
       /** Production report SPA origin (e.g. https://synapse.med-pacs.com). Used when the viewer is not local; falls back to risWorklistUrl origin if unset. */
       createReportAppBaseUrlProduction?: string;
-      /** Default path segment for createreport (order/patient id). Override per session with ?reportContextId= on the viewer URL. */
-      createReportContextId?: string;
       whiteLabeling?: Record<string, unknown>;
       httpErrorHandler?: (error: Error) => void;
       dangerouslyUseDynamicConfig?: {
