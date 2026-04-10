@@ -35,6 +35,7 @@ const Thumbnail = ({
   onClickUntrack = () => {},
   ThumbnailMenuItems = () => {},
   onPrefetchDisplaySet,
+  showInstanceLoadProgressUi = true,
 }: withAppTypes): React.ReactNode => {
   const normalizedLoadingProgress =
     typeof loadingProgress === 'object' && loadingProgress != null
@@ -42,7 +43,8 @@ const Thumbnail = ({
       : loadingProgress;
 
   const showLoading =
-    (normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading;
+    showInstanceLoadProgressUi &&
+    ((normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading);
 
   // Show preload button when series is not fully downloaded. Thumbnail (first instance) loaded
   // for display does not count as "downloaded" — only full series load does.
@@ -386,6 +388,8 @@ Thumbnail.propTypes = {
   loadingProgress: PropTypes.number,
   /** True when this series is loading in the current advanced layout (e.g. MPR, 3D). */
   isLayoutLoading: PropTypes.bool,
+  /** When false, hide the instance load progress bar (study browser still uses loadingProgress for preload state). */
+  showInstanceLoadProgressUi: PropTypes.bool,
   messages: PropTypes.object,
   isActive: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,

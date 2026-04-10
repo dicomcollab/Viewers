@@ -59,6 +59,32 @@ function normalizeUrlPathForProgressMatch(url: string | null | undefined): strin
 }
 
 /**
+ * Pathname-only match for DICOMweb/WADO-RS (e.g. …/instances/{sop}/frames/1). Resolves relative
+ * XHR URLs against the app origin so they still match absolute wadors: imageIds (cross-origin API).
+ */
+function normalizeDicomRequestPathname(url: string | null | undefined): string | null {
+  if (!url || typeof url !== 'string') {
+    return null;
+  }
+  try {
+    const base =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://ohif.local';
+    const parsed = new URL(url, base);
+    let path = parsed.pathname;
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // keep
+    }
+    return path.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * After the main instance XHR hits 100%, dicom-image-loader may open another GET (same URL match).
  * Those requests re-dispatch progress 0 and would snap the bar back — keep progress monotonic until
  * the viewport target is reset or the first frame is painted.
@@ -165,6 +191,8 @@ type ViewportFirstTargetRef = {
   targetUrl: string | null;
   stackImageIds: string[];
   primaryDisplaySetUid: string;
+  /** First-instance SOP when imageIds are not ready yet — stabilizes /frames/ matching */
+  primarySopInstanceUID?: string | null;
 };
 
 /** imageIds is set on the display set in CornerstoneCacheService before images[] is hydrated — prefer it. */
@@ -205,6 +233,24 @@ function getPrimaryStackImageId(displaySet: any): string | null {
   return null;
 }
 
+function getPrimarySopUidFromDisplaySet(displaySet: any): string | null {
+  if (!displaySet) {
+    return null;
+  }
+  if (typeof displaySet.SOPInstanceUID === 'string') {
+    return displaySet.SOPInstanceUID;
+  }
+  const inst0 = Array.isArray(displaySet.instances) ? displaySet.instances[0] : null;
+  if (inst0 && typeof inst0.SOPInstanceUID === 'string') {
+    return inst0.SOPInstanceUID;
+  }
+  const img0 = Array.isArray(displaySet.images) ? displaySet.images[0] : null;
+  if (img0 && typeof img0.SOPInstanceUID === 'string') {
+    return img0.SOPInstanceUID;
+  }
+  return null;
+}
+
 /** Match dicom-image-loader / Cornerstone imageId to the viewport showing that stack instance. */
 function findMatchingViewportIdsForImageId(
   imageId: string,
@@ -230,12 +276,26 @@ function findMatchingViewportIdsForImageId(
     if (t === imageId || normalizeImageIdForProgressMatch(t) === eventKey) {
       return true;
     }
+    const pSop = targets[viewportId]?.primarySopInstanceUID;
+    if (eventObjectUid && pSop && eventObjectUid === pSop) {
+      return true;
+    }
     const tu = targets[viewportId]?.targetUrl;
-    const tuPath = tu ? normalizeUrlPathForProgressMatch(tu) : null;
-    if (!eventPathKey || !tuPath || eventPathKey !== tuPath) {
+    if (!tu) {
       return false;
     }
-    if (pathnameEndsWithWadouriSegment(eventPathKey)) {
+    const tuPath = normalizeUrlPathForProgressMatch(tu);
+    const imgUrlForPath = normalizeImageIdToUrl(imageId) || imageId;
+    const pathKeysMatch = Boolean(eventPathKey && tuPath && eventPathKey === tuPath);
+    const pnEvent =
+      typeof imgUrlForPath === 'string' ? normalizeDicomRequestPathname(imgUrlForPath) : null;
+    const pnTarget = normalizeDicomRequestPathname(tu);
+    const pathnameMatch = Boolean(pnEvent && pnTarget && pnEvent === pnTarget);
+    if (!pathKeysMatch && !pathnameMatch) {
+      return false;
+    }
+    const wadouriKey = eventPathKey || (pnEvent ? `https://ohif.local${pnEvent}` : '');
+    if (pathnameEndsWithWadouriSegment(wadouriKey) || pathnameEndsWithWadouriSegment(tu)) {
       const primaryObj = extractWadoUids(tu)?.objectUID;
       return Boolean(eventObjectUid && primaryObj && eventObjectUid === primaryObj);
     }
@@ -252,7 +312,10 @@ function findViewportsByDicomLoaderUrl(
   const loadPathKey =
     normalizeUrlPathForProgressMatch(loadUrl) ||
     normalizeUrlPathForProgressMatch(normalizeImageIdToUrl(imageId || '') || imageId || '');
-  if (!loadPathKey || !ctx?.viewports || !ctx?.displaySetService?.getDisplaySetByUID) {
+  const loadPathname =
+    normalizeDicomRequestPathname(loadUrl) ||
+    normalizeDicomRequestPathname(normalizeImageIdToUrl(imageId || '') || imageId || '');
+  if ((!loadPathKey && !loadPathname) || !ctx?.viewports || !ctx?.displaySetService?.getDisplaySetByUID) {
     return [];
   }
   const found: string[] = [];
@@ -270,9 +333,19 @@ function findViewportsByDicomLoaderUrl(
       const ids = collectImageIdsFromDisplaySet(ds);
       for (const id of ids) {
         const u = normalizeImageIdToUrl(id) || id;
-        if (u && normalizeUrlPathForProgressMatch(u) === loadPathKey) {
+        if (!u) {
+          continue;
+        }
+        if (loadPathKey && normalizeUrlPathForProgressMatch(u) === loadPathKey) {
           found.push(viewportId);
           break;
+        }
+        if (loadPathname) {
+          const idPn = normalizeDicomRequestPathname(u);
+          if (idPn && idPn === loadPathname) {
+            found.push(viewportId);
+            break;
+          }
         }
       }
     }
@@ -369,12 +442,12 @@ function findViewportsByPrimarySopInRequestUrl(
   }
   const found: string[] = [];
   for (const viewportId of Object.keys(targets)) {
-    const tu = targets[viewportId]?.targetUrl;
-    if (!tu) {
-      continue;
-    }
-    const pk = extractWadoUids(tu);
-    if (pk?.objectUID && pk.objectUID === req.objectUID) {
+    const t = targets[viewportId];
+    const tu = t?.targetUrl;
+    const pk = tu ? extractWadoUids(tu) : null;
+    const metaSop = t?.primarySopInstanceUID;
+    const targetSop = pk?.objectUID || metaSop;
+    if (targetSop && targetSop === req.objectUID) {
       found.push(viewportId);
     }
   }
@@ -504,6 +577,20 @@ function isViewportPrimaryStackImageId(
   ) {
     return true;
   }
+  const primaryUrl = t.targetUrl;
+  const imgUrl = normalizeImageIdToUrl(imageId) || imageId;
+  if (typeof imgUrl === 'string' && primaryUrl) {
+    const pn1 = normalizeDicomRequestPathname(imgUrl);
+    const pn2 = normalizeDicomRequestPathname(primaryUrl);
+    if (pn1 && pn2 && pn1 === pn2) {
+      return true;
+    }
+  }
+  const evtSop = extractWadoUids(typeof imgUrl === 'string' ? imgUrl : '')?.objectUID;
+  const metaSop = t.primarySopInstanceUID;
+  if (evtSop && metaSop && evtSop === metaSop) {
+    return true;
+  }
   return false;
 }
 
@@ -531,11 +618,18 @@ function isByteRequestForPrimarySopInstance(
   }
   const t = targets[viewportId];
   const primaryUrl = t?.targetUrl;
+  const rk = extractWadoUids(url);
+  if (!rk?.objectUID) {
+    return false;
+  }
+  const metaSop = t?.primarySopInstanceUID;
+  if (metaSop && rk.objectUID === metaSop) {
+    return true;
+  }
   if (!primaryUrl) {
     return false;
   }
   const pk = extractWadoUids(primaryUrl);
-  const rk = extractWadoUids(url);
   if (pk?.objectUID && rk?.objectUID && pk.objectUID === rk.objectUID) {
     return true;
   }
@@ -561,7 +655,8 @@ function isLikelyPrimaryInstanceBytesDelivery(
   viewportId: string,
   targets: Record<string, ViewportFirstTargetRef>
 ): boolean {
-  if (!targets[viewportId]?.targetUrl) {
+  const t = targets[viewportId];
+  if (!t?.targetUrl && !t?.primarySopInstanceUID) {
     return false;
   }
   if (isByteRequestForPrimarySopInstance(requestUrl, viewportId, targets)) {
@@ -621,14 +716,10 @@ function ViewerViewportGrid(props: withAppTypes) {
   const { displaySetService, hangingProtocolService, uiNotificationService, customizationService, studyPrefetcherService } =
     servicesManager.services;
 
-  useEffect(() => {
-    viewportsProgressRef.current = { viewports, displaySetService };
-  }, [viewports, displaySetService]);
+  viewportsProgressRef.current = { viewports, displaySetService };
 
   const activeViewportIdRef = useRef(activeViewportId);
-  useEffect(() => {
-    activeViewportIdRef.current = activeViewportId;
-  }, [activeViewportId]);
+  activeViewportIdRef.current = activeViewportId;
 
   const generateLayoutHash = () => `${numCols}-${numRows}`;
 
@@ -915,6 +1006,7 @@ function ViewerViewportGrid(props: withAppTypes) {
         targetUrl: string | null;
         stackImageIds: string[];
         primaryDisplaySetUid: string;
+        primarySopInstanceUID: string | null;
         targetUidKey: WadoUidKey | null;
         isIndeterminate: boolean;
         hasDisplaySets: boolean;
@@ -939,7 +1031,19 @@ function ViewerViewportGrid(props: withAppTypes) {
       const stackImageIds = collectImageIdsFromDisplaySet(firstDisplaySet);
       const firstImageId = getPrimaryStackImageId(firstDisplaySet);
       const firstUrl = normalizeImageIdToUrl(firstImageId ?? undefined);
-      const firstUidKey = extractWadoUids(firstUrl);
+      const primarySopInstanceUID =
+        (firstUrl ? extractWadoUids(firstUrl)?.objectUID : null) ||
+        getPrimarySopUidFromDisplaySet(firstDisplaySet) ||
+        null;
+      const firstUidKey =
+        extractWadoUids(firstUrl) ||
+        (primarySopInstanceUID
+          ? {
+              studyUID: firstDisplaySet?.StudyInstanceUID ?? null,
+              seriesUID: firstDisplaySet?.SeriesInstanceUID ?? null,
+              objectUID: primarySopInstanceUID,
+            }
+          : null);
       const primaryDisplaySetUid =
         typeof firstDisplaySet?.displaySetInstanceUID === 'string'
           ? firstDisplaySet.displaySetInstanceUID
@@ -951,6 +1055,7 @@ function ViewerViewportGrid(props: withAppTypes) {
         targetUrl: firstUrl,
         stackImageIds,
         primaryDisplaySetUid,
+        primarySopInstanceUID,
         targetUidKey: firstUidKey,
         isIndeterminate,
         hasDisplaySets,
@@ -961,9 +1066,7 @@ function ViewerViewportGrid(props: withAppTypes) {
   }, [viewports, displaySetService]);
 
   const viewportFirstTargetsRef = useRef(viewportFirstTargets);
-  useEffect(() => {
-    viewportFirstTargetsRef.current = viewportFirstTargets;
-  }, [viewportFirstTargets]);
+  viewportFirstTargetsRef.current = viewportFirstTargets;
 
   // Key only by viewport + display set — do not include imageId. CornerstoneCacheService assigns
   // imageIds after first paint; including imageId caused a spurious reset that cleared download %.
@@ -1393,6 +1496,17 @@ function ViewerViewportGrid(props: withAppTypes) {
           const targetPathKey = normalizeUrlPathForProgressMatch(targetUrl);
           return Boolean(targetPathKey && targetPathKey === requestPathKey);
         });
+      }
+
+      if (!matchingViewportIds.length) {
+        const reqPn = normalizeDicomRequestPathname(requestUrl);
+        if (reqPn) {
+          matchingViewportIds = Object.keys(targets).filter(viewportId => {
+            const targetUrl = targets[viewportId]?.targetUrl;
+            const tp = normalizeDicomRequestPathname(targetUrl);
+            return Boolean(tp && tp === reqPn);
+          });
+        }
       }
 
       if (!matchingViewportIds.length) {
