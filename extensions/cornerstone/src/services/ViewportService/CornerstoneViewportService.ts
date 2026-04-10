@@ -67,6 +67,31 @@ function safeRenderingEngineRender(engine: Types.IRenderingEngine | null | undef
   }
 }
 
+function wrapRenderMethodSafely(target: unknown, kind: 'viewport' | 'renderingEngine'): void {
+  if (!target || typeof target !== 'object') {
+    return;
+  }
+
+  const maybeTarget = target as {
+    render?: () => void;
+    __ohifRenderWrapped?: boolean;
+  };
+
+  if (typeof maybeTarget.render !== 'function' || maybeTarget.__ohifRenderWrapped) {
+    return;
+  }
+
+  const originalRender = maybeTarget.render.bind(target);
+  maybeTarget.render = () => {
+    try {
+      originalRender();
+    } catch (e) {
+      console.warn(`[CornerstoneViewportService] ${kind}.render() failed:`, e);
+    }
+  };
+  maybeTarget.__ohifRenderWrapped = true;
+}
+
 /**
  * Handles cornerstone viewport logic including enabling, disabling, and
  * updating the viewport.
@@ -136,11 +161,13 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
 
     if (renderingEngine) {
       this.renderingEngine = renderingEngine;
+      wrapRenderMethodSafely(this.renderingEngine, 'renderingEngine');
       return this.renderingEngine;
     }
 
     if (!renderingEngine || renderingEngine.hasBeenDestroyed) {
       this.renderingEngine = new RenderingEngine(RENDERING_ENGINE_ID);
+      wrapRenderMethodSafely(this.renderingEngine, 'renderingEngine');
     }
 
     return this.renderingEngine;
@@ -530,6 +557,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     }
 
     const viewport = this.renderingEngine.getViewport(viewportId);
+    wrapRenderMethodSafely(viewport, 'viewport');
 
     return viewport;
   }

@@ -528,9 +528,22 @@ function PanelStudyBrowser({
     return false;
   }, [viewports]);
 
+  const [hasSeenFirstViewportReady, setHasSeenFirstViewportReady] = useState(false);
+  useEffect(() => {
+    if (hasViewportReadyWithDisplaySet && !hasSeenFirstViewportReady) {
+      setHasSeenFirstViewportReady(true);
+    }
+  }, [hasViewportReadyWithDisplaySet, hasSeenFirstViewportReady]);
+
+  useEffect(() => {
+    // New study context should be allowed to show initial study loading again.
+    setHasSeenFirstViewportReady(false);
+  }, [StudyInstanceUIDs.join(',')]);
+
   // Hide study panel loader as soon as first viewport is ready (first image available).
   const showInitialStudyLoading =
-    isStudyPanelLoading || (hasRenderableDisplaySets && !hasViewportReadyWithDisplaySet);
+    isStudyPanelLoading ||
+    (!hasSeenFirstViewportReady && hasRenderableDisplaySets && !hasViewportReadyWithDisplaySet);
 
   return (
     <>

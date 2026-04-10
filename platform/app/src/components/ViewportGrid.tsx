@@ -1,7 +1,8 @@
 import React, { useEffect, useCallback, useRef, useMemo, useState } from 'react';
 import { Types } from '@ohif/core';
-import { ViewportGrid, ViewportPane, ProgressLoadingBar } from '@ohif/ui-next';
+import { ViewportGrid, ViewportPane } from '@ohif/ui-next';
 import { useViewportGrid } from '@ohif/ui-next';
+import { useLocation } from 'react-router-dom';
 import EmptyViewport from './EmptyViewport';
 import { useAppConfig } from '@state';
 type WadoUidKey = { studyUID: string | null; seriesUID: string | null; objectUID: string | null };
@@ -11,7 +12,12 @@ function normalizeImageIdForProgressMatch(imageId?: string | null) {
   if (!imageId || typeof imageId !== 'string') {
     return '';
   }
-  return imageId.replace(/^dicomweb-jpeg:/i, '').replace(/^dicomweb:/i, '').split('&frame=')[0];
+  return imageId
+    .replace(/^dicomweb-jpeg:/i, '')
+    .replace(/^dicomweb:/i, '')
+    .replace(/^wadors:/i, '')
+    .replace(/^wadouri:/i, '')
+    .split('&frame=')[0];
 }
 
 function normalizeImageIdToUrl(imageId?: string) {
@@ -209,6 +215,7 @@ function findMatchingViewportIdsForImageId(
   }
   const eventKey = normalizeImageIdForProgressMatch(imageId);
   const eventPathKey = normalizeUrlPathForProgressMatch(normalizeImageIdToUrl(imageId) || imageId);
+  const eventObjectUid = extractWadoUids(normalizeImageIdToUrl(imageId) || imageId)?.objectUID;
   return Object.keys(targets).filter(viewportId => {
     const stackIds = targets[viewportId]?.stackImageIds;
     if (
@@ -224,7 +231,15 @@ function findMatchingViewportIdsForImageId(
       return true;
     }
     const tu = targets[viewportId]?.targetUrl;
-    return Boolean(eventPathKey && tu && normalizeUrlPathForProgressMatch(tu) === eventPathKey);
+    const tuPath = tu ? normalizeUrlPathForProgressMatch(tu) : null;
+    if (!eventPathKey || !tuPath || eventPathKey !== tuPath) {
+      return false;
+    }
+    if (pathnameEndsWithWadouriSegment(eventPathKey)) {
+      const primaryObj = extractWadoUids(tu)?.objectUID;
+      return Boolean(eventObjectUid && primaryObj && eventObjectUid === primaryObj);
+    }
+    return true;
   });
 }
 
@@ -341,6 +356,59 @@ function findViewportsByUidTokensInRequestUrl(
 }
 
 /**
+ * Match a request URL to viewports only when objectUID (SOP Instance UID) equals that viewport's
+ * primary stack image. Avoids matching every viewport that shares the same study/series (321 instances).
+ */
+function findViewportsByPrimarySopInRequestUrl(
+  requestUrl: string | null | undefined,
+  targets: Record<string, ViewportFirstTargetRef>
+): string[] {
+  const req = extractWadoUids(requestUrl || '');
+  if (!req?.objectUID) {
+    return [];
+  }
+  const found: string[] = [];
+  for (const viewportId of Object.keys(targets)) {
+    const tu = targets[viewportId]?.targetUrl;
+    if (!tu) {
+      continue;
+    }
+    const pk = extractWadoUids(tu);
+    if (pk?.objectUID && pk.objectUID === req.objectUID) {
+      found.push(viewportId);
+    }
+  }
+  return [...new Set(found)];
+}
+
+/**
+ * Same display set in multiple viewports (e.g. MPR triptych): findMatchingViewportIdsForImageId returns
+ * every pane. Loader skeleton should track a single viewport — prefer the active one.
+ */
+function narrowMatchingViewportsForLoaderUi(
+  matchingViewportIds: string[],
+  targets: Record<string, ViewportFirstTargetRef>,
+  activeViewportId: string | null | undefined
+): string[] {
+  if (matchingViewportIds.length <= 1) {
+    return matchingViewportIds;
+  }
+  const dsKeys = matchingViewportIds
+    .map(id => targets[id]?.primaryDisplaySetUid || '')
+    .filter(Boolean);
+  const uniqueDs = new Set(dsKeys);
+  const allSameDisplaySet =
+    dsKeys.length === matchingViewportIds.length && uniqueDs.size === 1 && dsKeys[0] !== '';
+  if (!allSameDisplaySet) {
+    return matchingViewportIds;
+  }
+  if (activeViewportId && matchingViewportIds.includes(activeViewportId)) {
+    return [activeViewportId];
+  }
+  return [matchingViewportIds[0]];
+}
+
+/**
  * Post-redirect (or SAS) byte delivery URL — not the DICOMweb /instances/.../frames/1 API hop that
  * redirects to blob (localviewer-raw-dicom).
  */
@@ -378,11 +446,25 @@ function isWadoGatewayUrl(url: string | null | undefined): boolean {
   return u.includes('wadouri') || u.includes('requesttype=wado');
 }
 
+/**
+ * WADO-RS …/instances/{sop}/frames/{n} — actual pixel GET (same host or 302 to blob).
+ * Must not be treated as a "skip loader start" hop (see handleDicomLoaderXhr phase start).
+ */
+function isWadoRsDirectFramePixelUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  return /\/frames\/\d+/i.test(url);
+}
+
 function isWadoRsApiRedirectHopUrl(url: string | null | undefined): boolean {
   if (!url || typeof url !== 'string') {
     return false;
   }
   if (isLikelyFinalDicomBytesUrl(url)) {
+    return false;
+  }
+  if (isWadoRsDirectFramePixelUrl(url)) {
     return false;
   }
   const u = url.toLowerCase();
@@ -395,6 +477,100 @@ function isMultiHopDicomProgressRequestUrl(url: string | null | undefined): bool
 
 function shouldDeferFirstImageLoaderUntilBlobPhase(targetUrl: string | null | undefined): boolean {
   return isMultiHopDicomProgressRequestUrl(targetUrl);
+}
+
+/** First stack image of this viewport (initial series instance) — not scroll/prefetch of other slices. */
+function isViewportPrimaryStackImageId(
+  imageId: string,
+  viewportId: string,
+  targets: Record<string, ViewportFirstTargetRef>
+): boolean {
+  const t = targets[viewportId];
+  if (!t) {
+    return false;
+  }
+  const eventKey = normalizeImageIdForProgressMatch(imageId);
+  const primaryId = t.targetImageId;
+  if (
+    primaryId &&
+    (primaryId === imageId || normalizeImageIdForProgressMatch(primaryId) === eventKey)
+  ) {
+    return true;
+  }
+  const firstStack = Array.isArray(t.stackImageIds) && t.stackImageIds[0];
+  if (
+    firstStack &&
+    (firstStack === imageId || normalizeImageIdForProgressMatch(firstStack) === eventKey)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function pathnameEndsWithWadouriSegment(pathKey: string | null | undefined): boolean {
+  if (!pathKey || typeof pathKey !== 'string') {
+    return false;
+  }
+  try {
+    const u = new URL(pathKey.includes('://') ? pathKey : `https://ohif.local${pathKey}`);
+    const segments = u.pathname.split('/').filter(Boolean);
+    const last = segments[segments.length - 1]?.toLowerCase() || '';
+    return last === 'wadouri';
+  } catch {
+    return pathKey.toLowerCase().includes('wadouri');
+  }
+}
+
+function isByteRequestForPrimarySopInstance(
+  url: string | null | undefined,
+  viewportId: string,
+  targets: Record<string, ViewportFirstTargetRef>
+): boolean {
+  if (!url || typeof url !== 'string') {
+    return false;
+  }
+  const t = targets[viewportId];
+  const primaryUrl = t?.targetUrl;
+  if (!primaryUrl) {
+    return false;
+  }
+  const pk = extractWadoUids(primaryUrl);
+  const rk = extractWadoUids(url);
+  if (pk?.objectUID && rk?.objectUID && pk.objectUID === rk.objectUID) {
+    return true;
+  }
+  const pkPath = normalizeUrlPathForProgressMatch(primaryUrl);
+  const rkPath = normalizeUrlPathForProgressMatch(url);
+  // WADO-URI: path is usually …/wadouri for every instance; only objectUID in the query differs.
+  // Path-only equality incorrectly marks every slice as "primary".
+  if (
+    pkPath &&
+    rkPath &&
+    pkPath === rkPath &&
+    (pathnameEndsWithWadouriSegment(pkPath) || pathnameEndsWithWadouriSegment(rkPath))
+  ) {
+    return false;
+  }
+  return Boolean(pkPath && rkPath && pkPath === rkPath);
+}
+
+/** WADO XHR: primary instance only — never treat every blob/SAS response as primary (was blanketing MPR viewports). */
+function isLikelyPrimaryInstanceBytesDelivery(
+  requestUrl: string,
+  responseURL: string | undefined,
+  viewportId: string,
+  targets: Record<string, ViewportFirstTargetRef>
+): boolean {
+  if (!targets[viewportId]?.targetUrl) {
+    return false;
+  }
+  if (isByteRequestForPrimarySopInstance(requestUrl, viewportId, targets)) {
+    return true;
+  }
+  if (responseURL && isByteRequestForPrimarySopInstance(responseURL, viewportId, targets)) {
+    return true;
+  }
+  return false;
 }
 
 /** Same heuristics as initWADOImageLoader — attribute orphan byte-XHRs to the active stack viewport when needed. */
@@ -623,6 +799,19 @@ function ViewerViewportGrid(props: withAppTypes) {
 
   // Debounce the overlay so it doesn't flash for instant cached switches.
   const [layoutLoading, setLayoutLoading] = useState(false);
+  const [hasRenderedAnyViewport, setHasRenderedAnyViewport] = useState(false);
+  const location = useLocation();
+  const firstLoadScopeKey = useMemo(() => {
+    const params = new URLSearchParams(location?.search || '');
+    const studyUIDs =
+      params.get('studyInstanceUIDs') ||
+      params.get('StudyInstanceUIDs') ||
+      params.get('studyInstanceUID') ||
+      params.get('StudyInstanceUID') ||
+      '';
+    const dataSourceName = params.get('datasources') || '';
+    return `${studyUIDs}|${dataSourceName}`;
+  }, [location?.search]);
   const [viewportLoadingState, setViewportLoadingState] = useState({});
   const [viewportFirstImageRenderedById, setViewportFirstImageRenderedById] = useState<Record<string, boolean>>({});
   const [viewportFirstImageDownloadedById, setViewportFirstImageDownloadedById] = useState<Record<string, boolean>>({});
@@ -635,6 +824,12 @@ function ViewerViewportGrid(props: withAppTypes) {
   const [viewportIsProgressComputableById, setViewportIsProgressComputableById] = useState<Record<string, boolean>>({});
   const [viewportInFlightById, setViewportInFlightById] = useState<Record<string, boolean>>({});
   const [viewportLoadLoadedBytesById, setViewportLoadLoadedBytesById] = useState<Record<string, number>>({});
+  /** After the first stack instance finishes downloading, never show the "Downloading image…" skeleton again (scroll/prefetch). */
+  const [viewportFirstInstanceDownloadSkeletonDoneById, setViewportFirstInstanceDownloadSkeletonDoneById] = useState<
+    Record<string, boolean>
+  >({});
+  const viewportFirstInstanceSkeletonLatchRef = useRef<Record<string, boolean>>({});
+  const markViewportFirstInstanceSkeletonDoneRef = useRef<(viewportId: string) => void>(() => {});
   /** WADO-URI gateway stacks: hide the overlay until the redirected blob/instance byte request is active. */
   const [viewportBlobPhaseStartedById, setViewportBlobPhaseStartedById] = useState<Record<string, boolean>>({});
 
@@ -646,6 +841,29 @@ function ViewerViewportGrid(props: withAppTypes) {
   const viewportFirstPaintedRef = useRef<Record<string, boolean>>({});
   const viewportFirstBytesCompleteRef = useRef<Record<string, boolean>>({});
   const viewportFirstEverInFlightRef = useRef<Record<string, boolean>>({});
+  const viewportFirstOverlayGuardTimersRef = useRef<Record<string, number>>({});
+  const prevFirstLoadScopeKeyRef = useRef(firstLoadScopeKey);
+
+  const markViewportFirstInstanceSkeletonDone = useCallback((viewportId: string) => {
+    if (!viewportId) {
+      return;
+    }
+    viewportFirstInstanceSkeletonLatchRef.current[viewportId] = true;
+    setViewportFirstInstanceDownloadSkeletonDoneById(prev =>
+      prev[viewportId] ? prev : { ...prev, [viewportId]: true }
+    );
+  }, []);
+  markViewportFirstInstanceSkeletonDoneRef.current = markViewportFirstInstanceSkeletonDone;
+
+  // Reset first-image skeleton eligibility when study/datasource scope changes.
+  // This preserves suppression during advanced layout switches in the same study.
+  useEffect(() => {
+    if (prevFirstLoadScopeKeyRef.current === firstLoadScopeKey) {
+      return;
+    }
+    prevFirstLoadScopeKeyRef.current = firstLoadScopeKey;
+    setHasRenderedAnyViewport(false);
+  }, [firstLoadScopeKey]);
 
   const tryFinalizeFirstViewportOverlay = useCallback((viewportId: string) => {
     if (!viewportFirstPaintedRef.current[viewportId]) {
@@ -669,6 +887,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       }
       return { ...prev, [viewportId]: true };
     });
+    markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
     setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
     setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
     setViewportByteProgressById(prev => ({ ...prev, [viewportId]: 1 }));
@@ -677,6 +896,11 @@ function ViewerViewportGrid(props: withAppTypes) {
       delete next[viewportId];
       return next;
     });
+    const existingGuard = viewportFirstOverlayGuardTimersRef.current[viewportId];
+    if (existingGuard) {
+      window.clearTimeout(existingGuard);
+      delete viewportFirstOverlayGuardTimersRef.current[viewportId];
+    }
   }, []);
 
   const tryFinalizeFirstViewportOverlayRef = useRef<(viewportId: string) => void>(() => {});
@@ -775,62 +999,22 @@ function ViewerViewportGrid(props: withAppTypes) {
       const isActive = activeViewportId === viewportId;
       const firstTarget = viewportFirstTargets[viewportId];
       const initialComplete = Boolean(viewportInitialFirstImageCompleteById[viewportId]);
-      const progressValue = viewportByteProgressById[viewportId];
-      const progressComputable = Boolean(viewportIsProgressComputableById[viewportId]);
-
       const displaySetInstanceUIDsToUse = displaySetInstanceUIDs || [];
-      const firstDisplaySetInstanceUID = displaySetInstanceUIDsToUse[0];
-      const prefetchSlice = firstDisplaySetInstanceUID
-        ? viewportLoadingState[firstDisplaySetInstanceUID]
-        : undefined;
-      const prefetchProgress =
-        prefetchSlice && typeof prefetchSlice.loadingProgress === 'number' && !Number.isNaN(prefetchSlice.loadingProgress)
-          ? Math.max(0, Math.min(1, prefetchSlice.loadingProgress))
-          : undefined;
-
-      const hasByteProgress =
-        typeof progressValue === 'number' && !Number.isNaN(progressValue);
-      const hasPrefetchProgress = prefetchProgress !== undefined;
-      const mergedRawProgress = hasByteProgress ? progressValue : prefetchProgress;
-      const mergedComputable =
-        (hasByteProgress && progressComputable) || hasPrefetchProgress;
-      const canShowPercent =
-        Boolean(firstTarget?.hasDisplaySets) &&
-        !firstTarget?.isIndeterminate &&
-        mergedComputable &&
-        typeof mergedRawProgress === 'number' &&
-        !Number.isNaN(mergedRawProgress);
-      const displayedPercent = canShowPercent
-        ? Math.round(Math.max(0, Math.min(1, mergedRawProgress as number)) * 100)
-        : undefined;
-
-      const deferLoaderForMultiHopFetch =
-        Boolean(firstTarget?.hasDisplaySets) &&
-        !firstTarget?.isIndeterminate &&
-        shouldDeferFirstImageLoaderUntilBlobPhase(firstTarget?.targetUrl);
-      const blobPhaseStarted = Boolean(viewportBlobPhaseStartedById[viewportId]);
+      // Show skeleton only before the first successful image render in this study scope.
+      // After first render, suppress loader for all later layout switches (including advanced).
+      const suppressLoaderAfterInitialRender = Boolean(hasRenderedAnyViewport);
+      const firstImageRendered = Boolean(viewportFirstImageRenderedById[viewportId]);
+      const hasDisplaySetAssignment = Boolean(displaySetInstanceUIDsToUse.length);
       const showViewportLoader =
-        Boolean(firstTarget?.hasDisplaySets) &&
+        hasDisplaySetAssignment &&
+        !suppressLoaderAfterInitialRender &&
         !initialComplete &&
-        (!deferLoaderForMultiHopFetch || blobPhaseStarted);
-      const bytesComplete =
-        typeof progressValue === 'number' && !Number.isNaN(progressValue) && progressValue >= 1;
-      const decodePending = showViewportLoader && bytesComplete;
-      const progressBarPercent = decodePending
-        ? undefined
-        : canShowPercent
-          ? displayedPercent
-          : undefined;
-      const loadedBytes = viewportLoadLoadedBytesById[viewportId];
-      const downloadedMb =
-        typeof loadedBytes === 'number' && loadedBytes > 0 ? loadedBytes / (1024 * 1024) : null;
-      const loadingText = decodePending
-        ? 'Preparing image...'
-        : typeof displayedPercent === 'number'
-          ? `Loading images... ${displayedPercent}%`
-          : downloadedMb != null
-            ? `Downloading… ${downloadedMb.toFixed(1)} MB`
-            : 'Loading images...';
+        !firstImageRendered;
+
+      const showInstanceBytesSkeleton =
+        hasDisplaySetAssignment &&
+        Boolean(viewportInFlightById[viewportId]) &&
+        !viewportFirstInstanceDownloadSkeletonDoneById[viewportId];
 
       // This is causing the viewport components re-render when the activeViewportId changes
       const displaySets = displaySetInstanceUIDsToUse
@@ -931,6 +1115,7 @@ function ViewerViewportGrid(props: withAppTypes) {
               }}
               onFirstImageRendered={() => {
                 viewportFirstPaintedRef.current[viewportId] = true;
+                setHasRenderedAnyViewport(true);
                 setViewportFirstImageRenderedById(prev => ({ ...prev, [viewportId]: true }));
                 tryFinalizeFirstViewportOverlay(viewportId);
               }}
@@ -942,8 +1127,31 @@ function ViewerViewportGrid(props: withAppTypes) {
                 aria-label="Loading images"
               >
                 <div className="w-[280px] space-y-3">
-                  <p className="text-primary-light text-center text-sm font-medium">{loadingText}</p>
-                  <ProgressLoadingBar progress={progressBarPercent} />
+                  <div className="space-y-2">
+                    <div className="mx-auto h-3 w-40 animate-pulse rounded bg-primary-light/30" />
+                    <div className="mx-auto h-2 w-56 animate-pulse rounded bg-primary-light/20" />
+                  </div>
+                  <p className="text-primary-light/90 text-center text-sm font-medium">
+                    Preparing first image...
+                  </p>
+                </div>
+              </div>
+            )}
+            {showInstanceBytesSkeleton && (
+              <div
+                className="pointer-events-none absolute inset-0 z-[99] flex flex-col items-center justify-center bg-black/50"
+                aria-busy="true"
+                aria-label="Downloading DICOM instance"
+              >
+                <div className="w-[280px] space-y-3 px-4">
+                  <div className="mx-auto aspect-[4/3] w-full max-w-[240px] animate-pulse rounded-lg bg-primary-light/20" />
+                  <div className="space-y-2">
+                    <div className="mx-auto h-2.5 w-32 animate-pulse rounded bg-primary-light/30" />
+                    <div className="mx-auto h-2 w-44 animate-pulse rounded bg-primary-light/20" />
+                  </div>
+                  <p className="text-primary-light/90 text-center text-sm font-medium">
+                    Downloading image…
+                  </p>
                 </div>
               </div>
             )}
@@ -958,13 +1166,12 @@ function ViewerViewportGrid(props: withAppTypes) {
     activeViewportId,
     viewportComponents,
     dataSource,
+    hasRenderedAnyViewport,
     viewportFirstTargets,
-    viewportLoadingState,
-    viewportByteProgressById,
-    viewportIsProgressComputableById,
+    viewportFirstImageRenderedById,
     viewportInitialFirstImageCompleteById,
-    viewportLoadLoadedBytesById,
-    viewportBlobPhaseStartedById,
+    viewportInFlightById,
+    viewportFirstInstanceDownloadSkeletonDoneById,
     tryFinalizeFirstViewportOverlay,
   ]);
 
@@ -1001,6 +1208,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       delete viewportFirstPaintedRef.current[id];
       delete viewportFirstBytesCompleteRef.current[id];
       delete viewportFirstEverInFlightRef.current[id];
+      delete viewportFirstInstanceSkeletonLatchRef.current[id];
     };
     viewportIdsToRemove.forEach(clearFirstLoadRefs);
     viewportIdsToReset.forEach(clearFirstLoadRefs);
@@ -1069,7 +1277,64 @@ function ViewerViewportGrid(props: withAppTypes) {
       });
       return next;
     });
+    setViewportFirstInstanceDownloadSkeletonDoneById(prev => {
+      const next = { ...prev };
+      viewportIdsToRemove.forEach(id => delete next[id]);
+      viewportIdsToReset.forEach(id => {
+        next[id] = false;
+      });
+      return next;
+    });
   }, [viewportTargetKeyById]);
+
+  // Guard against missing/late network progress events during layout switches.
+  // If first render occurred but byte-complete never arrives, force-finalize after a short delay.
+  useEffect(() => {
+    const activeViewportIds = Object.keys(viewportFirstTargets || {});
+    const guards = viewportFirstOverlayGuardTimersRef.current;
+
+    activeViewportIds.forEach(viewportId => {
+      const alreadyComplete = Boolean(viewportInitialFirstImageCompleteById[viewportId]);
+      const painted = Boolean(viewportFirstImageRenderedById[viewportId]);
+      const bytesDone = Boolean(viewportFirstImageDownloadedById[viewportId]);
+      const hasGuard = Boolean(guards[viewportId]);
+
+      if (alreadyComplete || !painted || bytesDone) {
+        if (hasGuard) {
+          window.clearTimeout(guards[viewportId]);
+          delete guards[viewportId];
+        }
+        return;
+      }
+
+      if (!hasGuard) {
+        guards[viewportId] = window.setTimeout(() => {
+          tryFinalizeFirstViewportOverlayRef.current(viewportId);
+        }, 6000);
+      }
+    });
+
+    Object.keys(guards).forEach(viewportId => {
+      if (!activeViewportIds.includes(viewportId)) {
+        window.clearTimeout(guards[viewportId]);
+        delete guards[viewportId];
+      }
+    });
+
+  }, [
+    viewportFirstTargets,
+    viewportFirstImageRenderedById,
+    viewportFirstImageDownloadedById,
+    viewportInitialFirstImageCompleteById,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      const guards = viewportFirstOverlayGuardTimersRef.current;
+      Object.values(guards).forEach(timerId => window.clearTimeout(timerId));
+      Object.keys(guards).forEach(key => delete guards[key]);
+    };
+  }, []);
 
   // First paint (IMAGE_RENDERED) can arrive before the WADO→blob XHR completes; the overlay is
   // dismissed only when tryFinalizeFirstViewportOverlay sees both paint + bytes (see refs above).
@@ -1077,7 +1342,7 @@ function ViewerViewportGrid(props: withAppTypes) {
     let debounceTimer: number | undefined;
     let maxDurationTimer: number | undefined;
 
-    if (hasPendingHPViewports) {
+    if (!hasRenderedAnyViewport && hasPendingHPViewports) {
       debounceTimer = window.setTimeout(() => {
         setLayoutLoading(true);
         // Force-hide overlay after 4s so it never stays stuck (e.g. MPR → single, or ready event missed).
@@ -1093,7 +1358,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       if (debounceTimer) window.clearTimeout(debounceTimer);
       if (maxDurationTimer) window.clearTimeout(maxDurationTimer);
     };
-  }, [hasPendingHPViewports]);
+  }, [hasPendingHPViewports, hasRenderedAnyViewport]);
 
   useEffect(() => {
     const handleWadoRequestProgress = evt => {
@@ -1139,19 +1404,13 @@ function ViewerViewportGrid(props: withAppTypes) {
       }
 
       if (!matchingViewportIds.length) {
-        matchingViewportIds = findViewportsByUidTokensInRequestUrl(
-          requestUrl,
-          viewportsProgressRef.current
-        );
+        matchingViewportIds = findViewportsByPrimarySopInRequestUrl(requestUrl, targets);
       }
 
       const responseURLForMatch =
         typeof evt?.detail?.responseURL === 'string' ? evt.detail.responseURL : '';
       if (!matchingViewportIds.length && responseURLForMatch) {
-        matchingViewportIds = findViewportsByUidTokensInRequestUrl(
-          responseURLForMatch,
-          viewportsProgressRef.current
-        );
+        matchingViewportIds = findViewportsByPrimarySopInRequestUrl(responseURLForMatch, targets);
       }
 
       if (!matchingViewportIds.length) {
@@ -1172,6 +1431,12 @@ function ViewerViewportGrid(props: withAppTypes) {
         return;
       }
 
+      const loaderUiViewportIds = narrowMatchingViewportsForLoaderUi(
+        matchingViewportIds,
+        targets,
+        activeViewportIdRef.current
+      );
+
       const xhrLoaded = typeof evt?.detail?.loaded === 'number' && !Number.isNaN(evt.detail.loaded) ? evt.detail.loaded : null;
       const responseURLGate =
         typeof evt?.detail?.responseURL === 'string' ? evt.detail.responseURL : '';
@@ -1186,6 +1451,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       // Align with initWADOImageLoader: no loader for API/wadouri hop alone (wait for blob responseURL, large body, or same-URL stream).
       if (
         !done &&
+        !isWadoRsDirectFramePixelUrl(requestUrl) &&
         isMultiHopDicomProgressRequestUrl(requestUrl) &&
         !isLikelyFinalDicomBytesUrl(responseURLGate) &&
         !(xhrLoaded != null && xhrLoaded > 65536) &&
@@ -1215,15 +1481,30 @@ function ViewerViewportGrid(props: withAppTypes) {
         if (done) {
           viewportFirstBytesCompleteRef.current[viewportId] = true;
           setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
-          setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          if (isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURLGate || undefined, viewportId, targets)) {
+            markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
+          }
+          if (
+            loaderUiViewportIds.includes(viewportId) &&
+            isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURLGate || undefined, viewportId, targets)
+          ) {
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          }
           setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
           setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, 1));
           tryFinalizeFirstViewportOverlayRef.current(viewportId);
           continue;
         }
 
-        viewportFirstEverInFlightRef.current[viewportId] = true;
-        setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+        if (isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURLGate || undefined, viewportId, targets)) {
+          viewportFirstEverInFlightRef.current[viewportId] = true;
+          if (
+            loaderUiViewportIds.includes(viewportId) &&
+            !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
+          ) {
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+          }
+        }
         setViewportIsProgressComputableById(prev => ({
           ...prev,
           [viewportId]: Boolean(lengthComputable || prev[viewportId]),
@@ -1248,7 +1529,15 @@ function ViewerViewportGrid(props: withAppTypes) {
           if (clamped >= 1) {
             viewportFirstBytesCompleteRef.current[viewportId] = true;
             setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+            if (isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURL || undefined, viewportId, targets)) {
+              markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
+            }
+            if (
+              loaderUiViewportIds.includes(viewportId) &&
+              isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURL || undefined, viewportId, targets)
+            ) {
+              setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+            }
             tryFinalizeFirstViewportOverlayRef.current(viewportId);
           }
         }
@@ -1285,7 +1574,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       }
       if (!matchingViewportIds.length) {
         const urlForUid = d?.url || normalizeImageIdToUrl(imageId) || imageId;
-        matchingViewportIds = findViewportsByUidTokensInRequestUrl(urlForUid, viewportsProgressRef.current);
+        matchingViewportIds = findViewportsByPrimarySopInRequestUrl(urlForUid, targets);
       }
       if (!matchingViewportIds.length) {
         const activeId = activeViewportIdRef.current;
@@ -1303,10 +1592,16 @@ function ViewerViewportGrid(props: withAppTypes) {
         return;
       }
 
+      const loaderUiViewportIds = narrowMatchingViewportsForLoaderUi(
+        matchingViewportIds,
+        targets,
+        activeViewportIdRef.current
+      );
+
       if (phase === 'start') {
         const openUrlForStart = d?.url || normalizeImageIdToUrl(imageId) || imageId;
         const openStr = typeof openUrlForStart === 'string' ? openUrlForStart : '';
-        if (isMultiHopDicomProgressRequestUrl(openStr)) {
+        if (!isWadoRsDirectFramePixelUrl(openStr) && isMultiHopDicomProgressRequestUrl(openStr)) {
           return;
         }
         setViewportBlobPhaseStartedById(prev => {
@@ -1326,8 +1621,16 @@ function ViewerViewportGrid(props: withAppTypes) {
           return next;
         });
         for (const viewportId of matchingViewportIds) {
+          if (!isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
+            continue;
+          }
           viewportFirstEverInFlightRef.current[viewportId] = true;
-          setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+          if (
+            loaderUiViewportIds.includes(viewportId) &&
+            !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
+          ) {
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+          }
         }
         return;
       }
@@ -1341,6 +1644,7 @@ function ViewerViewportGrid(props: withAppTypes) {
           lengthComputable &&
           total > 0 &&
           total < 65536 &&
+          !isWadoRsDirectFramePixelUrl(loaderUrlForTrivial) &&
           isMultiHopDicomProgressRequestUrl(loaderUrlForTrivial);
         if (trivialGatewayHop) {
           return;
@@ -1362,8 +1666,15 @@ function ViewerViewportGrid(props: withAppTypes) {
           if (loaded > 0) {
             setViewportLoadLoadedBytesById(prev => ({ ...prev, [viewportId]: loaded }));
           }
-          viewportFirstEverInFlightRef.current[viewportId] = true;
-          setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+          if (isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
+            viewportFirstEverInFlightRef.current[viewportId] = true;
+            if (
+              loaderUiViewportIds.includes(viewportId) &&
+              !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
+            ) {
+              setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+            }
+          }
           setViewportIsProgressComputableById(prev => ({
             ...prev,
             [viewportId]: Boolean(lengthComputable || prev[viewportId]),
@@ -1375,7 +1686,15 @@ function ViewerViewportGrid(props: withAppTypes) {
             if (progress >= 1) {
               viewportFirstBytesCompleteRef.current[viewportId] = true;
               setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
-              setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+              if (isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
+                markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
+              }
+              if (
+                loaderUiViewportIds.includes(viewportId) &&
+                isViewportPrimaryStackImageId(imageId, viewportId, targets)
+              ) {
+                setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+              }
               tryFinalizeFirstViewportOverlayRef.current(viewportId);
             }
           }
@@ -1398,7 +1717,15 @@ function ViewerViewportGrid(props: withAppTypes) {
         for (const viewportId of matchingViewportIds) {
           viewportFirstBytesCompleteRef.current[viewportId] = true;
           setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
-          setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          if (isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
+            markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
+          }
+          if (
+            loaderUiViewportIds.includes(viewportId) &&
+            isViewportPrimaryStackImageId(imageId, viewportId, targets)
+          ) {
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          }
           setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
           setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, 1));
           tryFinalizeFirstViewportOverlayRef.current(viewportId);
@@ -1429,15 +1756,32 @@ function ViewerViewportGrid(props: withAppTypes) {
         return;
       }
 
+      const loaderUiViewportIds = narrowMatchingViewportsForLoaderUi(
+        matchingViewportIds,
+        targets,
+        activeViewportIdRef.current
+      );
+
       for (const viewportId of matchingViewportIds) {
+        const primary = isViewportPrimaryStackImageId(imageId, viewportId, targets);
         if (clamped >= 1) {
           viewportFirstBytesCompleteRef.current[viewportId] = true;
           setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
-          setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          if (primary) {
+            markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
+          }
+          if (primary && loaderUiViewportIds.includes(viewportId)) {
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+          }
           tryFinalizeFirstViewportOverlayRef.current(viewportId);
-        } else {
+        } else if (primary) {
           viewportFirstEverInFlightRef.current[viewportId] = true;
-          setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+          if (
+            loaderUiViewportIds.includes(viewportId) &&
+            !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
+          ) {
+            setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+          }
         }
 
         setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, clamped));

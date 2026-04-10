@@ -179,6 +179,14 @@ declare global {
         /** Exact origins allowed to send LOAD_STUDY (event.origin must match) */
         allowedOrigins?: string[];
       };
+      /**
+       * Clinical PACS backend: `medpacs` = existing Med-PACS DICOMweb; `azurepacs` = Azure Health Data Services DICOM v2 (Bearer, /v2).
+       */
+      pacsIntegration?: 'medpacs' | 'azurepacs';
+      /**
+       * When true with `azurepacs`, DICOMweb uses cookie Bearer (same as medpacs) instead of `AZURE_PACS_TOKEN` (proxy to Azure).
+       */
+      azurePacsPreferCookieAuth?: boolean;
     }
 
     export interface Test {

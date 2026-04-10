@@ -1,7 +1,12 @@
 import { fixBulkDataURI } from './fixBulkDataURI';
 
 function isPrimitive(v: any) {
-  return !(typeof v == 'object' || Array.isArray(v));
+  // `null` must be treated as primitive; otherwise Object.keys(null) throws
+  // "Cannot convert undefined or null to object" during metadata cleanup.
+  if (v === null || v === undefined) {
+    return true;
+  }
+  return !(typeof v === 'object' || Array.isArray(v));
 }
 
 const vrNumerics = new Set([

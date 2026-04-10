@@ -73,6 +73,10 @@ export type DicomWebConfig = {
   onConfiguration: (config: DicomWebConfig, params) => DicomWebConfig;
   /** Whether to use the static WADO client */
   staticWado?: boolean;
+  /** Azure Health Data Services DICOM v2: Bearer auth and QIDO/WADO header behavior */
+  isAzureDicomV2?: boolean;
+  /** Optional Bearer token for Azure DICOM (falls back to window.AZURE_PACS_TOKEN) */
+  azureToken?: string;
   /** User authentication service */
   userAuthenticationService: Record<string, unknown>;
 };
@@ -105,6 +109,25 @@ export type BulkDataURIConfig = {
  */
 export interface HeaderOptions {
   includeTransferSyntax?: boolean;
+}
+
+function resolvePacsRouteBaseUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl) {
+    return rawUrl;
+  }
+
+  if (typeof window === 'undefined') {
+    return rawUrl;
+  }
+
+  const appConfig = (window as unknown as { config?: { pacsIntegration?: string } }).config;
+  const pacsIntegration = appConfig?.pacsIntegration === 'azurepacs' ? 'azurepacs' : 'medpacs';
+  const routePrefix = pacsIntegration === 'azurepacs' ? 'dicomservice' : 'api';
+
+  const trimmed = rawUrl.replace(/\/+$/, '');
+  const domainBase = trimmed.replace(/\/(api|dicomservice|v\d+)$/i, '');
+
+  return `${domainBase}/${routePrefix}`;
 }
 
 /**
@@ -146,6 +169,22 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
 
+        const isAzureDicomV2 = dicomWebConfig.isAzureDicomV2 === true;
+        const preferCookieAuth =
+          typeof window !== 'undefined' &&
+          (window as unknown as { config?: { azurePacsPreferCookieAuth?: boolean } }).config
+            ?.azurePacsPreferCookieAuth === true;
+        const azureTokenFromConfig = dicomWebConfig.azureToken;
+        const azureTokenFromWindow =
+          typeof window !== 'undefined' ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN : null;
+        const azureToken = azureTokenFromConfig || azureTokenFromWindow || null;
+        const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
+
+        if (isAzureDicomV2 && !preferCookieAuth && azureToken && azureToken !== azurePlaceholder) {
+          xhrRequestHeaders.Authorization = `Bearer ${azureToken}`;
+          return xhrRequestHeaders;
+        }
+
         // Check if we're on a demo route and use demo token
         // @ts-expect-error - Accessing custom property on window
         const isDemo = typeof window !== 'undefined' && window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
@@ -180,6 +219,25 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
        */
       generateWadoHeader = (options: HeaderOptions): HeadersInterface => {
         const authorizationHeader = getAuthorizationHeader();
+        if (dicomWebConfig.isAzureDicomV2 === true && options?.includeTransferSyntax !== false) {
+          let acceptHeaderValue = '*/*';
+          const ah = dicomWebConfig.acceptHeader;
+          const hasAccept =
+            ah !== undefined &&
+            ah !== null &&
+            !(Array.isArray(ah) && ah.length === 0);
+          if (hasAccept) {
+            if (typeof ah === 'string') {
+              acceptHeaderValue = ah;
+            } else if (Array.isArray(ah)) {
+              acceptHeaderValue = ah.length === 1 ? ah[0] : ah.join(', ');
+            }
+          }
+          return {
+            ...authorizationHeader,
+            Accept: acceptHeaderValue,
+          };
+        }
         if (options?.includeTransferSyntax!==false) {
           //Generate accept header depending on config params
           const formattedAcceptHeader = utils.generateAcceptHeader(
@@ -202,23 +260,51 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         }
       };
 
-      qidoConfig = {
-        url: dicomWebConfig.qidoRoot,
-        staticWado: dicomWebConfig.staticWado,
-        singlepart: dicomWebConfig.singlepart,
-        headers: userAuthenticationService.getAuthorizationHeader(),
-        errorInterceptor: errorHandler.getHTTPErrorHandler(),
-        supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
-      };
+      // Normalize api | dicomservice | v2 base from config; also update dicomWebConfig so WADO image IDs,
+      // bulkDataURI, and instance.wadoRoot use the same prefix as the DICOMweb client (not raw .../v2).
+      const qidoBaseUrl = resolvePacsRouteBaseUrl(dicomWebConfig.qidoRoot) || dicomWebConfig.qidoRoot;
+      const wadoBaseUrl = resolvePacsRouteBaseUrl(dicomWebConfig.wadoRoot) || dicomWebConfig.wadoRoot;
+      dicomWebConfig.qidoRoot = qidoBaseUrl;
+      dicomWebConfig.wadoRoot = wadoBaseUrl;
 
-      wadoConfig = {
-        url: dicomWebConfig.wadoRoot,
-        staticWado: dicomWebConfig.staticWado,
-        singlepart: dicomWebConfig.singlepart,
-        headers: userAuthenticationService.getAuthorizationHeader(),
-        errorInterceptor: errorHandler.getHTTPErrorHandler(),
-        supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
-      };
+      if (dicomWebConfig.isAzureDicomV2 === true) {
+        const initialAuthHeaders = getAuthorizationHeader();
+        const qidoHeaders: HeadersInterface = { ...initialAuthHeaders, Accept: '*/*' };
+        qidoConfig = {
+          url: qidoBaseUrl,
+          staticWado: dicomWebConfig.staticWado,
+          singlepart: dicomWebConfig.singlepart,
+          headers: qidoHeaders,
+          errorInterceptor: errorHandler.getHTTPErrorHandler(),
+          supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
+        };
+        wadoConfig = {
+          url: wadoBaseUrl,
+          staticWado: dicomWebConfig.staticWado,
+          singlepart: dicomWebConfig.singlepart,
+          headers: initialAuthHeaders,
+          errorInterceptor: errorHandler.getHTTPErrorHandler(),
+          supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
+        };
+      } else {
+        qidoConfig = {
+          url: qidoBaseUrl,
+          staticWado: dicomWebConfig.staticWado,
+          singlepart: dicomWebConfig.singlepart,
+          headers: userAuthenticationService.getAuthorizationHeader(),
+          errorInterceptor: errorHandler.getHTTPErrorHandler(),
+          supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
+        };
+
+        wadoConfig = {
+          url: wadoBaseUrl,
+          staticWado: dicomWebConfig.staticWado,
+          singlepart: dicomWebConfig.singlepart,
+          headers: userAuthenticationService.getAuthorizationHeader(),
+          errorInterceptor: errorHandler.getHTTPErrorHandler(),
+          supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
+        };
+      }
 
       // TODO -> Two clients sucks, but its better than 1000.
       // TODO -> We'll need to merge auth later.
@@ -229,13 +315,19 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       wadoDicomWebClient = dicomWebConfig.staticWado
         ? new StaticWadoClient(wadoConfig)
         : new api.DICOMwebClient(wadoConfig);
+
+      dicomWebConfigCopy = JSON.parse(JSON.stringify(dicomWebConfig));
     },
     query: {
       studies: {
         mapParams: mapParams.bind(),
         search: async function (origParams) {
           const fetchStudies = async () => {
-            qidoDicomWebClient.headers = getAuthorizationHeader();
+            const searchHeaders = getAuthorizationHeader();
+            if (dicomWebConfig.isAzureDicomV2 === true) {
+              searchHeaders.Accept = '*/*';
+            }
+            qidoDicomWebClient.headers = searchHeaders;
             const { studyInstanceUid, seriesInstanceUid, ...mappedParams } =
               mapParams(origParams, {
                 supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
@@ -262,7 +354,11 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           const { getCachedStudiesSearch } = require('./utils/studiesQueryCache.js');
 
           const fetchSeries = async () => {
-            qidoDicomWebClient.headers = getAuthorizationHeader();
+            const searchHeaders = getAuthorizationHeader();
+            if (dicomWebConfig.isAzureDicomV2 === true) {
+              searchHeaders.Accept = '*/*';
+            }
+            qidoDicomWebClient.headers = searchHeaders;
             const results = await seriesInStudy(qidoDicomWebClient, studyInstanceUid);
             return processSeriesResults(results);
           };
@@ -309,7 +405,11 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       },
       instances: {
         search: (studyInstanceUid, queryParameters) => {
-          qidoDicomWebClient.headers = getAuthorizationHeader();
+          const searchHeaders = getAuthorizationHeader();
+          if (dicomWebConfig.isAzureDicomV2 === true) {
+            searchHeaders.Accept = '*/*';
+          }
+          qidoDicomWebClient.headers = searchHeaders;
           return qidoSearch.call(
             undefined,
             qidoDicomWebClient,

@@ -1,5 +1,5 @@
 // Updated ToolbarLayoutSelector.tsx
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { CommandsManager } from '@ohif/core';
 
@@ -13,8 +13,28 @@ function ToolbarLayoutSelectorWithServices({
   columns = 4,
   ...props
 }) {
-  const { customizationService } = servicesManager.services;
+  const { customizationService, uiNotificationService } = servicesManager.services;
   const { t } = useTranslation('ToolbarLayoutSelector');
+  const advancedVolumeProtocolIds = useMemo(
+    () => new Set(['mpr', 'axial-primary', '3d-four-up', '3d-main', '3d-only', '3d-primary']),
+    []
+  );
+
+  const isJpegDataSourceActive = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    const path = window.location?.pathname ?? '';
+    const search = window.location?.search ?? '';
+    const qp = new URLSearchParams(search);
+    const dataSourceQuery = qp.get('datasources') ?? '';
+
+    return (
+      path.includes('/localviewer-image-jpeg') ||
+      dataSourceQuery.toLowerCase() === 'localviewer-image-jpeg'
+    );
+  }, []);
 
   // Get the presets from the customization service
   const commonPresets = customizationService?.getCustomization('layoutSelector.commonPresets') || [
@@ -108,10 +128,43 @@ function ToolbarLayoutSelectorWithServices({
         },
       ];
 
+  const advancedPresetsWithDataSourceGuard = useMemo(() => {
+    if (!isJpegDataSourceActive) {
+      return advancedPresets;
+    }
+
+    return advancedPresets.map(preset => {
+      const protocolId = preset?.commandOptions?.protocolId;
+      if (!protocolId || !advancedVolumeProtocolIds.has(protocolId)) {
+        return preset;
+      }
+
+      return {
+        ...preset,
+        disabled: true,
+      };
+    });
+  }, [advancedPresets, advancedVolumeProtocolIds, isJpegDataSourceActive]);
+
   // Unified selection handler that dispatches to the appropriate command
   const handleSelectionChange = useCallback(
     (commandOptions, isPreset) => {
       if (isPreset) {
+        const protocolId = commandOptions?.protocolId;
+        if (
+          isJpegDataSourceActive &&
+          typeof protocolId === 'string' &&
+          advancedVolumeProtocolIds.has(protocolId)
+        ) {
+          uiNotificationService?.show?.({
+            title: 'Layout not supported for JPEG source',
+            message:
+              'MPR/3D layouts require volumetric pixel data. Use octet-stream/application-dicom datasource for these layouts.',
+            type: 'warning',
+            duration: 5000,
+          });
+          return;
+        }
         // Advanced preset selection
         commandsManager.run({
           commandName: 'setHangingProtocol',
@@ -125,7 +178,7 @@ function ToolbarLayoutSelectorWithServices({
         });
       }
     },
-    [commandsManager]
+    [commandsManager, isJpegDataSourceActive, advancedVolumeProtocolIds, uiNotificationService]
   );
 
   return (
@@ -158,9 +211,9 @@ function ToolbarLayoutSelectorWithServices({
                 </>
               )}
 
-              {advancedPresets.length > 0 && (
+              {advancedPresetsWithDataSourceGuard.length > 0 && (
                 <LayoutSelector.PresetSection title={t('Advanced')}>
-                  {advancedPresets.map((preset, index) => (
+                  {advancedPresetsWithDataSourceGuard.map((preset, index) => (
                     <LayoutSelector.Preset
                       key={`advanced-preset-${index}`}
                       title={preset.title}

@@ -84,6 +84,86 @@ function App({
     run();
   }, []);
 
+  // Suppress known transient VTK shader crash during rapid advanced layout switches
+  // (MPR/axial-primary/3D). This prevents the React runtime overlay from interrupting workflow.
+  useEffect(() => {
+    const shouldSuppressIsAttributeUsedError = (value: unknown) => {
+      const text = String(value ?? '');
+      return text.includes('isAttributeUsed');
+    };
+
+    const onWindowError = (event: ErrorEvent) => {
+      const message = event?.message ?? '';
+      const stack = event?.error?.stack ?? '';
+      if (shouldSuppressIsAttributeUsedError(message) || shouldSuppressIsAttributeUsedError(stack)) {
+        event.preventDefault();
+        // Some runtime overlays subscribe before our handler; stop propagation too.
+        event.stopImmediatePropagation?.();
+      }
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event?.reason as any;
+      const reasonMessage = reason?.message ?? reason?.toString?.() ?? '';
+      const reasonStack = reason?.stack ?? '';
+      if (
+        shouldSuppressIsAttributeUsedError(reasonMessage) ||
+        shouldSuppressIsAttributeUsedError(reasonStack)
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation?.();
+      }
+    };
+
+    const previousOnError = window.onerror;
+    window.onerror = function (message, source, lineno, colno, error) {
+      const msg = typeof message === 'string' ? message : String(message ?? '');
+      const stack = (error as any)?.stack ?? '';
+      if (shouldSuppressIsAttributeUsedError(msg) || shouldSuppressIsAttributeUsedError(stack)) {
+        return true;
+      }
+      if (typeof previousOnError === 'function') {
+        return previousOnError(message, source, lineno, colno, error);
+      }
+      return false;
+    };
+
+    const patchRuntimeOverlayHook = () => {
+      const w = window as any;
+      const hook = w.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__;
+      if (!hook || hook.__ohifIsAttributeUsedGuardPatched) {
+        return;
+      }
+      const originalReportRuntimeError = hook.reportRuntimeError;
+      if (typeof originalReportRuntimeError !== 'function') {
+        return;
+      }
+
+      hook.reportRuntimeError = (error: unknown) => {
+        const msg = (error as any)?.message ?? String(error ?? '');
+        const stack = (error as any)?.stack ?? '';
+        if (shouldSuppressIsAttributeUsedError(msg) || shouldSuppressIsAttributeUsedError(stack)) {
+          return;
+        }
+        return originalReportRuntimeError.call(hook, error);
+      };
+      hook.__ohifIsAttributeUsedGuardPatched = true;
+    };
+
+    patchRuntimeOverlayHook();
+    const overlayPatchTimer = window.setInterval(patchRuntimeOverlayHook, 500);
+
+    window.addEventListener('error', onWindowError);
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    return () => {
+      window.clearInterval(overlayPatchTimer);
+      window.onerror = previousOnError ?? null;
+      window.removeEventListener('error', onWindowError);
+      window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    };
+  }, []);
+
   if (!init) {
     return null;
   }
@@ -159,6 +239,25 @@ function App({
 
   if (shouldUseCookieAuth) {
     const getAuthorizationHeader = () => {
+      const appCfg = typeof window !== 'undefined'
+        ? (window as unknown as {
+            config?: { pacsIntegration?: string; azurePacsPreferCookieAuth?: boolean };
+          }).config
+        : undefined;
+      if (
+        appCfg?.pacsIntegration === 'azurepacs' &&
+        !appCfg?.azurePacsPreferCookieAuth
+      ) {
+        // @ts-ignore - set in config/default.js when pacsIntegration is azurepacs
+        const azureToken = typeof window !== 'undefined' && window.AZURE_PACS_TOKEN;
+        const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
+        if (azureToken && typeof azureToken === 'string' && azureToken !== azurePlaceholder) {
+          return {
+            Authorization: `Bearer ${azureToken}`,
+          };
+        }
+      }
+
       // Check if we're on a demo route and use demo token
       // @ts-ignore - Accessing custom property on window
       const isDemo = window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;

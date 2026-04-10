@@ -7,6 +7,188 @@ const DEMO_TOKEN = 'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RS
 // Demo study UID - Only this study will use the demo token
 const DEMO_STUDY_UID = '1.2.392.200036.9116.2.6.1.48.1211393243.1750146394.000030';
 
+// ---------------------------------------------------------------------------
+// PACS integration: driven by cookie userPreferences_dicomSourceType (read at load):
+//   "medpacs" -> medpacs; "dicom_service" -> azurepacs; missing/unknown -> medpacs
+// medpacs = Med-PACS DICOMweb (cookie/Basic, /api).
+// azurepacs = DICOM service route (/dicomservice via resolver), same host as Med-PACS when proxied.
+// ---------------------------------------------------------------------------
+function readCookieRawForPacs(name) {
+  if (typeof document === 'undefined' || !document.cookie) {
+    return null;
+  }
+  const nameEQ = name + '=';
+  const cookies = document.cookie.split(';');
+  for (let i = 0; i < cookies.length; i++) {
+    let cookie = cookies[i].trim();
+    if (cookie.indexOf(nameEQ) === 0) {
+      try {
+        return decodeURIComponent(cookie.substring(nameEQ.length).trim());
+      } catch (_) {
+        return cookie.substring(nameEQ.length).trim();
+      }
+    }
+  }
+  return null;
+}
+
+function parseDicomSourceTypeCookieValue(raw) {
+  if (raw == null || raw === '') {
+    return null;
+  }
+  const trimmed = String(raw).trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('{')
+  ) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (_) {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function resolvePacsIntegrationFromDicomSourceCookie() {
+  const raw = readCookieRawForPacs('userPreferences_dicomSourceType');
+  if (raw == null || raw === '') {
+    return 'medpacs';
+  }
+  const v = String(parseDicomSourceTypeCookieValue(raw) ?? raw).trim();
+  if (v === 'dicom_service') {
+    return 'azurepacs';
+  }
+  if (v === 'medpacs') {
+    return 'medpacs';
+  }
+  return 'medpacs';
+}
+
+const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
+
+// When true, /dicomservice/* uses the same Bearer token as Med-PACS (cookieAuth). Set false if you call Azure Healthcare APIs directly with AZURE_PACS_TOKEN.
+const AZURE_PACS_PREFER_COOKIE_AUTH = true;
+
+const MED_PACS_DICOMWEB_API_ROOT =
+  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api';
+// Legacy separate /wadouri path (JPEG WADO-URI). Raw DICOM WADO-URI uses MED_PACS_DICOMWEB_API_ROOT + query params.
+const MED_PACS_DICOMWEB_WADOURI_ROOT =
+  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri';
+
+const AZURE_PACS_TOKEN_PLACEHOLDER = 'YOUR_AZURE_DICOM_TOKEN_HERE';
+let AZURE_PACS_INITIAL_TOKEN = AZURE_PACS_TOKEN_PLACEHOLDER;
+let _cachedAzurePacsToken = AZURE_PACS_INITIAL_TOKEN;
+
+function getAzurePacsToken() {
+  return _cachedAzurePacsToken;
+}
+
+function updateAzurePacsTokenEverywhere(newToken) {
+  if (PACS_INTEGRATION !== 'azurepacs' || !newToken || typeof newToken !== 'string') {
+    return;
+  }
+  _cachedAzurePacsToken = newToken;
+  if (typeof window !== 'undefined') {
+    if (!AZURE_PACS_PREFER_COOKIE_AUTH) {
+      window.AZURE_PACS_TOKEN = newToken;
+    }
+    if (!AZURE_PACS_PREFER_COOKIE_AUTH && window.config && window.config.dataSources) {
+      window.config.dataSources.forEach(function (ds) {
+        if (ds.configuration && Object.prototype.hasOwnProperty.call(ds.configuration, 'azureToken')) {
+          ds.configuration.azureToken = newToken;
+        }
+      });
+    }
+  }
+}
+
+// Azure PACS: same host as Med-PACS DICOMweb; your API proxies /dicomservice/* to Azure Healthcare DICOM.
+// getAzureDicomV2BaseUrl() appends /v2; DicomWebDataSource maps .../v2 -> .../dicomservice when pacsIntegration is azurepacs.
+const AZURE_DICOM_SERVICE_URL =
+  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net';
+
+function getAzureDicomV2BaseUrl() {
+  const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
+  return `${baseUrl}/v2`;
+}
+
+var FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS = [
+  {
+    sourceName: 'frame-multipart-octet-wildcard',
+    friendlyName: 'Multipart octet-stream (transfer-syntax=*)',
+    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=*'],
+  },
+  {
+    sourceName: 'frame-multipart-octet-default',
+    friendlyName: 'Multipart octet-stream (default 1.2.840.10008.1.2.1)',
+    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1'],
+  },
+  {
+    sourceName: 'frame-multipart-octet-explicit',
+    friendlyName: 'Multipart octet-stream (Little Endian Explicit)',
+    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1'],
+  },
+  {
+    sourceName: 'frame-multipart-jp2-default',
+    friendlyName: 'Multipart image/jp2 (default 1.2.840.10008.1.2.4.90)',
+    acceptHeader: ['multipart/related; type="image/jp2"; transfer-syntax=1.2.840.10008.1.2.4.90'],
+  },
+  {
+    sourceName: 'frame-multipart-jp2-90',
+    friendlyName: 'Multipart image/jp2 (JPEG 2000 Lossless)',
+    acceptHeader: ['multipart/related; type="image/jp2"; transfer-syntax=1.2.840.10008.1.2.4.90'],
+  },
+  {
+    sourceName: 'frame-single-octet-wildcard',
+    friendlyName: 'Single frame application/octet-stream (transfer-syntax=*)',
+    acceptHeader: ['application/octet-stream; transfer-syntax=*'],
+  },
+  {
+    sourceName: 'frame-any-default',
+    friendlyName: 'Any (*/*, default application/octet-stream)',
+    acceptHeader: ['*/*'],
+  },
+];
+
+function getAzurePacsFrameRetrievalDataSources() {
+  var baseUrl = getAzureDicomV2BaseUrl();
+  var token = getAzurePacsToken();
+  return FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS.map(function (opt) {
+    return {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: opt.sourceName,
+      configuration: {
+        friendlyName: 'Azure PACS (Frame: ' + opt.friendlyName + ')',
+        name: 'azure-pacs-v2-wadors',
+        wadoUriRoot: baseUrl,
+        qidoRoot: baseUrl,
+        wadoRoot: baseUrl,
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: true,
+        supportsWildcard: true,
+        staticWado: false,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: function (url) {
+            return url.replace('/pixeldata.mp4', '/rendered');
+          },
+        },
+        omitQuotationForMultipartRequest: true,
+        acceptHeader: opt.acceptHeader,
+        isAzureDicomV2: true,
+        azureToken: token,
+      },
+    };
+  });
+}
+
 // Helper function to check if we're on a demo route
 function isDemoRoute() {
   if (typeof window === 'undefined' || !window.location) {
@@ -117,6 +299,14 @@ if (typeof window !== 'undefined') {
   window.isShareLinkMode = isShareLinkMode;
   window.getShareLinkExpiryResult = getShareLinkExpiryResult;
   window.getShareLinkBasicToken = getShareLinkBasicToken;
+  if (PACS_INTEGRATION === 'azurepacs') {
+    if (!AZURE_PACS_PREFER_COOKIE_AUTH) {
+      window.AZURE_PACS_TOKEN = _cachedAzurePacsToken;
+    }
+    window.getAzurePacsToken = getAzurePacsToken;
+    window.updateAzurePacsTokenEverywhere = updateAzurePacsTokenEverywhere;
+    window.getAzureDicomV2BaseUrl = getAzureDicomV2BaseUrl;
+  }
 }
 
 // Helper function to get token from cookie (token or patientToken - either is passed to PACS API)
@@ -386,16 +576,325 @@ async function savePreferences(payload) {
 }
 
 function getDefaultDataSourceName() {
+  // Prefer cookie value first so initial route uses user preference immediately
+  // (avoids stale localStorage selecting a different datasource like wadouri).
+  const cookieDataSourceRaw = getCookie('userPreferences_dataSourceFormat');
+  const cookieDataSourceParsed = parseCookieValue(cookieDataSourceRaw);
+  const cookieDataSource =
+    typeof cookieDataSourceParsed === 'string' ? cookieDataSourceParsed.trim() : '';
+  if (cookieDataSource) {
+    console.log(`Using cookie default data source: ${cookieDataSource}`);
+    localStorage.setItem('defaultDataSourceName', cookieDataSource);
+    return cookieDataSource;
+  }
+
   // Check localStorage first for cached value
   const cachedDataSource = localStorage.getItem('defaultDataSourceName');
   if (cachedDataSource) {
     console.log(`Using cached default data source: ${cachedDataSource}`);
     return cachedDataSource;
   }
-  // Fallback to default
-  const defaultName = 'localviewer-image-jpeg';
+  const defaultName =
+    PACS_INTEGRATION === 'azurepacs' ? 'dicomweb' : 'localviewer-image-jpeg';
   console.log(`Using fallback default data source: ${defaultName}`);
   return defaultName;
+}
+
+/**
+ * Med-PACS vs Azure clinical DICOMweb sources (dicomweb, localviewer-*, demo).
+ * Sample servers (ohif/ohif2/ohif3) and local5000/orthanc/proxy stay in main config.
+ */
+function getClinicalDicomWebDataSources() {
+  if (PACS_INTEGRATION === 'azurepacs') {
+    var baseUrl = getAzureDicomV2BaseUrl();
+    var token = getAzurePacsToken();
+    return [
+      {
+        namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+        sourceName: 'dicomweb',
+        configuration: {
+          friendlyName: 'Azure PACS DICOM v2',
+          name: 'azure-pacs-v2',
+          wadoUriRoot: baseUrl,
+          qidoRoot: baseUrl,
+          wadoRoot: baseUrl,
+          qidoSupportsIncludeField: true,
+          imageRendering: 'wadors',
+          thumbnailRendering: 'wadors',
+          enableStudyLazyLoad: true,
+          supportsFuzzyMatching: true,
+          supportsWildcard: true,
+          staticWado: false,
+          singlepart: 'bulkdata,video',
+          bulkDataURI: {
+            enabled: true,
+            relativeResolution: 'studies',
+            transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+          },
+          omitQuotationForMultipartRequest: false,
+          acceptHeader: ['multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90'],
+          isAzureDicomV2: true,
+          azureToken: token,
+        },
+      },
+      ...getAzurePacsFrameRetrievalDataSources(),
+      {
+        namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+        sourceName: 'localviewer-image-jpeg',
+        configuration: {
+          friendlyName: 'Azure PACS DICOM v2 (WADO-RS)',
+          name: 'azure-pacs-v2-wadors',
+          wadoUriRoot: baseUrl,
+          qidoRoot: baseUrl,
+          wadoRoot: baseUrl,
+          qidoSupportsIncludeField: true,
+          imageRendering: 'wadors',
+          thumbnailRendering: 'wadors',
+          enableStudyLazyLoad: true,
+          supportsFuzzyMatching: true,
+          supportsWildcard: true,
+          staticWado: false,
+          singlepart: 'bulkdata,video',
+          bulkDataURI: {
+            enabled: true,
+            relativeResolution: 'studies',
+            transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+          },
+          omitQuotationForMultipartRequest: true,
+          acceptHeader: '*/*',
+          isAzureDicomV2: true,
+          azureToken: token,
+        },
+      },
+      {
+        namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+        sourceName: 'localviewer-application-dicom',
+        configuration: {
+          friendlyName: 'Azure PACS DICOM v2 (WADO-RS)',
+          name: 'azure-pacs-v2-wadors',
+          wadoUriRoot: baseUrl,
+          qidoRoot: baseUrl,
+          wadoRoot: baseUrl,
+          qidoSupportsIncludeField: true,
+          imageRendering: 'wadors',
+          thumbnailRendering: 'wadors',
+          enableStudyLazyLoad: true,
+          supportsFuzzyMatching: true,
+          supportsWildcard: true,
+          staticWado: false,
+          singlepart: 'bulkdata,video',
+          bulkDataURI: {
+            enabled: true,
+            relativeResolution: 'studies',
+            transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+          },
+          omitQuotationForMultipartRequest: true,
+          acceptHeader: '*/*',
+          isAzureDicomV2: true,
+          azureToken: token,
+        },
+      },
+      {
+        namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+        sourceName: 'localviewer-raw-dicom',
+        configuration: {
+          friendlyName: 'Azure PACS DICOM v2 (WADO-RS)',
+          name: 'azure-pacs-v2-wadors',
+          wadoUriRoot: baseUrl,
+          qidoRoot: baseUrl,
+          wadoRoot: baseUrl,
+          qidoSupportsIncludeField: true,
+          imageRendering: 'wadors',
+          thumbnailRendering: 'wadors',
+          enableStudyLazyLoad: true,
+          supportsFuzzyMatching: true,
+          supportsWildcard: true,
+          staticWado: false,
+          singlepart: 'bulkdata,video',
+          bulkDataURI: {
+            enabled: true,
+            relativeResolution: 'studies',
+            transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+          },
+          omitQuotationForMultipartRequest: true,
+          acceptHeader: '*/*',
+          isAzureDicomV2: true,
+          azureToken: token,
+        },
+      },
+      {
+        namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+        sourceName: 'demo',
+        configuration: {
+          friendlyName: 'Azure PACS DICOM v2 (Demo)',
+          name: 'azure-pacs-v2-demo',
+          wadoUriRoot: baseUrl,
+          qidoRoot: baseUrl,
+          wadoRoot: baseUrl,
+          qidoSupportsIncludeField: true,
+          imageRendering: 'wadors',
+          thumbnailRendering: 'wadors',
+          enableStudyLazyLoad: true,
+          supportsFuzzyMatching: true,
+          supportsWildcard: true,
+          staticWado: false,
+          singlepart: 'bulkdata,video',
+          bulkDataURI: {
+            enabled: true,
+            relativeResolution: 'studies',
+            transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+          },
+          omitQuotationForMultipartRequest: true,
+          acceptHeader: ['multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90'],
+          isAzureDicomV2: true,
+          azureToken: token,
+          onConfiguration: config => {
+            config._demoToken = DEMO_TOKEN;
+            return config;
+          },
+          requestOptions: {},
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'dicomweb',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        wadoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoSupportsIncludeField: false,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'localviewer-image-jpeg',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot: MED_PACS_DICOMWEB_WADOURI_ROOT,
+        qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        wadoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadouri',
+        thumbnailRendering: 'wadouri',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        wadouriTransform: url =>
+          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
+        omitQuotationForMultipartRequest: true,
+        acceptHeader: '*/*',
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'localviewer-application-dicom',
+      configuration: {
+        friendlyName: 'AWS S3 Static wado server',
+        name: 'aws',
+        wadoUriRoot: MED_PACS_DICOMWEB_WADOURI_ROOT,
+        qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        wadoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadouri',
+        thumbnailRendering: 'wadouri',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+        acceptHeader: '*/*',
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'localviewer-raw-dicom',
+      configuration: {
+        friendlyName: 'Med-PACS raw DICOM (WADO-RS frames)',
+        name: 'aws',
+        wadoUriRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        wadoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoSupportsIncludeField: true,
+        // Use WADO-RS image retrieval so requests go through /studies/.../series/.../instances/.../frames/{FrameList}.
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: 'demo',
+      configuration: {
+        friendlyName: 'Demo PACS (Hardcoded Token)',
+        name: 'Demo PACS',
+        wadoUriRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        wadoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoSupportsIncludeField: false,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+        onConfiguration: config => {
+          config._demoToken = DEMO_TOKEN;
+          return config;
+        },
+        requestOptions: {},
+      },
+    },
+  ];
 }
 
 async function updateDefaultDataSourceName() {
@@ -548,6 +1047,8 @@ window.config = {
     },
   ],
   defaultDataSourceName: getDefaultDataSourceName(), // synchronous with localStorage cache
+  pacsIntegration: PACS_INTEGRATION,
+  azurePacsPreferCookieAuth: AZURE_PACS_PREFER_COOKIE_AUTH,
   // Cookie-based authentication configuration
   // Token (or patientToken) is read from cookies and passed in all API request headers, including PACS (study, series, instance)
   cookieAuth: {
@@ -653,129 +1154,8 @@ window.config = {
       },
     },
 
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'dicomweb',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: false,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        // whether the data source should use retrieveBulkData to grab metadata,
-        // and in case of relative path, what would it be relative to, options
-        // are in the series level or study level (some servers like series some study)
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
-        },
-        omitQuotationForMultipartRequest: true,
-      },
-    },
+    ...getClinicalDicomWebDataSources(),
 
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'localviewer-image-jpeg',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: true,
-        imageRendering: 'wadouri',
-        thumbnailRendering: 'wadouri',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
-        },
-        // Transform WADO-URI URLs to use JPEG instead of DICOM
-        wadouriTransform: url =>
-          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
-        omitQuotationForMultipartRequest: true,
-        acceptHeader: '*/*',
-      },
-    },
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'localviewer-application-dicom',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: true,
-        imageRendering: 'wadouri',
-        thumbnailRendering: 'wadouri',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
-        },
-        omitQuotationForMultipartRequest: true,
-        acceptHeader: '*/*',
-      },
-    },
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'localviewer-raw-dicom',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: true,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
-        },
-        wadouriTransform: url =>
-          url.replace('contentType=application/dicom', 'contentType=image/jpeg'),
-        omitQuotationForMultipartRequest: true,
-      },
-    },
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'local5000',
@@ -797,44 +1177,6 @@ window.config = {
         bulkDataURI: {
           enabled: true,
           relativeResolution: 'studies',
-        },
-      },
-    },
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'demo',
-      configuration: {
-        friendlyName: 'Demo PACS (Hardcoded Token)',
-        name: 'Demo PACS',
-        wadoUriRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        wadoRoot:
-          'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api',
-        qidoSupportsIncludeField: false,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
-        },
-        omitQuotationForMultipartRequest: true,
-        // Custom configuration to use hardcoded token
-        onConfiguration: config => {
-          // Store the demo token in the config so it can be accessed
-          config._demoToken = DEMO_TOKEN;
-          return config;
-        },
-        // Custom request options to inject the demo token
-        requestOptions: {
-          // This will be handled by the custom getAuthorizationHeader
         },
       },
     },

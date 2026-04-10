@@ -336,6 +336,38 @@ const commandsModule = ({
       stageIndex,
       reset = false,
     }: HangingProtocolParams): boolean => {
+      const isVolumeLikeProtocol =
+        typeof protocolId === 'string' &&
+        ['mpr', 'axial-primary', '3d-four-up', '3d-main', '3d-only', '3d-primary'].includes(
+          protocolId
+        );
+      const activeDataSource = extensionManager.getActiveDataSource?.()?.[0] as
+        | { name?: string; sourceName?: string }
+        | undefined;
+      const activeDataSourceName = (
+        activeDataSource?.name ||
+        activeDataSource?.sourceName ||
+        ''
+      ).toLowerCase();
+      const isJpegDataSourceActive =
+        activeDataSourceName === 'localviewer-image-jpeg' ||
+        (typeof window !== 'undefined' &&
+          (window.location?.pathname?.includes('/localviewer-image-jpeg') ||
+            (new URLSearchParams(window.location?.search || '')
+              .get('datasources')
+              ?.toLowerCase() === 'localviewer-image-jpeg')));
+
+      if (isJpegDataSourceActive && isVolumeLikeProtocol) {
+        uiNotificationService.show({
+          title: 'Layout not supported for JPEG source',
+          message:
+            'MPR/3D layouts require volumetric pixel data. Switch datasource to octet-stream/application-dicom.',
+          type: 'warning',
+          duration: 5000,
+        });
+        return false;
+      }
+
       const toUseStudyInstanceUID = activeStudyUID || StudyInstanceUID;
       try {
         // Stores in the state the display set selector id to displaySetUID mapping

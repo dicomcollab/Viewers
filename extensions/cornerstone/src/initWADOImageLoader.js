@@ -216,6 +216,7 @@ function wireWadoXhrProgress(xhr, requestId, requestUrl) {
     if (ok && isWadoUriGatewayUrl(requestUrl) && !isLikelyDicomInstanceByteUrl(responseURL)) {
       return;
     }
+
     dispatchWADORequestProgress({
       requestId,
       requestUrl,
@@ -531,7 +532,8 @@ export default function initWADOImageLoader(
         return;
       }
       const openUrl = typeof url === 'string' ? url : '';
-      if (isWadoUriGatewayUrl(openUrl) || isWadoUriGatewayUrl(imageId)) {
+      const isGateway = isWadoUriGatewayUrl(openUrl) || isWadoUriGatewayUrl(imageId);
+      if (isGateway) {
         return;
       }
       dispatchOhifDicomLoaderXhr({
