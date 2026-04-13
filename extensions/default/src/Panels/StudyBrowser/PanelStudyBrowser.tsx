@@ -35,6 +35,10 @@ function PanelStudyBrowser({
   const fetchedStudiesRef = useRef(new Set());
 
   const [{ activeViewportId, viewports, isHangingProtocolLayout }] = useViewportGrid();
+  const activeDisplaySetInstanceUIDs = useMemo(
+    () => viewports.get(activeViewportId)?.displaySetInstanceUIDs,
+    [viewports, activeViewportId]
+  );
   const [activeTabName, setActiveTabName] = useState(studyMode);
   const [expandedStudyInstanceUIDs, setExpandedStudyInstanceUIDs] = useState(
     studyMode === 'primary' && StudyInstanceUIDs.length > 0
@@ -47,6 +51,8 @@ function PanelStudyBrowser({
   const [displaySets, setDisplaySets] = useState([]);
   const [displaySetsLoadingState, setDisplaySetsLoadingState] = useState({});
   const [thumbnailImageSrcMap, setThumbnailImageSrcMap] = useState({});
+  /** Display sets the user explicitly preloaded (download) — show progress on those thumbnails too */
+  const [prefetchProgressTrackByUid, setPrefetchProgressTrackByUid] = useState({});
   const [jumpToDisplaySet, setJumpToDisplaySet] = useState(null);
 
   const [viewPresets, setViewPresets] = useState(
@@ -97,6 +103,30 @@ function PanelStudyBrowser({
 
   const mapDisplaySetsWithState = customMapDisplaySets || _mapDisplaySets;
 
+  const finalizeMappedDisplaySetsForProgressVisibility = useCallback(
+    mappedThumbnails => {
+      return applyStudyBrowserSeriesProgressVisibility(
+        mappedThumbnails,
+        activeDisplaySetInstanceUIDs,
+        prefetchProgressTrackByUid
+      );
+    },
+    [activeDisplaySetInstanceUIDs, prefetchProgressTrackByUid]
+  );
+
+  const handlePrefetchDisplaySet = useCallback(
+    displaySetInstanceUID => {
+      if (!displaySetInstanceUID || !studyPrefetcherService?.prefetchDisplaySet) {
+        return;
+      }
+      setPrefetchProgressTrackByUid(prev =>
+        prev[displaySetInstanceUID] ? prev : { ...prev, [displaySetInstanceUID]: true }
+      );
+      studyPrefetcherService.prefetchDisplaySet(displaySetInstanceUID);
+    },
+    [studyPrefetcherService]
+  );
+
   // Subscribe to instance load progress (prefetcher + viewport loads) for study panel progress bar
   useEffect(() => {
     if (!studyPrefetcherService?.subscribe) return;
@@ -119,6 +149,14 @@ function PanelStudyBrowser({
           return;
         }
         setDisplaySetsLoadingState(prev => {
+          const next = { ...prev };
+          delete next[displaySetInstanceUID];
+          return next;
+        });
+        setPrefetchProgressTrackByUid(prev => {
+          if (!prev[displaySetInstanceUID]) {
+            return prev;
+          }
           const next = { ...prev };
           delete next[displaySetInstanceUID];
           return next;
@@ -314,12 +352,14 @@ function PanelStudyBrowser({
       });
     }
 
-    const mappedDisplaySets = mapDisplaySetsWithState(
-      currentDisplaySets,
-      loadingState,
-      thumbnailImageSrcMap,
-      viewports,
-      isHangingProtocolLayout
+    const mappedDisplaySets = finalizeMappedDisplaySetsForProgressVisibility(
+      mapDisplaySetsWithState(
+        currentDisplaySets,
+        loadingState,
+        thumbnailImageSrcMap,
+        viewports,
+        isHangingProtocolLayout
+      )
     );
 
     if (!customMapDisplaySets) {
@@ -336,6 +376,7 @@ function PanelStudyBrowser({
     customMapDisplaySets,
     isHangingProtocolLayout,
     studyPrefetcherService,
+    finalizeMappedDisplaySetsForProgressVisibility,
   ]);
 
   // ~~ subscriptions --> displaySets
@@ -397,12 +438,14 @@ function PanelStudyBrowser({
       displaySetService.EVENTS.DISPLAY_SETS_CHANGED,
       changedDisplaySets => {
         applyDefaultStudyBrowserSortIfNeeded();
-        const mappedDisplaySets = mapDisplaySetsWithState(
-          changedDisplaySets,
-          displaySetsLoadingState,
-          thumbnailImageSrcMap,
-          viewports,
-          isHangingProtocolLayout
+        const mappedDisplaySets = finalizeMappedDisplaySetsForProgressVisibility(
+          mapDisplaySetsWithState(
+            changedDisplaySets,
+            displaySetsLoadingState,
+            thumbnailImageSrcMap,
+            viewports,
+            isHangingProtocolLayout
+          )
         );
 
         if (!customMapDisplaySets) {
@@ -417,12 +460,14 @@ function PanelStudyBrowser({
       displaySetService.EVENTS.DISPLAY_SET_SERIES_METADATA_INVALIDATED,
       () => {
         applyDefaultStudyBrowserSortIfNeeded();
-        const mappedDisplaySets = mapDisplaySetsWithState(
-          displaySetService.getActiveDisplaySets(),
-          displaySetsLoadingState,
-          thumbnailImageSrcMap,
-          viewports,
-          isHangingProtocolLayout
+        const mappedDisplaySets = finalizeMappedDisplaySetsForProgressVisibility(
+          mapDisplaySetsWithState(
+            displaySetService.getActiveDisplaySets(),
+            displaySetsLoadingState,
+            thumbnailImageSrcMap,
+            viewports,
+            isHangingProtocolLayout
+          )
         );
 
         if (!customMapDisplaySets) {
@@ -445,6 +490,7 @@ function PanelStudyBrowser({
     displaySetService,
     customMapDisplaySets,
     isHangingProtocolLayout,
+    finalizeMappedDisplaySetsForProgressVisibility,
   ]);
 
   const tabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
@@ -499,7 +545,6 @@ function PanelStudyBrowser({
     }
   }, [expandedStudyInstanceUIDs, jumpToDisplaySet, tabs]);
 
-  const activeDisplaySetInstanceUIDs = viewports.get(activeViewportId)?.displaySetInstanceUIDs;
   const studyLoadingPercent = useMemo(() => {
     const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
     if (!activeDisplaySets.length) {
@@ -547,6 +592,7 @@ function PanelStudyBrowser({
   useEffect(() => {
     // New study context should be allowed to show initial study loading again.
     setHasSeenFirstViewportReady(false);
+    setPrefetchProgressTrackByUid({});
   }, [StudyInstanceUIDs.join(',')]);
 
   // Hide study panel loader as soon as first viewport is ready (first image available).
@@ -594,9 +640,7 @@ function PanelStudyBrowser({
           onDoubleClickThumbnail={onDoubleClickThumbnailHandler}
           activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
           onPrefetchDisplaySet={
-            studyPrefetcherService?.prefetchDisplaySet
-              ? displaySetInstanceUID => studyPrefetcherService.prefetchDisplaySet(displaySetInstanceUID)
-              : undefined
+            studyPrefetcherService?.prefetchDisplaySet ? handlePrefetchDisplaySet : undefined
           }
           showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
           viewPresets={viewPresets}
@@ -654,6 +698,27 @@ function _getLayoutLoadingDisplaySetUIDs(viewports, isHangingProtocolLayout) {
     }
   }
   return uids;
+}
+
+/**
+ * Per-thumbnail instance load progress (bar + percent) is noisy if shown for every series.
+ * Only show it for the active viewport's series or series the user explicitly preloaded.
+ * `loadingProgress` is still passed through so preload / "fully loaded" logic stays correct.
+ */
+function applyStudyBrowserSeriesProgressVisibility(
+  mappedThumbnails,
+  activeDisplaySetInstanceUIDs,
+  prefetchProgressTrackByUid
+) {
+  const active = new Set(activeDisplaySetInstanceUIDs || []);
+  return mappedThumbnails.map(t => {
+    const uid = t.displaySetInstanceUID;
+    const showUi = active.has(uid) || Boolean(prefetchProgressTrackByUid[uid]);
+    if (showUi) {
+      return { ...t, showInstanceLoadProgressUi: true };
+    }
+    return { ...t, showInstanceLoadProgressUi: false, isLayoutLoading: false };
+  });
 }
 
 function _mapDisplaySets(

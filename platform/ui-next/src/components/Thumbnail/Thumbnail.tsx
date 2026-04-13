@@ -37,6 +37,7 @@ const Thumbnail = ({
   onClickUntrack = () => {},
   ThumbnailMenuItems = () => {},
   onPrefetchDisplaySet,
+  showInstanceLoadProgressUi = true,
 }: withAppTypes): React.ReactNode => {
   const normalizedLoadingProgress =
     typeof loadingProgress === 'object' && loadingProgress != null
@@ -44,7 +45,8 @@ const Thumbnail = ({
       : loadingProgress;
 
   const showLoading =
-    (normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading;
+    showInstanceLoadProgressUi &&
+    ((normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading);
 
   // Instance count + bar: only for the selected series and only during user-initiated preload.
   const showUserPreloadProgress =
@@ -426,6 +428,8 @@ Thumbnail.propTypes = {
   showStudyPanelProgress: PropTypes.bool,
   /** True when this series is loading in the current advanced layout (e.g. MPR, 3D). */
   isLayoutLoading: PropTypes.bool,
+  /** When false, hide the instance load progress bar (study browser still uses loadingProgress for preload state). */
+  showInstanceLoadProgressUi: PropTypes.bool,
   messages: PropTypes.object,
   isActive: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,
