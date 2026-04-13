@@ -7,6 +7,19 @@ import { useTrackedMeasurements } from '../../getContextModule';
 
 const thumbnailNoImageModalities = ['SR', 'SEG', 'RTSTRUCT', 'RTPLAN', 'RTDOSE', 'PMAP'];
 
+function getLayoutLoadingDisplaySetUIDs(viewports, isHangingProtocolLayout) {
+  if (!isHangingProtocolLayout || !viewports || !viewports.size) {
+    return new Set();
+  }
+  const uids = new Set();
+  for (const viewport of viewports.values()) {
+    if (viewport.isReady === false && viewport.displaySetInstanceUIDs?.length) {
+      viewport.displaySetInstanceUIDs.forEach(uid => uids.add(uid));
+    }
+  }
+  return uids;
+}
+
 /**
  * Panel component for the Study Browser with tracking capabilities
  */
@@ -74,8 +87,10 @@ export default function PanelStudyBrowserTracking({
     displaySets,
     displaySetLoadingState,
     thumbnailImageSrcMap,
-    viewports
+    viewports,
+    isHangingProtocolLayout = false
   ) => {
+    const layoutLoadingUIDs = getLayoutLoadingDisplaySetUIDs(viewports, isHangingProtocolLayout);
     const thumbnailDisplaySets = [];
     const thumbnailNoImageDisplaySets = [];
     displaySets
@@ -87,7 +102,13 @@ export default function PanelStudyBrowserTracking({
         const array =
           componentType === 'thumbnailTracked' ? thumbnailDisplaySets : thumbnailNoImageDisplaySets;
 
-        const loadingProgress = displaySetLoadingState?.[displaySetInstanceUID];
+        const raw = displaySetLoadingState?.[displaySetInstanceUID];
+        const loadingProgress =
+          typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
+        const showStudyPanelProgress = Boolean(
+          typeof raw === 'object' && raw != null && raw.showStudyPanelProgress
+        );
+        const isLayoutLoading = layoutLoadingUIDs.has(displaySetInstanceUID);
 
         array.push({
           displaySetInstanceUID,
@@ -97,6 +118,8 @@ export default function PanelStudyBrowserTracking({
           seriesDate: ds.SeriesDate ? new Date(ds.SeriesDate).toLocaleDateString() : '',
           numInstances: ds.numImageFrames,
           loadingProgress,
+          showStudyPanelProgress,
+          isLayoutLoading,
           countIcon: ds.countIcon,
           messages: ds.messages,
           StudyInstanceUID: ds.StudyInstanceUID,

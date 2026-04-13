@@ -109,6 +109,8 @@ class StudyPrefetcherService extends PubSubService {
   private _inflightRequests = new Map<string, ImageRequest>();
   private _isRunning = false;
   private _displaySetLoadingStates = new Map<string, DisplaySetLoadingState>();
+  /** Display sets for which the study panel should show instance download progress (user clicked Preload). */
+  private _studyPanelProgressDisplaySetUIDs = new Set<string>();
   private _imageIdsToDisplaySetsMap = new Map<string, Set<string>>();
   private config: StudyPrefetcherConfig = {
     /* Enable/disable study prefetching service */
@@ -183,10 +185,21 @@ class StudyPrefetcherService extends PubSubService {
    * Returns current load progress for a display set (if tracked).
    * Used by the study panel to show instance download progress.
    */
-  public getDisplaySetLoadProgress(displaySetInstanceUID: string): { loadingProgress: number; numInstances: number } | undefined {
+  public getDisplaySetLoadProgress(
+    displaySetInstanceUID: string
+  ):
+    | { loadingProgress: number; numInstances: number; showStudyPanelProgress: boolean }
+    | undefined {
+    if (!this._studyPanelProgressDisplaySetUIDs.has(displaySetInstanceUID)) {
+      return undefined;
+    }
     const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
     if (!state) return undefined;
-    return { loadingProgress: state.loadingProgress, numInstances: state.numInstances };
+    return {
+      loadingProgress: state.loadingProgress,
+      numInstances: state.numInstances,
+      showStudyPanelProgress: true,
+    };
   }
 
   /**
@@ -244,10 +257,16 @@ class StudyPrefetcherService extends PubSubService {
       this._addEventListeners();
       this._broadcastEvent(this.EVENTS.SERVICE_STARTED, {});
     }
-    
+
+    const hadLoadingStateBeforeAdd = this._displaySetLoadingStates.has(displaySetInstanceUID);
+    this._studyPanelProgressDisplaySetUIDs.add(displaySetInstanceUID);
     this._addDisplaySetLoadingState(displaySet);
     this._enqueueDisplaySetImagesRequests(displaySet, true); // unshift=true to prioritize user preload
     this._sendNextRequests();
+    // _addDisplaySetLoadingState only broadcasts when it creates new state; reuse existing state otherwise.
+    if (hadLoadingStateBeforeAdd && this._displaySetLoadingStates.has(displaySetInstanceUID)) {
+      this._triggerDisplaySetEvents(displaySetInstanceUID);
+    }
   }
 
   private _addImageLoadingEventsListeners() {
@@ -604,16 +623,23 @@ class StudyPrefetcherService extends PubSubService {
     const displaySetLoadingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
     const { loadingProgress, numInstances } = displaySetLoadingState;
 
+    const showStudyPanelProgress = this._studyPanelProgressDisplaySetUIDs.has(displaySetInstanceUID);
+
     this._broadcastEvent(this.EVENTS.DISPLAYSET_LOAD_PROGRESS, {
       displaySetInstanceUID,
       numInstances,
       loadingProgress,
+      showStudyPanelProgress,
     });
 
     if (loadingProgress >= 1) {
       this._broadcastEvent(this.EVENTS.DISPLAYSET_LOAD_COMPLETE, {
         displaySetInstanceUID,
+        showStudyPanelProgress,
       });
+      if (showStudyPanelProgress) {
+        this._studyPanelProgressDisplaySetUIDs.delete(displaySetInstanceUID);
+      }
     }
   }
 
@@ -773,6 +799,7 @@ class StudyPrefetcherService extends PubSubService {
 
     this._pendingRequests = [];
     this._displaySetLoadingStates.clear();
+    this._studyPanelProgressDisplaySetUIDs.clear();
     this._imageIdsToDisplaySetsMap.clear();
     this._inflightRequests.clear();
     this.imageLoadPoolManager.clearRequestStack(this.requestType);

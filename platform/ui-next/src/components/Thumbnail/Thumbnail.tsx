@@ -18,6 +18,8 @@ const Thumbnail = ({
   seriesNumber,
   numInstances,
   loadingProgress,
+  /** When true, user chose "Preload series" — study panel may show instance download progress. */
+  showStudyPanelProgress = false,
   isLayoutLoading = false,
   countIcon,
   messages,
@@ -43,6 +45,14 @@ const Thumbnail = ({
 
   const showLoading =
     (normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading;
+
+  // Instance count + bar: only for the selected series and only during user-initiated preload.
+  const showUserPreloadProgress =
+    Boolean(showStudyPanelProgress) &&
+    isActive &&
+    numInstances != null &&
+    normalizedLoadingProgress != null &&
+    normalizedLoadingProgress < 1;
 
   // Show preload button when series is not fully downloaded. Thumbnail (first instance) loaded
   // for display does not count as "downloaded" — only full series load does.
@@ -163,8 +173,8 @@ const Thumbnail = ({
             </div>
           </div>
         </div>
-        {/* Instance load progress (e.g. downloading from PACS) */}
-            {showLoading && numInstances != null && (
+        {/* Instance load progress: user preload on the active series only */}
+        {showUserPreloadProgress && (
           <div className="flex w-[128px] flex-col gap-[2px] px-1 pb-0.5">
             <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
               {loadedCount != null ? (
@@ -178,9 +188,9 @@ const Thumbnail = ({
             <div className="bg-primary/20 h-1 w-full overflow-hidden rounded-full">
               <div
                 className="bg-primary-light h-full rounded-full transition-[width] duration-200"
-                    style={{
-                      width: `${(normalizedLoadingProgress != null ? normalizedLoadingProgress : 0) * 100}%`,
-                    }}
+                style={{
+                  width: `${(normalizedLoadingProgress != null ? normalizedLoadingProgress : 0) * 100}%`,
+                }}
               />
             </div>
           </div>
@@ -233,10 +243,17 @@ const Thumbnail = ({
     return (
       <div
         className={classnames(
-          'flex h-full w-full items-center justify-between pr-[8px] pl-[8px] pt-[4px] pb-[4px]',
-          isActive && 'bg-primary-light/30 rounded'
+          'flex w-full flex-col',
+          showUserPreloadProgress ? 'min-h-[40px]' : 'h-full'
         )}
       >
+        <div
+          className={classnames(
+            'flex w-full items-center justify-between pr-[8px] pl-[8px] pt-[4px] pb-[4px]',
+            !showUserPreloadProgress && 'h-full',
+            isActive && 'bg-primary-light/30 rounded'
+          )}
+        >
         <div className="relative flex h-[32px] w-full items-center gap-[8px] overflow-hidden">
           <div
             className={classnames(
@@ -329,6 +346,28 @@ const Thumbnail = ({
             onReject={onReject}
           />
         </div>
+        </div>
+        {showUserPreloadProgress && (
+          <div className="flex w-full flex-col gap-[2px] px-2 pb-1">
+            <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
+              {loadedCount != null ? (
+                <span>
+                  {loadedCount}/{numInstances} ({loadingPercent}%)
+                </span>
+              ) : (
+                <span>Loading…</span>
+              )}
+            </div>
+            <div className="bg-primary/20 h-1 w-full overflow-hidden rounded-full">
+              <div
+                className="bg-primary-light h-full rounded-full transition-[width] duration-200"
+                style={{
+                  width: `${(normalizedLoadingProgress != null ? normalizedLoadingProgress : 0) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -339,7 +378,7 @@ const Thumbnail = ({
         className,
         'bg-muted hover:bg-primary/30 group flex cursor-pointer select-none flex-col rounded outline-none',
         viewPreset === 'thumbnails' && 'h-[190px] w-[135px]',
-        viewPreset === 'list' && 'h-[40px] w-full'
+        viewPreset === 'list' && 'min-h-[40px] w-full'
       )}
       id={`thumbnail-${displaySetInstanceUID}`}
       data-cy={
@@ -384,6 +423,7 @@ Thumbnail.propTypes = {
   seriesNumber: PropTypes.any,
   numInstances: PropTypes.number.isRequired,
   loadingProgress: PropTypes.number,
+  showStudyPanelProgress: PropTypes.bool,
   /** True when this series is loading in the current advanced layout (e.g. MPR, 3D). */
   isLayoutLoading: PropTypes.bool,
   messages: PropTypes.object,

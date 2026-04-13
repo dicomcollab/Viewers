@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { useParams, useLocation } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import { utils, ViewportGridService } from '@ohif/core';
 import { ImageViewerProvider, DragAndDropProvider } from '@ohif/ui-next';
@@ -22,6 +23,7 @@ export default function ModeRoute({
   hotkeysManager,
 }: withAppTypes) {
   const [appConfig] = useAppConfig();
+  const navigate = useNavigate();
 
   // Parse route params/querystring
   const location = useLocation();
@@ -75,6 +77,30 @@ export default function ModeRoute({
   if (token) {
     updateAuthServiceAndCleanUrl(token, location, userAuthenticationService);
   }
+
+  useLayoutEffect(() => {
+    if (dataSourceName !== 'demo' || !mode?.routeName) {
+      return;
+    }
+    const demoStudyUid =
+      typeof window !== 'undefined' &&
+      /** @type {Window & { DEMO_STUDY_UID?: string }} */ (window).DEMO_STUDY_UID;
+    if (!demoStudyUid) {
+      return;
+    }
+    const studyUids = getSplitParam('studyinstanceuids', query);
+    if (!studyUids?.length || studyUids[0] !== demoStudyUid) {
+      return;
+    }
+    navigate(
+      {
+        pathname: `/${mode.routeName}/localviewer-image-jpeg`,
+        search: location.search,
+        hash: location.hash,
+      },
+      { replace: true }
+    );
+  }, [dataSourceName, mode?.routeName, location.search, location.hash, navigate, query]);
 
   // An undefined dataSourceName implies that the active data source that is already set in the ExtensionManager should be used.
   if (dataSourceName !== undefined) {

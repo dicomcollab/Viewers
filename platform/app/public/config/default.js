@@ -5,7 +5,7 @@
 const DEMO_TOKEN = 'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz'; // Replace with your actual token (e.g., "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV")
 
 // Demo study UID - Only this study will use the demo token
-const DEMO_STUDY_UID = '1.2.392.200036.9116.2.6.1.48.1211393243.1750146394.000030';
+const DEMO_STUDY_UID = '1.2.840.113619.2.55.3.4271045733.996.1449464144.595';
 
 // ---------------------------------------------------------------------------
 // PACS integration: driven by cookie userPreferences_dicomSourceType (read at load):
@@ -197,8 +197,13 @@ function isDemoRoute() {
   const urlParams = new URLSearchParams(window.location.search);
   const studyUIDs = urlParams.get('StudyInstanceUIDs') || urlParams.get('studyInstanceUIDs');
   const path = window.location.pathname;
-  // Only use demo token for the specific demo study UID on demo routes
-  return studyUIDs === DEMO_STUDY_UID && (path.includes('/viewer/demo') || path.includes('/demo'));
+  // Demo token: classic /demo route, or same study opened via localviewer-image-jpeg (redirected viewer)
+  return (
+    studyUIDs === DEMO_STUDY_UID &&
+    (path.includes('/viewer/demo') ||
+      path.includes('/demo') ||
+      path.includes('/localviewer-image-jpeg'))
+  );
 }
 
 // Function to get demo token if on demo route

@@ -102,22 +102,25 @@ function PanelStudyBrowser({
     if (!studyPrefetcherService?.subscribe) return;
     const subProgress = studyPrefetcherService.subscribe(
       studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_PROGRESS,
-      ({ displaySetInstanceUID, numInstances, loadingProgress }) => {
+      ({ displaySetInstanceUID, numInstances, loadingProgress, showStudyPanelProgress }) => {
+        if (!showStudyPanelProgress) {
+          return;
+        }
         setDisplaySetsLoadingState(prev => ({
           ...prev,
-          [displaySetInstanceUID]: { loadingProgress, numInstances },
+          [displaySetInstanceUID]: { loadingProgress, numInstances, showStudyPanelProgress: true },
         }));
       }
     );
     const subComplete = studyPrefetcherService.subscribe(
       studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_COMPLETE,
-      ({ displaySetInstanceUID }) => {
+      ({ displaySetInstanceUID, showStudyPanelProgress }) => {
+        if (!showStudyPanelProgress) {
+          return;
+        }
         setDisplaySetsLoadingState(prev => {
           const next = { ...prev };
-          const cur = next[displaySetInstanceUID];
-          if (cur && typeof cur === 'object' && cur.numInstances != null) {
-            next[displaySetInstanceUID] = { loadingProgress: 1, numInstances: cur.numInstances };
-          }
+          delete next[displaySetInstanceUID];
           return next;
         });
       }
@@ -300,7 +303,13 @@ function PanelStudyBrowser({
         const uid = ds.displaySetInstanceUID;
         if (loadingState[uid] == null) {
           const p = studyPrefetcherService.getDisplaySetLoadProgress(uid);
-          if (p) loadingState[uid] = p;
+          if (p) {
+            loadingState[uid] = {
+              loadingProgress: p.loadingProgress,
+              numInstances: p.numInstances,
+              showStudyPanelProgress: p.showStudyPanelProgress,
+            };
+          }
         }
       });
     }
@@ -669,6 +678,9 @@ function _mapDisplaySets(
       const raw = displaySetLoadingState?.[displaySetInstanceUID];
       const loadingProgress =
         typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
+      const showStudyPanelProgress = Boolean(
+        typeof raw === 'object' && raw != null && raw.showStudyPanelProgress
+      );
       const isLayoutLoading = layoutLoadingUIDs.has(displaySetInstanceUID);
 
       array.push({
@@ -679,6 +691,7 @@ function _mapDisplaySets(
         seriesDate: formatDate(ds.SeriesDate),
         numInstances: ds.numImageFrames,
         loadingProgress,
+        showStudyPanelProgress,
         isLayoutLoading,
         countIcon: ds.countIcon,
         messages: ds.messages,
