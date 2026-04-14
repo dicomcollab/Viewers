@@ -433,6 +433,7 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
         return {
           disabled: false,
           isActive: isPrimaryActive,
+          className: utils.getToggledClassName(isPrimaryActive),
         };
       },
     },

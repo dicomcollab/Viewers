@@ -1021,6 +1021,42 @@ function commandsModule({
 
       toolGroupIds = toolGroupIds.length ? toolGroupIds : toolGroupService.getToolGroupIds();
 
+      // If the selected tool is already active, second click toggles it off and restores previous primary tool.
+      let shouldToggleOff = true;
+      toolGroupIds.forEach(toolGroupId => {
+        const toolGroup = toolGroupService.getToolGroup(toolGroupId);
+        if (!toolGroup?.hasTool(toolName)) {
+          return;
+        }
+        if (toolGroup.getActivePrimaryMouseButtonTool() !== toolName) {
+          shouldToggleOff = false;
+        }
+      });
+
+      if (shouldToggleOff) {
+        toolGroupIds.forEach(toolGroupId => {
+          const toolGroup = toolGroupService.getToolGroup(toolGroupId);
+          if (!toolGroup?.hasTool(toolName)) {
+            return;
+          }
+
+          const prevToolName = toolGroup.getPrevActivePrimaryToolName?.();
+          toolGroup.setToolPassive(toolName);
+
+          if (prevToolName && prevToolName !== toolName && toolGroup.hasTool(prevToolName)) {
+            actions.setToolActive({ toolName: prevToolName, toolGroupId, bindings });
+            return;
+          }
+
+          if (toolGroup.hasTool('WindowLevel') && toolName !== 'WindowLevel') {
+            actions.setToolActive({ toolName: 'WindowLevel', toolGroupId, bindings });
+          }
+        });
+
+        toolbarService.refreshToolbarState({});
+        return;
+      }
+
       toolGroupIds.forEach(toolGroupId => {
         actions.setToolActive({ toolName, toolGroupId, bindings });
       });

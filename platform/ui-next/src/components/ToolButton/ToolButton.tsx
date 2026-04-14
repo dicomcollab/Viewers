@@ -7,7 +7,8 @@ import { useIconPresentation } from '../../contextProviders/IconPresentationProv
 
 const baseClasses = '!rounded-lg inline-flex items-center justify-center';
 const defaultClasses = 'bg-transparent text-white hover:bg-primary-active hover:text-white';
-const activeClasses = 'bg-primary-active text-white hover:!bg-primary-active/80';
+// Keep selected state visually identical to hover state (dark background).
+const activeClasses = '!bg-primary-dark text-white hover:!bg-primary-dark';
 const disabledClasses =
   'text-white hover:bg-primary-dark hover:text-white opacity-40 cursor-not-allowed';
 
