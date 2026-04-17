@@ -48,10 +48,9 @@ const Thumbnail = ({
     showInstanceLoadProgressUi &&
     ((normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading);
 
-  // Instance count + bar: only for the selected series and only during user-initiated preload.
+  // Instance count + bar: show only for user-triggered preload (download click).
   const showUserPreloadProgress =
     Boolean(showStudyPanelProgress) &&
-    isActive &&
     numInstances != null &&
     normalizedLoadingProgress != null &&
     normalizedLoadingProgress < 1;

@@ -61,6 +61,15 @@ type DisplaySetLoadingState = {
   loadedImageIds: Set<string>;
   failedImageIds: Set<string>;
   loadingProgress: number;
+  /**
+   * Streaming volumes (MPR/orthographic) often do not register every slice in
+   * `cache.getImageLoadObject` until load completes; Cornerstone reports frame
+   * progress via `IMAGE_VOLUME_MODIFIED` instead.
+   */
+  volumeStreamProgress?: {
+    framesProcessed: number;
+    numberOfFrames: number;
+  };
 };
 
 type ImageRequest = {
@@ -190,16 +199,117 @@ class StudyPrefetcherService extends PubSubService {
   ):
     | { loadingProgress: number; numInstances: number; showStudyPanelProgress: boolean }
     | undefined {
-    if (!this._studyPanelProgressDisplaySetUIDs.has(displaySetInstanceUID)) {
-      return undefined;
-    }
     const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
     if (!state) return undefined;
     return {
       loadingProgress: state.loadingProgress,
       numInstances: state.numInstances,
-      showStudyPanelProgress: true,
+      showStudyPanelProgress: this._studyPanelProgressDisplaySetUIDs.has(displaySetInstanceUID),
     };
+  }
+
+  /**
+   * Cornerstone streaming volume frame progress (`IMAGE_VOLUME_MODIFIED`).
+   * Wired from the cornerstone extension init (not used for pure stack viewports).
+   */
+  public notifyVolumeStreamProgress(
+    volumeId: string,
+    framesProcessed: number,
+    numberOfFrames: number
+  ): void {
+    if (!this._isRunning) {
+      return;
+    }
+    const displaySetInstanceUID = this._parseDisplaySetInstanceUIDFromVolumeId(volumeId);
+    if (!displaySetInstanceUID) {
+      return;
+    }
+    if (!this._shouldApplyCornerstoneVolumeProgress(displaySetInstanceUID)) {
+      return;
+    }
+    const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
+    if (!state || state.loadingProgress >= 1) {
+      return;
+    }
+    const safeTotal = Math.max(1, Number(numberOfFrames) || 1);
+    const safeProcessed = Math.min(
+      safeTotal,
+      Math.max(0, Math.floor(Number(framesProcessed) || 0))
+    );
+    state.volumeStreamProgress = {
+      framesProcessed: safeProcessed,
+      numberOfFrames: safeTotal,
+    };
+    state.numInstances = Math.max(state.numInstances, safeTotal);
+    this._updateDisplaySetLoadingProgress(state);
+    this._triggerDisplaySetEvents(displaySetInstanceUID);
+  }
+
+  /**
+   * Cornerstone fires this when a streaming volume has finished loading all frames.
+   */
+  public notifyVolumeFullyLoaded(volumeId: string): void {
+    const displaySetInstanceUID = this._parseDisplaySetInstanceUIDFromVolumeId(volumeId);
+    if (!displaySetInstanceUID) {
+      return;
+    }
+    const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
+    if (!state) {
+      return;
+    }
+    delete state.volumeStreamProgress;
+    this._markDisplaySetAllImagesLoaded(displaySetInstanceUID);
+  }
+
+  private _parseDisplaySetInstanceUIDFromVolumeId(volumeId: string): string | undefined {
+    if (typeof volumeId !== 'string' || !volumeId.length) {
+      return undefined;
+    }
+    const i = volumeId.indexOf(':');
+    if (i < 0 || i >= volumeId.length - 1) {
+      return undefined;
+    }
+    return volumeId.slice(i + 1);
+  }
+
+  private _shouldApplyCornerstoneVolumeProgress(displaySetInstanceUID: string): boolean {
+    if (!this._displaySetLoadingStates.has(displaySetInstanceUID)) {
+      return false;
+    }
+    if (this._activeDisplaySetsInstanceUIDs.includes(displaySetInstanceUID)) {
+      return true;
+    }
+    if (this._studyPanelProgressDisplaySetUIDs.has(displaySetInstanceUID)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Align internal sets with a fully loaded volume (per-slice cache may still be empty).
+   */
+  private _markDisplaySetAllImagesLoaded(displaySetInstanceUID: string): void {
+    const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
+    if (!state) {
+      return;
+    }
+    const { displaySetService } = this._servicesManager.services;
+    const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+    if (!displaySet) {
+      return;
+    }
+    const imageIds = this._getImageIdsForDisplaySet(displaySet);
+    if (!imageIds.length) {
+      return;
+    }
+    for (const imageId of imageIds) {
+      state.pendingImageIds.delete(imageId);
+      state.loadedImageIds.add(imageId);
+      this._updateImageIdsDisplaySetMap(displaySetInstanceUID, [imageId]);
+    }
+    state.numInstances = imageIds.length;
+    this._updateDisplaySetLoadingProgress(state);
+    this._triggerDisplaySetEvents(displaySetInstanceUID);
   }
 
   /**
@@ -219,13 +329,20 @@ class StudyPrefetcherService extends PubSubService {
       return;
     }
 
+    const displaySetNumFrames = Number(
+      (displaySet as unknown as { numImageFrames?: number }).numImageFrames
+    );
+    const expectedFrames = Number.isFinite(displaySetNumFrames) && displaySetNumFrames > 0
+      ? displaySetNumFrames
+      : undefined;
+
     const existingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
     if (existingState) {
       if (existingState.loadingProgress >= 1) {
         return; // Already fully loaded
       }
-      
-      const numExpected = displaySet.numImageFrames || 2;
+
+      const numExpected = expectedFrames ?? 2;
       if (existingState.numInstances < numExpected) {
         this._displaySetLoadingStates.delete(displaySetInstanceUID);
       }
@@ -237,7 +354,7 @@ class StudyPrefetcherService extends PubSubService {
     // If metadata was only partially loaded (e.g. loadSeriesMetadataOnDemand is true),
     // fetch the rest of the series metadata first before enqueuing prefetch requests.
     const initialImageIds = this._getImageIdsForDisplaySet(displaySet);
-    const numExpected = displaySet.numImageFrames || initialImageIds.length;
+    const numExpected = expectedFrames ?? initialImageIds.length;
     if (initialImageIds.length < numExpected) {
       const dataSource = this._extensionManager.getActiveDataSource()[0];
       if (dataSource && dataSource.retrieve?.series?.metadata) {
@@ -286,6 +403,11 @@ class StudyPrefetcherService extends PubSubService {
       const { image } = evt.detail;
       const { imageId } = image;
 
+      // Viewport / stack loads images outside the prefetch queue. If series metadata
+      // grew after loading state was created, new imageIds were never registered in
+      // `_imageIdsToDisplaySetsMap`, so `_moveImageIdToLoadedSet` would no-op. Merge
+      // current image id lists for active + user-preload series on every load event.
+      this._mergeCurrentImageIdsIntoLoadingStatesForActiveAndPreload();
       this._moveImageIdToLoadedSet(imageId);
       fnOnImageLoadCompleted(imageId);
     };
@@ -293,6 +415,7 @@ class StudyPrefetcherService extends PubSubService {
     const fnImageLoadFailedEventListener = evt => {
       const { imageId } = evt.detail;
 
+      this._mergeCurrentImageIdsIntoLoadingStatesForActiveAndPreload();
       this._moveImageIdToFailedSet(imageId);
       fnOnImageLoadCompleted(imageId);
     };
@@ -305,6 +428,15 @@ class StudyPrefetcherService extends PubSubService {
 
   private _addServicesListeners() {
     const { displaySetService, viewportGridService } = this._servicesManager.services;
+
+    const displaySetMetadataInvalidatedSubscription = displaySetService.subscribe(
+      displaySetService.EVENTS.DISPLAY_SET_SERIES_METADATA_INVALIDATED,
+      ({ displaySetInstanceUID }: { displaySetInstanceUID: string }) => {
+        if (displaySetInstanceUID) {
+          this._mergeCurrentImageIdsIntoLoadingState(displaySetInstanceUID);
+        }
+      }
+    );
 
     // Restart the prefetcher after any change to the displaySets
     // (eg: sorting the displaySets on StudyBrowser)
@@ -341,12 +473,94 @@ class StudyPrefetcherService extends PubSubService {
     );
 
     return [
+      displaySetMetadataInvalidatedSubscription,
       displaySetsChangedSubscription,
       viewportGridActiveViewportIdSubscription,
       viewportGridLayoutChangedSubscription,
       viewportGridStateChangedSubscription,
       viewportGridViewportreadySubscription,
     ];
+  }
+
+  /** Display sets whose loading state should stay in sync with real image loads (viewport + preload). */
+  private _getDisplaySetInstanceUIDsForImageListSync(): string[] {
+    const uids = new Set<string>();
+    this._activeDisplaySetsInstanceUIDs.forEach(uid => {
+      if (uid) {
+        uids.add(uid);
+      }
+    });
+    this._studyPanelProgressDisplaySetUIDs.forEach(uid => uids.add(uid));
+    return [...uids];
+  }
+
+  private _mergeCurrentImageIdsIntoLoadingStatesForActiveAndPreload(): void {
+    for (const displaySetInstanceUID of this._getDisplaySetInstanceUIDsForImageListSync()) {
+      this._mergeCurrentImageIdsIntoLoadingState(displaySetInstanceUID);
+    }
+  }
+
+  /**
+   * Reconcile loading state with the current `getImageIdsForDisplaySet` list so
+   * instances loaded by the viewport (not only the prefetch queue) update progress.
+   */
+  private _mergeCurrentImageIdsIntoLoadingState(displaySetInstanceUID: string): void {
+    const state = this._displaySetLoadingStates.get(displaySetInstanceUID);
+    if (!state || state.loadingProgress >= 1) {
+      return;
+    }
+
+    const { displaySetService } = this._servicesManager.services;
+    const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+    if (!displaySet) {
+      return;
+    }
+
+    const imageIds = this._getImageIdsForDisplaySet(displaySet);
+    if (!imageIds.length) {
+      return;
+    }
+
+    let changed = false;
+    let addedNewImageIds = false;
+
+    if (imageIds.length !== state.numInstances) {
+      state.numInstances = imageIds.length;
+      changed = true;
+    }
+
+    for (const imageId of imageIds) {
+      if (
+        state.loadedImageIds.has(imageId) ||
+        state.failedImageIds.has(imageId) ||
+        state.pendingImageIds.has(imageId)
+      ) {
+        continue;
+      }
+      addedNewImageIds = true;
+      if (this.cache.isImageCached(imageId)) {
+        state.loadedImageIds.add(imageId);
+      } else {
+        state.pendingImageIds.add(imageId);
+      }
+      this._updateImageIdsDisplaySetMap(displaySetInstanceUID, [imageId]);
+      changed = true;
+    }
+
+    if (changed) {
+      this._updateDisplaySetLoadingProgress(state);
+      this._triggerDisplaySetEvents(displaySetInstanceUID);
+    }
+
+    // User preload: if metadata expanded, re-queue so remaining instances still prefetch.
+    if (
+      addedNewImageIds &&
+      this._isRunning &&
+      this._studyPanelProgressDisplaySetUIDs.has(displaySetInstanceUID)
+    ) {
+      this._enqueueDisplaySetImagesRequests(displaySet, true);
+      this._sendNextRequests();
+    }
   }
 
   private _addEventListeners() {
@@ -518,16 +732,35 @@ class StudyPrefetcherService extends PubSubService {
   }
 
   private _getImageIdsForDisplaySet(displaySet: DisplaySet): string[] {
-    const dataSource = this._extensionManager.getActiveDataSource()[0];
+    // Prefer displaySet-provided imageIds (set by cornerstone viewport/cache services)
+    // so progress tracking uses the exact IDs that are actually loaded in viewports.
+    if (Array.isArray(displaySet.imageIds) && displaySet.imageIds.length > 0) {
+      return displaySet.imageIds;
+    }
 
-    return dataSource.getImageIdsForDisplaySet(displaySet);
+    const dataSource = this._extensionManager.getActiveDataSource()[0];
+    const imageIds = dataSource.getImageIdsForDisplaySet(displaySet);
+
+    // Keep displaySet.imageIds in sync when only the datasource knew them.
+    if (Array.isArray(imageIds) && imageIds.length > 0) {
+      displaySet.imageIds = imageIds;
+    }
+
+    return imageIds;
   }
 
   private _updateDisplaySetLoadingProgress(displaySetLoadingState: DisplaySetLoadingState) {
-    const { numInstances, loadedImageIds, failedImageIds } = displaySetLoadingState;
-    const loadingProgress = (loadedImageIds.size + failedImageIds.size) / numInstances;
-
-    displaySetLoadingState.loadingProgress = loadingProgress;
+    const { volumeStreamProgress, numInstances, loadedImageIds, failedImageIds } =
+      displaySetLoadingState;
+    if (volumeStreamProgress) {
+      const { framesProcessed, numberOfFrames } = volumeStreamProgress;
+      const total = Math.max(1, numberOfFrames, numInstances);
+      displaySetLoadingState.loadingProgress = Math.min(1, framesProcessed / total);
+      displaySetLoadingState.numInstances = Math.max(displaySetLoadingState.numInstances, total);
+      return;
+    }
+    const denom = Math.max(1, numInstances);
+    displaySetLoadingState.loadingProgress = (loadedImageIds.size + failedImageIds.size) / denom;
   }
 
   private _addDisplaySetLoadingState(displaySet: DisplaySet): void {
@@ -536,6 +769,30 @@ class StudyPrefetcherService extends PubSubService {
     let displaySetLoadingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
 
     if (displaySetLoadingState) {
+      // Metadata can expand after initial load (e.g. loadSeriesMetadataOnDemand).
+      // Keep tracked instance count and pending set in sync with newly discovered imageIds.
+      if (imageIds.length > displaySetLoadingState.numInstances) {
+        displaySetLoadingState.numInstances = imageIds.length;
+
+        for (const imageId of imageIds) {
+          const alreadyKnown =
+            displaySetLoadingState.loadedImageIds.has(imageId) ||
+            displaySetLoadingState.failedImageIds.has(imageId) ||
+            displaySetLoadingState.pendingImageIds.has(imageId);
+          if (alreadyKnown) {
+            continue;
+          }
+          if (this.cache.isImageCached(imageId)) {
+            displaySetLoadingState.loadedImageIds.add(imageId);
+          } else {
+            displaySetLoadingState.pendingImageIds.add(imageId);
+          }
+        }
+
+        this._updateImageIdsDisplaySetMap(displaySetInstanceUID, imageIds);
+        this._updateDisplaySetLoadingProgress(displaySetLoadingState);
+        this._triggerDisplaySetEvents(displaySetInstanceUID);
+      }
       return;
     }
 
@@ -559,6 +816,7 @@ class StudyPrefetcherService extends PubSubService {
       loadedImageIds,
       failedImageIds: new Set(),
       loadingProgress: 0,
+      volumeStreamProgress: undefined,
     };
 
     this._updateDisplaySetLoadingProgress(displaySetLoadingState);

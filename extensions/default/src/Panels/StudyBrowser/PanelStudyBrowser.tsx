@@ -743,6 +743,8 @@ function _mapDisplaySets(
       const raw = displaySetLoadingState?.[displaySetInstanceUID];
       const loadingProgress =
         typeof raw === 'object' && raw != null ? raw.loadingProgress : raw;
+      const loadingNumInstances =
+        typeof raw === 'object' && raw != null ? raw.numInstances : undefined;
       const showStudyPanelProgress = Boolean(
         typeof raw === 'object' && raw != null && raw.showStudyPanelProgress
       );
@@ -754,7 +756,7 @@ function _mapDisplaySets(
         seriesNumber: ds.SeriesNumber,
         modality: ds.Modality,
         seriesDate: formatDate(ds.SeriesDate),
-        numInstances: ds.numImageFrames,
+        numInstances: loadingNumInstances ?? ds.numImageFrames,
         loadingProgress,
         showStudyPanelProgress,
         isLayoutLoading,

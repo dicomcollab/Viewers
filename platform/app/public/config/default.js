@@ -982,7 +982,7 @@ window.config = {
   // RIS → viewer: postMessage LOAD_STUDY to reuse one tab (SPA navigate, no new tab / full reload).
   // Set enabled true and list your RIS origins (exact event.origin strings).
   risPostMessage: {
-    enabled: true,
+    enabled: false,
     allowedOrigins: [
       'http://localhost:5173',
       RIS_PORTAL_ORIGIN,
