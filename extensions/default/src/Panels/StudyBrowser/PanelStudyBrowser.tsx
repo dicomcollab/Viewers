@@ -599,6 +599,18 @@ function PanelStudyBrowser({
   const showInitialStudyLoading =
     isStudyPanelLoading ||
     (!hasSeenFirstViewportReady && hasRenderableDisplaySets && !hasViewportReadyWithDisplaySet);
+  // MoreDropdownMenu internally uses hooks, so compute menu components unconditionally
+  // to keep PanelStudyBrowser hook order stable across loading/non-loading renders.
+  const thumbnailMenuItems = MoreDropdownMenu({
+    commandsManager,
+    servicesManager,
+    menuItemsKey: 'studyBrowser.thumbnailMenuItems',
+  });
+  const studyMenuItems = MoreDropdownMenu({
+    commandsManager,
+    servicesManager,
+    menuItemsKey: 'studyBrowser.studyMenuItems',
+  });
 
   return (
     <>
@@ -644,16 +656,8 @@ function PanelStudyBrowser({
           }
           showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
           viewPresets={viewPresets}
-          ThumbnailMenuItems={MoreDropdownMenu({
-            commandsManager,
-            servicesManager,
-            menuItemsKey: 'studyBrowser.thumbnailMenuItems',
-          })}
-          StudyMenuItems={MoreDropdownMenu({
-            commandsManager,
-            servicesManager,
-            menuItemsKey: 'studyBrowser.studyMenuItems',
-          })}
+          ThumbnailMenuItems={thumbnailMenuItems}
+          StudyMenuItems={studyMenuItems}
         />
       )}
     </>

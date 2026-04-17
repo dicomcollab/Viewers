@@ -362,13 +362,8 @@ function App({
 
 App.propTypes = {
   config: PropTypes.oneOfType([
+    PropTypes.object,
     PropTypes.func,
-    PropTypes.shape({
-      routerBasename: PropTypes.string.isRequired,
-      oidc: PropTypes.array,
-      whiteLabeling: PropTypes.object,
-      extensions: PropTypes.array,
-    }),
   ]).isRequired,
   /* Extensions that are "bundled" or "baked-in" to the application.
    * These would be provided at build time as part of they entry point. */
