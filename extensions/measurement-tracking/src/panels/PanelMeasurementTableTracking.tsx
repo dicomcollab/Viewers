@@ -18,7 +18,7 @@ const { filterMeasurementsBySeriesUID, filterAny } =
 
 function PanelMeasurementTableTracking(props) {
   const [viewportGrid] = useViewportGrid();
-  const { servicesManager } = useSystem();
+  const { servicesManager, commandsManager } = useSystem();
   const { measurementService, uiModalService } = servicesManager.services;
 
   const [trackedMeasurements, sendTrackedMeasurementsEvent] = useTrackedMeasurements();
@@ -60,6 +60,14 @@ function PanelMeasurementTableTracking(props) {
 
   const actions = {
     createSR: ({ StudyInstanceUID }) => {
+      if (!trackedMeasurements?.matches?.('tracking')) {
+        commandsManager.runCommand('promptSaveReport', {
+          StudyInstanceUID,
+          measurementFilter,
+        });
+        return;
+      }
+
       sendTrackedMeasurementsEvent('SAVE_REPORT', {
         viewportId: viewportGrid.activeViewportId,
         isBackupSave: true,

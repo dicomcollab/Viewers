@@ -2,6 +2,7 @@ import { utils, classes, DisplaySetService, Types as OhifTypes } from '@ohif/cor
 import i18n from '@ohif/i18n';
 import { Enums as CSExtensionEnums } from '@ohif/extension-cornerstone';
 import { adaptersSR } from '@cornerstonejs/adapters';
+import dcmjs from 'dcmjs';
 
 import addSRAnnotation from './utils/addSRAnnotation';
 import isRehydratable from './utils/isRehydratable';
@@ -16,6 +17,7 @@ import { CodeNameCodeSequenceValues, CodingSchemeDesignators } from './enums';
 const { sopClassDictionary } = utils;
 const { CORNERSTONE_3D_TOOLS_SOURCE_NAME, CORNERSTONE_3D_TOOLS_SOURCE_VERSION } = CSExtensionEnums;
 const { MetadataProvider: metadataProvider } = classes;
+const { DicomMetaDictionary, DicomMessage } = dcmjs.data;
 const {
   TEXT_ANNOTATION_POSITION,
   COMMENT_CODE,
@@ -62,6 +64,7 @@ function addInstances(instances: InstanceMetadata[], _displaySetService: Display
   // gets loaded, and to navigate among them.
   this.instance = this.instances[this.instances.length - 1];
   this.isLoaded = false;
+  this._loadPromise = null;
   return this;
 }
 
@@ -132,7 +135,24 @@ function _getDisplaySetsFromSeries(
     label: SeriesDescription || `${i18n.t('Series')} ${SeriesNumber} - ${i18n.t('SR')}`,
   };
 
-  displaySet.load = () => _load(displaySet, servicesManager, extensionManager);
+  displaySet.load = async () => {
+    if (displaySet.isLoaded) {
+      return displaySet;
+    }
+
+    if (displaySet._loadPromise) {
+      return displaySet._loadPromise;
+    }
+
+    displaySet._loadPromise = (async () => {
+      await _load(displaySet, servicesManager, extensionManager);
+      return displaySet;
+    })().finally(() => {
+      displaySet._loadPromise = null;
+    });
+
+    return displaySet._loadPromise;
+  };
 
   return [displaySet];
 }
@@ -149,8 +169,8 @@ async function _load(
   extensionManager: AppTypes.ExtensionManager
 ) {
   const { displaySetService, measurementService } = servicesManager.services;
-  const dataSources = extensionManager.getDataSources();
-  const dataSource = dataSources[0];
+  const [dataSource] = extensionManager.getActiveDataSource();
+  await _ensureSRInstanceMetadataLoadedFromPACS(srDisplaySet, dataSource, servicesManager);
   const { ContentSequence } = srDisplaySet.instance;
 
   async function retrieveBulkData(obj, parentObj = null, key = null) {
@@ -220,6 +240,174 @@ async function _load(
       );
     });
   });
+}
+
+async function _ensureSRInstanceMetadataLoadedFromPACS(srDisplaySet, dataSource, servicesManager) {
+  const instance = srDisplaySet.instance || {};
+
+  const wadoClient = dataSource?.retrieve?.getWadoDicomWebClient?.();
+  const retrieveInstanceMetadata = wadoClient?.retrieveInstanceMetadata;
+
+  const { StudyInstanceUID, SeriesInstanceUID, SOPInstanceUID } = instance;
+  if (!StudyInstanceUID || !SeriesInstanceUID || !SOPInstanceUID) {
+    return;
+  }
+
+  if (typeof retrieveInstanceMetadata === 'function') {
+    const retrievedMetadata = await retrieveInstanceMetadata.call(wadoClient, {
+      studyInstanceUID: StudyInstanceUID,
+      seriesInstanceUID: SeriesInstanceUID,
+      sopInstanceUID: SOPInstanceUID,
+    });
+
+    const metadataItem = Array.isArray(retrievedMetadata)
+      ? retrievedMetadata[0]
+      : retrievedMetadata;
+
+    if (metadataItem && typeof metadataItem === 'object') {
+      const naturalizedInstance = DicomMetaDictionary.naturalizeDataset(metadataItem);
+      if (naturalizedInstance && typeof naturalizedInstance === 'object') {
+        srDisplaySet.instance = { ...instance, ...naturalizedInstance };
+        srDisplaySet.instances = (srDisplaySet.instances || []).map(existingInstance => {
+          if (existingInstance?.SOPInstanceUID === SOPInstanceUID) {
+            return { ...existingInstance, ...naturalizedInstance };
+          }
+          return existingInstance;
+        });
+      }
+    }
+  }
+
+  if (srDisplaySet.instance?.ContentSequence) {
+    return;
+  }
+
+  // Prefer WADO-URI for SR instance retrieval (required PACS flow).
+  const config = dataSource?.getConfig?.();
+  const resolvedWadoUriBase = _resolveWadoUriBase(config);
+  const authHeaders =
+    wadoClient?.headers ||
+    servicesManager?.services?.userAuthenticationService?.getAuthorizationHeader?.() ||
+    {};
+  const wadoUriPayload = await _fetchSRInstanceViaWadoUri({
+    wadoUriBase: resolvedWadoUriBase,
+    StudyInstanceUID,
+    SeriesInstanceUID,
+    SOPInstanceUID,
+    headers: authHeaders,
+  });
+  const wadoUriInstance = _naturalizeSRFromInstancePayload(wadoUriPayload);
+  if (!wadoUriInstance) {
+    return;
+  }
+
+  srDisplaySet.instance = { ...srDisplaySet.instance, ...wadoUriInstance };
+  srDisplaySet.instances = (srDisplaySet.instances || []).map(existingInstance => {
+    if (existingInstance?.SOPInstanceUID === SOPInstanceUID) {
+      return { ...existingInstance, ...wadoUriInstance };
+    }
+    return existingInstance;
+  });
+
+  if (srDisplaySet.instance?.ContentSequence) {
+    return;
+  }
+
+  // Backup fallback: if WADO-URI does not return a usable instance, try WADO-RS retrieveInstance.
+  const retrieveInstance = wadoClient?.retrieveInstance;
+  if (typeof retrieveInstance !== 'function') {
+    return;
+  }
+
+  const instancePayload = await retrieveInstance.call(wadoClient, {
+    studyInstanceUID: StudyInstanceUID,
+    seriesInstanceUID: SeriesInstanceUID,
+    sopInstanceUID: SOPInstanceUID,
+  });
+  const fullInstance = _naturalizeSRFromInstancePayload(instancePayload);
+  if (!fullInstance) {
+    return;
+  }
+
+  srDisplaySet.instance = { ...srDisplaySet.instance, ...fullInstance };
+  srDisplaySet.instances = (srDisplaySet.instances || []).map(existingInstance => {
+    if (existingInstance?.SOPInstanceUID === SOPInstanceUID) {
+      return { ...existingInstance, ...fullInstance };
+    }
+    return existingInstance;
+  });
+}
+
+function _naturalizeSRFromInstancePayload(instancePayload) {
+  const payload = Array.isArray(instancePayload) ? instancePayload[0] : instancePayload;
+  if (!payload) {
+    return null;
+  }
+
+  // Some clients may return DICOM JSON directly.
+  if (!(payload instanceof ArrayBuffer) && !(payload instanceof Uint8Array)) {
+    if (typeof payload === 'object') {
+      return DicomMetaDictionary.naturalizeDataset(payload);
+    }
+    return null;
+  }
+
+  const byteArray = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  const dicomData = DicomMessage.readFile(byteArray.buffer);
+  return DicomMetaDictionary.naturalizeDataset(dicomData.dict);
+}
+
+async function _fetchSRInstanceViaWadoUri({
+  wadoUriBase,
+  StudyInstanceUID,
+  SeriesInstanceUID,
+  SOPInstanceUID,
+  headers = {},
+}) {
+  if (!wadoUriBase || !StudyInstanceUID || !SeriesInstanceUID || !SOPInstanceUID) {
+    return null;
+  }
+
+  const base = wadoUriBase.replace(/\/+$/, '');
+  const endpoint = base.toLowerCase().includes('/wadouri') ? base : `${base}/wadouri`;
+  const query = new URLSearchParams({
+    requestType: 'WADO',
+    studyUID: StudyInstanceUID,
+    seriesUID: SeriesInstanceUID,
+    objectUID: SOPInstanceUID,
+    contentType: 'application/dicom',
+    transferSyntax: '*',
+  });
+  const url = `${endpoint}?${query.toString()}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      ...headers,
+      Accept: '*/*',
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return response.arrayBuffer();
+}
+
+function _resolveWadoUriBase(config: Record<string, unknown> = {}) {
+  const explicitWadoUri = config?.wadoUri;
+  if (explicitWadoUri) {
+    return explicitWadoUri;
+  }
+
+  const wadoRoot = config?.wadoRoot;
+  if (!wadoRoot || typeof wadoRoot !== 'string') {
+    return undefined;
+  }
+
+  // Typical roots are .../api or .../dicomservice; WADO-URI endpoint is served at .../wadouri.
+  return wadoRoot.replace(/\/(api|dicomservice|v\d+)\/?$/i, '');
 }
 
 function _measurementBelongsToDisplaySet({ measurement, displaySet }) {

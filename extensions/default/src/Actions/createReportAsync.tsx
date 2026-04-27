@@ -23,9 +23,8 @@ async function createReportAsync({
     // automatically calls makeDisplaySets
     DicomMetadataStore.addInstances([naturalizedReport], true);
 
-    const displaySet = displaySetService.getMostRecentDisplaySet();
-
-    const displaySetInstanceUID = displaySet.displaySetInstanceUID;
+    const displaySet = await _findCreatedReportDisplaySet(displaySetService, naturalizedReport);
+    const displaySetInstanceUID = displaySet?.displaySetInstanceUID;
 
     uiNotificationService.show({
       title: 'Create Report',
@@ -33,7 +32,7 @@ async function createReportAsync({
       type: 'success',
     });
 
-    return [displaySetInstanceUID];
+    return displaySetInstanceUID ? [displaySetInstanceUID] : [];
   } catch (error) {
     uiNotificationService.show({
       title: 'Create Report',
@@ -44,6 +43,52 @@ async function createReportAsync({
   } finally {
     uiDialogService.hide('loading-dialog');
   }
+}
+
+async function _findCreatedReportDisplaySet(displaySetService, naturalizedReport) {
+  const { SOPInstanceUID, SeriesInstanceUID } = naturalizedReport || {};
+
+  if (SOPInstanceUID) {
+    const bySop = displaySetService.getDisplaySetForSOPInstanceUID(SOPInstanceUID, SeriesInstanceUID);
+    if (bySop) {
+      return bySop;
+    }
+  }
+
+  if (SeriesInstanceUID) {
+    const bySeries = displaySetService.getDisplaySetsForSeries(SeriesInstanceUID)?.[0];
+    if (bySeries) {
+      return bySeries;
+    }
+  }
+
+  return new Promise(resolve => {
+    const timeout = window.setTimeout(() => {
+      subscription?.unsubscribe?.();
+      resolve(displaySetService.getMostRecentDisplaySet());
+    }, 1500);
+
+    const subscription = displaySetService.subscribe(
+      displaySetService.EVENTS.DISPLAY_SETS_ADDED,
+      ({ displaySetsAdded }) => {
+        const matchingDisplaySet = displaySetsAdded?.find(displaySet => {
+          if (SOPInstanceUID && displaySet?.SOPInstanceUID === SOPInstanceUID) {
+            return true;
+          }
+          if (SeriesInstanceUID && displaySet?.SeriesInstanceUID === SeriesInstanceUID) {
+            return true;
+          }
+          return displaySet?.Modality === 'SR';
+        });
+
+        if (matchingDisplaySet) {
+          window.clearTimeout(timeout);
+          subscription?.unsubscribe?.();
+          resolve(matchingDisplaySet);
+        }
+      }
+    );
+  });
 }
 
 export default createReportAsync;

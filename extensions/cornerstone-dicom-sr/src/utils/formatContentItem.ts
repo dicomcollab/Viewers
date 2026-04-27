@@ -11,6 +11,24 @@ import { utils } from '@ohif/core';
 const contentItemFormatters = {
   TEXT: contentItem => contentItem.TextValue,
   CODE: contentItem => contentItem.ConceptCodeSequence?.[0]?.CodeMeaning,
+  IMAGE: contentItem => {
+    const conceptCode = Array.isArray(contentItem.ConceptCodeSequence)
+      ? contentItem.ConceptCodeSequence[0]
+      : contentItem.ConceptCodeSequence;
+    if (conceptCode?.CodeMeaning) {
+      return conceptCode.CodeMeaning;
+    }
+    const referencedSOP = Array.isArray(contentItem.ReferencedSOPSequence)
+      ? contentItem.ReferencedSOPSequence[0]
+      : contentItem.ReferencedSOPSequence;
+    return referencedSOP?.ReferencedSOPInstanceUID ? 'Referenced image' : 'Image';
+  },
+  COMPOSITE: contentItem => {
+    const conceptCode = Array.isArray(contentItem.ConceptCodeSequence)
+      ? contentItem.ConceptCodeSequence[0]
+      : contentItem.ConceptCodeSequence;
+    return conceptCode?.CodeMeaning || 'Referenced composite';
+  },
   UIDREF: contentItem => contentItem.UID,
   NUM: contentItem => {
     const measuredValue = contentItem.MeasuredValueSequence?.[0];

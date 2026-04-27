@@ -18,6 +18,7 @@ import { IViewportService } from './IViewportService';
 import { RENDERING_ENGINE_ID } from './constants';
 import ViewportInfo, {
   DisplaySetOptions,
+  PublicDisplaySetOptions,
   PublicViewportOptions,
   ViewportOptions,
 } from './Viewport';
@@ -92,6 +93,20 @@ function wrapRenderMethodSafely(target: unknown, kind: 'viewport' | 'renderingEn
   maybeTarget.__ohifRenderWrapped = true;
 }
 
+function isLikelyWebGlContextError(error: unknown): boolean {
+  const message = String((error as { message?: string })?.message ?? error ?? '').toLowerCase();
+
+  return (
+    message.includes('too many active webgl contexts') ||
+    message.includes('context lost') ||
+    message.includes('does not belong to this context') ||
+    message.includes('no valid shader program in use') ||
+    message.includes('location is not from the associated program') ||
+    message.includes('enablevertexattribarray: index out of range') ||
+    message.includes('vertexattribpointer: index out of range')
+  );
+}
+
 /**
  * Handles cornerstone viewport logic including enabling, disabling, and
  * updating the viewport.
@@ -121,11 +136,38 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
   gridResizeDelay = 50;
   gridResizeTimeOut = null;
 
+  /** Set when a canvas under our viewport fires `webglcontextlost` (e.g. browser cap on concurrent WebGL tabs). */
+  private _gpuContextLossPending = false;
+
+  /** Serialize GPU recovery so parallel callers do not double-destroy the engine. */
+  private _webGlRecoveryInFlight: Promise<void> | null = null;
+
+  private readonly _handleWebGlContextLostCapture: (e: Event) => void;
+
   constructor(servicesManager: AppTypes.ServicesManager) {
     super(EVENTS);
     this.renderingEngine = null;
     this.viewportGridResizeObserver = null;
     this.servicesManager = servicesManager;
+
+    this._handleWebGlContextLostCapture = (e: Event) => {
+      const target = e.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const host = target.closest?.('[data-viewportid]');
+      if (!host) {
+        return;
+      }
+      const vid = host.getAttribute('data-viewportid');
+      if (vid && this.viewportsById.has(vid)) {
+        this._gpuContextLossPending = true;
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('webglcontextlost', this._handleWebGlContextLostCapture, true);
+    }
   }
   hangingProtocolService: unknown;
   viewportsInfo: unknown;
@@ -159,18 +201,198 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     // get renderingEngine from cache if it exists
     const renderingEngine = getRenderingEngine(RENDERING_ENGINE_ID);
 
-    if (renderingEngine) {
+    // After destroy(), Cornerstone may still return the stale instance; never reuse it.
+    if (renderingEngine && !renderingEngine.hasBeenDestroyed) {
       this.renderingEngine = renderingEngine;
       wrapRenderMethodSafely(this.renderingEngine, 'renderingEngine');
       return this.renderingEngine;
     }
 
-    if (!renderingEngine || renderingEngine.hasBeenDestroyed) {
-      this.renderingEngine = new RenderingEngine(RENDERING_ENGINE_ID);
-      wrapRenderMethodSafely(this.renderingEngine, 'renderingEngine');
-    }
+    this.renderingEngine = new RenderingEngine(RENDERING_ENGINE_ID);
+    wrapRenderMethodSafely(this.renderingEngine, 'renderingEngine');
 
     return this.renderingEngine;
+  }
+
+  /**
+   * When the browser revokes a WebGL context (common with many OHIF tabs / MPR viewports),
+   * rebuild the rendering engine and re-apply all registered viewports so textures and
+   * programs match the new context — without requiring a full page refresh.
+   */
+  public recoverRenderingAfterWebGlContextLoss(): Promise<void> {
+    if (this._webGlRecoveryInFlight) {
+      return this._webGlRecoveryInFlight;
+    }
+    this._webGlRecoveryInFlight = this._recoverRenderingAfterWebGlContextLossInner().finally(() => {
+      this._webGlRecoveryInFlight = null;
+    });
+    return this._webGlRecoveryInFlight;
+  }
+
+  public markWebGlContextPossiblyLost(): void {
+    this._gpuContextLossPending = true;
+  }
+
+  private _anyRegisteredCanvasWebGlContextLost(): boolean {
+    for (const viewportInfo of this.viewportsById.values()) {
+      const el = viewportInfo.getElement?.();
+      if (!el) {
+        continue;
+      }
+      const canvases = el.querySelectorAll('canvas');
+      for (let i = 0; i < canvases.length; i++) {
+        const canvas = canvases[i] as HTMLCanvasElement;
+        const gl2 = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+        if (gl2?.isContextLost?.()) {
+          return true;
+        }
+        const gl = canvas.getContext('webgl') as WebGLRenderingContext | null;
+        if (gl?.isContextLost?.()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static _viewportTypeEnumToPublicString(viewportType: csEnums.ViewportType): string {
+    switch (viewportType) {
+      case csEnums.ViewportType.STACK:
+        return 'stack';
+      case csEnums.ViewportType.ORTHOGRAPHIC:
+        return 'volume';
+      case csEnums.ViewportType.VOLUME_3D:
+        return 'volume3d';
+      case csEnums.ViewportType.VIDEO:
+        return 'video';
+      case csEnums.ViewportType.WHOLE_SLIDE:
+        return 'wholeslide';
+      default:
+        return 'stack';
+    }
+  }
+
+  private static _blendModeEnumToPublicString(blendMode: csEnums.BlendModes | undefined): string | undefined {
+    if (blendMode == null || blendMode === csEnums.BlendModes.COMPOSITE) {
+      return undefined;
+    }
+    if (blendMode === csEnums.BlendModes.MAXIMUM_INTENSITY_BLEND) {
+      return 'mip';
+    }
+    if (blendMode === csEnums.BlendModes.MINIMUM_INTENSITY_BLEND) {
+      return 'minip';
+    }
+    if (blendMode === csEnums.BlendModes.AVERAGE_INTENSITY_BLEND) {
+      return 'avg';
+    }
+    return undefined;
+  }
+
+  private _viewportOptionsToPublicForRecovery(vo: ViewportOptions): PublicViewportOptions {
+    return {
+      id: vo.id,
+      viewportType: CornerstoneViewportService._viewportTypeEnumToPublicString(vo.viewportType),
+      toolGroupId: vo.toolGroupId,
+      presentationIds: vo.presentationIds as unknown as string[] | undefined,
+      viewportId: vo.viewportId,
+      orientation: vo.orientation,
+      background: vo.background,
+      displayArea: vo.displayArea,
+      syncGroups: vo.syncGroups,
+      rotation: vo.rotation,
+      flipHorizontal: vo.flipHorizontal,
+      initialImageOptions: vo.initialImageOptions,
+      customViewportProps: vo.customViewportProps,
+      allowUnmatchedView: vo.allowUnmatchedView,
+    };
+  }
+
+  private _displaySetOptionsToPublicForRecovery(
+    opts: DisplaySetOptions[] | undefined
+  ): PublicDisplaySetOptions[] {
+    if (!opts?.length) {
+      return [{}];
+    }
+    return opts.map(o => ({
+      voi: o.voi,
+      voiInverted: o.voiInverted,
+      colormap: o.colormap,
+      slabThickness: o.slabThickness,
+      displayPreset: o.displayPreset,
+      blendMode: CornerstoneViewportService._blendModeEnumToPublicString(o.blendMode),
+    }));
+  }
+
+  private async _recoverRenderingAfterWebGlContextLossInner(): Promise<void> {
+    const shouldRecover = this._gpuContextLossPending || this._anyRegisteredCanvasWebGlContextLost();
+    if (!shouldRecover) {
+      return;
+    }
+    this._gpuContextLossPending = false;
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        '[CornerstoneViewportService] WebGL context was lost (often from too many viewer tabs). Rebuilding the rendering engine.'
+      );
+    }
+
+    const eng = this.renderingEngine ?? getRenderingEngine(RENDERING_ENGINE_ID);
+    if (eng && typeof eng.destroy === 'function' && !eng.hasBeenDestroyed) {
+      try {
+        eng.destroy();
+      } catch (e) {
+        console.warn('[CornerstoneViewportService] destroy() during GPU recovery failed:', e);
+      }
+    }
+    this.renderingEngine = null;
+
+    const viewportIds = Array.from(this.viewportsById.keys());
+    for (const viewportId of viewportIds) {
+      const viewportInfo = this.viewportsById.get(viewportId);
+      if (!viewportInfo) {
+        continue;
+      }
+      const viewportData = viewportInfo.getViewportData?.();
+      if (!viewportData) {
+        continue;
+      }
+      if (viewportData.viewportType === csEnums.ViewportType.STACK) {
+        if (!viewportData.data?.[0]?.imageIds?.length) {
+          continue;
+        }
+      }
+
+      let presentations: Presentations = {};
+      try {
+        presentations = this.getPresentations(viewportId) ?? {};
+      } catch {
+        // Cornerstone viewport may be unusable while the old GL context is invalid
+      }
+
+      const publicViewportOptions = this._viewportOptionsToPublicForRecovery(viewportInfo.getViewportOptions());
+      const publicDisplaySetOptions = this._displaySetOptionsToPublicForRecovery(
+        viewportInfo.getDisplaySetOptions()
+      );
+
+      try {
+        await this.applySetViewportData(
+          viewportId,
+          viewportData,
+          publicViewportOptions,
+          publicDisplaySetOptions as unknown as DisplaySetOptions[],
+          presentations,
+          false
+        );
+      } catch (e) {
+        console.warn(`[CornerstoneViewportService] GPU recovery failed for viewport ${viewportId}:`, e);
+      }
+    }
+
+    try {
+      this.resize();
+    } catch (e) {
+      console.warn('[CornerstoneViewportService] GPU recovery: resize failed:', e);
+    }
   }
 
   /**
@@ -224,6 +446,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
    * Removes the viewport from cornerstone, and destroys the rendering engine
    */
   public destroy() {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('webglcontextlost', this._handleWebGlContextLostCapture, true);
+    }
     this._removeResizeObserver();
     this.viewportGridResizeObserver = null;
     try {
@@ -442,6 +667,29 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     publicDisplaySetOptions: DisplaySetOptions[],
     presentations?: Presentations
   ): void {
+    void this.applySetViewportData(
+      viewportId,
+      viewportData,
+      publicViewportOptions,
+      publicDisplaySetOptions,
+      presentations
+    ).catch(err => {
+      console.warn('[CornerstoneViewportService] setViewportData failed:', err);
+    });
+  }
+
+  /**
+   * Same as {@link setViewportData} but awaits GPU work (stack/volume bind) so callers
+   * (e.g. WebGL recovery) can serialize reliably.
+   */
+  private async applySetViewportData(
+    viewportId: string,
+    viewportData: StackViewportData | VolumeViewportData,
+    publicViewportOptions: PublicViewportOptions,
+    publicDisplaySetOptions: DisplaySetOptions[],
+    presentations?: Presentations,
+    allowWebGlSelfHeal = true
+  ): Promise<void> {
     const renderingEngine = this.getRenderingEngine();
 
     // if not valid viewportData then return early
@@ -456,25 +704,31 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     // using its viewport (same viewportId as the new viewportInfo)
     const viewportInfo = this.viewportsById.get(viewportId);
 
+    if (!viewportInfo) {
+      throw new Error('element is not enabled for the given viewportId');
+    }
+
     // We should store the presentation for the current viewport since we can't only
     // rely to store it WHEN the viewport is disabled since we might keep around the
     // same viewport/element and just change the viewportData for it (drag and drop etc.)
     // the disableElement storePresentation handle would not be called in this case
     // and we would lose the presentation.
-    this.storePresentation({ viewportId: viewportInfo.getViewportId() });
+    try {
+      this.storePresentation({ viewportId: viewportInfo.getViewportId() });
+    } catch (e) {
+      console.warn('[CornerstoneViewportService] storePresentation skipped:', e);
+    }
 
     // Todo: i don't like this here, move it
     this.servicesManager.services.segmentationService.clearSegmentationRepresentations(
       viewportInfo.getViewportId()
     );
 
-    if (!viewportInfo) {
-      throw new Error('element is not enabled for the given viewportId');
-    }
-
     // override the viewportOptions and displaySetOptions with the public ones
     // since those are the newly set ones, we set them here so that it handles defaults
-    const displaySetOptions = viewportInfo.setPublicDisplaySetOptions(publicDisplaySetOptions);
+    const displaySetOptions = viewportInfo.setPublicDisplaySetOptions(
+      publicDisplaySetOptions as unknown as PublicDisplaySetOptions[]
+    );
     // Specify an over-ride for the viewport type, even though it is in the public
     // viewport options, because the one in the viewportData is a requirement based on the
     // type of data being displayed.
@@ -521,21 +775,37 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     this.viewportsById.set(viewportId, viewportInfo);
 
     const viewport = renderingEngine.getViewport(viewportId);
-    const displaySetPromise = this._setDisplaySets(
-      viewport,
-      viewportData,
-      viewportInfo,
-      presentations
-    );
+    try {
+      const displaySetPromise = this._setDisplaySets(
+        viewport,
+        viewportData,
+        viewportInfo,
+        presentations
+      );
+
+      await displaySetPromise;
+    } catch (error) {
+      if (allowWebGlSelfHeal && isLikelyWebGlContextError(error)) {
+        this._gpuContextLossPending = true;
+        await this.recoverRenderingAfterWebGlContextLoss();
+        return this.applySetViewportData(
+          viewportId,
+          viewportData,
+          publicViewportOptions,
+          publicDisplaySetOptions,
+          presentations,
+          false
+        );
+      }
+      throw error;
+    }
 
     // The broadcast event here ensures that listeners have a valid, up to date
     // viewport to access.  Doing it too early can result in exceptions or
     // invalid data.
-    displaySetPromise.then(() => {
-      this._broadcastEvent(this.EVENTS.VIEWPORT_DATA_CHANGED, {
-        viewportData,
-        viewportId,
-      });
+    this._broadcastEvent(this.EVENTS.VIEWPORT_DATA_CHANGED, {
+      viewportData,
+      viewportId,
     });
   }
 

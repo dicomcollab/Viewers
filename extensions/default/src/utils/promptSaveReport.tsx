@@ -26,6 +26,7 @@ async function promptSaveReport({ servicesManager, commandsManager, extensionMan
     defaultSaveTitle = 'Create Report',
   } = ctx;
   let displaySetInstanceUIDs;
+  let createdSRSOPInstanceUID;
 
   try {
     const promptResult = await createReportDialogPrompt({
@@ -71,13 +72,20 @@ async function promptSaveReport({ servicesManager, commandsManager, extensionMan
         servicesManager,
         getReport,
       });
-    } else if (promptResult.action === RESPONSE.CANCEL) {
+
+      const createdDisplaySetUID = displaySetInstanceUIDs?.[0];
+      if (createdDisplaySetUID) {
+        const createdDisplaySet = displaySetService.getDisplaySetByUID(createdDisplaySetUID);
+        createdSRSOPInstanceUID = createdDisplaySet?.SOPInstanceUID;
+      }
+    } else if (promptResult.action === PROMPT_RESPONSES.CANCEL) {
       // Do nothing
     }
 
     return {
       userResponse: promptResult.action,
       createdDisplaySetInstanceUIDs: displaySetInstanceUIDs,
+      createdSRSOPInstanceUID,
       StudyInstanceUID,
       SeriesInstanceUID,
       viewportId,

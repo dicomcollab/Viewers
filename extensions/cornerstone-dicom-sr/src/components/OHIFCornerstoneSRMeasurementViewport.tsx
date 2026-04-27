@@ -6,6 +6,7 @@ import createReferencedImageDisplaySet from '../utils/createReferencedImageDispl
 import { usePositionPresentationStore, OHIFCornerstoneViewport } from '@ohif/extension-cornerstone';
 import { useViewportGrid } from '@ohif/ui-next';
 import { useSystem } from '@ohif/core/src/contextProviders/SystemProvider';
+import OHIFCornerstoneSRTextViewport from './OHIFCornerstoneSRTextViewport';
 
 const SR_TOOLGROUP_BASE_NAME = 'SRToolGroup';
 
@@ -36,6 +37,7 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
   const [activeImageDisplaySetData, setActiveImageDisplaySetData] = useState(null);
   const [referencedDisplaySetMetadata, setReferencedDisplaySetMetadata] = useState(null);
   const [element, setElement] = useState(null);
+  const [useTextFallback, setUseTextFallback] = useState(false);
   const { viewports, activeViewportId } = viewportGrid;
 
   const setTrackingIdentifiers = useCallback(
@@ -62,35 +64,38 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
   };
 
   const updateViewport = useCallback(
-    newMeasurementSelected => {
+    async newMeasurementSelected => {
       const { StudyInstanceUID, displaySetInstanceUID } = srDisplaySet;
 
       if (!StudyInstanceUID || !displaySetInstanceUID) {
-        return;
+        return false;
       }
 
-      _getViewportReferencedDisplaySetData(
+      const { referencedDisplaySet, referencedDisplaySetMetadata } =
+        await _getViewportReferencedDisplaySetData(
         srDisplaySet,
         newMeasurementSelected,
         displaySetService
-      ).then(({ referencedDisplaySet, referencedDisplaySetMetadata }) => {
-        if (!referencedDisplaySet || !referencedDisplaySetMetadata) {
-          return;
-        }
+      );
 
-        setMeasurementSelected(newMeasurementSelected);
+      if (!referencedDisplaySet || !referencedDisplaySetMetadata) {
+        return false;
+      }
 
-        setActiveImageDisplaySetData(referencedDisplaySet);
-        setReferencedDisplaySetMetadata(referencedDisplaySetMetadata);
+      setMeasurementSelected(newMeasurementSelected);
 
-        const { presentationIds } = viewportOptions;
-        const measurement = srDisplaySet.measurements[newMeasurementSelected];
-        setPositionPresentation(presentationIds.positionPresentationId, {
-          viewReference: measurement.viewReference || {
-            referencedImageId: measurement.imageId,
-          },
-        });
+      setActiveImageDisplaySetData(referencedDisplaySet);
+      setReferencedDisplaySetMetadata(referencedDisplaySetMetadata);
+
+      const { presentationIds } = viewportOptions;
+      const measurement = srDisplaySet.measurements[newMeasurementSelected];
+      setPositionPresentation(presentationIds.positionPresentationId, {
+        viewReference: measurement.viewReference || {
+          referencedImageId: measurement.imageId,
+        },
       });
+
+      return true;
     },
     [dataSource, srDisplaySet, activeImageDisplaySetData, viewportId]
   );
@@ -170,9 +175,20 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
       if (!srDisplaySet.isLoaded) {
         await srDisplaySet.load();
       }
-      updateViewport(measurementSelected);
+      const hasMeasurements = Array.isArray(srDisplaySet.measurements) && srDisplaySet.measurements.length;
+      if (!hasMeasurements) {
+        setUseTextFallback(true);
+        return;
+      }
+
+      const didUpdateViewport = await updateViewport(measurementSelected);
+      if (!didUpdateViewport) {
+        setUseTextFallback(true);
+      }
     };
-    loadSR();
+    loadSR().catch(() => {
+      setUseTextFallback(true);
+    });
   }, [srDisplaySet]);
 
   /**
@@ -194,6 +210,10 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
 
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   let childrenWithProps = null;
+
+  if (useTextFallback) {
+    return <OHIFCornerstoneSRTextViewport {...props} />;
+  }
 
   if (!activeImageDisplaySetData || !referencedDisplaySetMetadata) {
     return null;
@@ -237,6 +257,9 @@ async function _getViewportReferencedDisplaySetData(
 ) {
   const { measurements } = displaySet;
   const measurement = measurements[measurementSelected];
+  if (!measurement) {
+    return { referencedDisplaySetMetadata: null, referencedDisplaySet: null };
+  }
 
   const { displaySetInstanceUID } = measurement;
   if (!displaySet.keyImageDisplaySet) {

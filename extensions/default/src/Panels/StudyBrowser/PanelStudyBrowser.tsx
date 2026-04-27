@@ -35,10 +35,17 @@ function PanelStudyBrowser({
   const fetchedStudiesRef = useRef(new Set());
 
   const [{ activeViewportId, viewports, isHangingProtocolLayout }] = useViewportGrid();
-  const activeDisplaySetInstanceUIDs = useMemo(
-    () => viewports.get(activeViewportId)?.displaySetInstanceUIDs,
-    [viewports, activeViewportId]
-  );
+  const activeDisplaySetInstanceUIDs = useMemo(() => {
+    const activeViewport = viewports.get(activeViewportId);
+    const displaySetUIDs = activeViewport?.displaySetInstanceUIDs || [];
+    const singleDisplaySetUID = activeViewport?.displaySetInstanceUID;
+
+    if (!singleDisplaySetUID) {
+      return displaySetUIDs;
+    }
+
+    return Array.from(new Set([...displaySetUIDs, singleDisplaySetUID]));
+  }, [viewports, activeViewportId]);
   const [activeTabName, setActiveTabName] = useState(studyMode);
   const [expandedStudyInstanceUIDs, setExpandedStudyInstanceUIDs] = useState(
     studyMode === 'primary' && StudyInstanceUIDs.length > 0
@@ -171,6 +178,19 @@ function PanelStudyBrowser({
 
   const onDoubleClickThumbnailHandler = useCallback(
     async displaySetInstanceUID => {
+      const targetDisplaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+      if (targetDisplaySet?.Modality === 'SR' && typeof targetDisplaySet.load === 'function') {
+        // Force a fresh SR load on double click so the latest instance payload
+        // is fetched (WADO-URI path) instead of relying on possibly stale metadata.
+        targetDisplaySet.isLoaded = false;
+        targetDisplaySet._loadPromise = null;
+        try {
+          await targetDisplaySet.load();
+        } catch (error) {
+          console.warn('Unable to load SR display set on double click', error);
+        }
+      }
+
       const customHandler = customizationService.getCustomization(
         'studyBrowser.thumbnailDoubleClickCallback'
       ) as CallbackCustomization;
@@ -196,6 +216,7 @@ function PanelStudyBrowser({
       servicesManager,
       isHangingProtocolLayout,
       customizationService,
+      displaySetService,
     ]
   );
 
@@ -716,6 +737,15 @@ function applyStudyBrowserSeriesProgressVisibility(
 ) {
   const active = new Set(activeDisplaySetInstanceUIDs || []);
   return mappedThumbnails.map(t => {
+    if (t.modality === 'SR') {
+      return {
+        ...t,
+        showInstanceLoadProgressUi: false,
+        showStudyPanelProgress: false,
+        isLayoutLoading: false,
+      };
+    }
+
     const uid = t.displaySetInstanceUID;
     const showUi = active.has(uid) || Boolean(prefetchProgressTrackByUid[uid]);
     if (showUi) {

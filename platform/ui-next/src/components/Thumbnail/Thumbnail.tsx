@@ -58,8 +58,9 @@ const Thumbnail = ({
   // Show preload button when series is not fully downloaded. Thumbnail (first instance) loaded
   // for display does not count as "downloaded" — only full series load does.
   const isFullyLoaded = normalizedLoadingProgress != null && normalizedLoadingProgress >= 1;
+  const supportsPreload = modality !== 'SR';
   const showPrefetchButton =
-    Boolean(onPrefetchDisplaySet) && !isFullyLoaded;
+    Boolean(onPrefetchDisplaySet) && supportsPreload && !isFullyLoaded;
 
   const handlePrefetchClick = e => {
     e.stopPropagation();

@@ -243,10 +243,10 @@ const machineConfiguration = {
           },
           // "clicked the save button"
           // - should clear all measurements
-          // - show DICOM SR
+          // - keep current viewport; user can open SR explicitly from study browser
           {
             target: 'idle',
-            actions: ['clearAllMeasurements', 'showStructuredReportDisplaySetInActiveViewport'],
+            actions: ['clearAllMeasurements'],
             cond: 'shouldSaveAndContinueWithSameReport',
           },
           // "starting a new report"

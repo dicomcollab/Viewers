@@ -137,14 +137,79 @@ function TrackedMeasurementsContextProvider(
       });
     },
     showStructuredReportDisplaySetInActiveViewport: (ctx, evt) => {
-      if (evt.data.createdDisplaySetInstanceUIDs.length > 0) {
-        const StructuredReportDisplaySetInstanceUID = evt.data.createdDisplaySetInstanceUIDs[0];
+      const createdDisplaySetUID = evt?.data?.createdDisplaySetInstanceUIDs?.[0];
+      const createdSRSOPInstanceUID = evt?.data?.createdSRSOPInstanceUID;
+      let structuredReportDisplaySetUID = createdDisplaySetUID;
 
+      if (!structuredReportDisplaySetUID && createdSRSOPInstanceUID) {
+        const studyInstanceUID = evt?.data?.StudyInstanceUID || ctx?.trackedStudy;
+        const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
+        const exactCreatedSR = activeDisplaySets.find(displaySet => {
+          const isSameStudy = !studyInstanceUID || displaySet?.StudyInstanceUID === studyInstanceUID;
+          return (
+            isSameStudy &&
+            displaySet?.Modality === 'SR' &&
+            displaySet?.SOPInstanceUID === createdSRSOPInstanceUID
+          );
+        });
+        structuredReportDisplaySetUID = exactCreatedSR?.displaySetInstanceUID;
+      }
+
+      if (!structuredReportDisplaySetUID) {
+        const studyInstanceUID = evt?.data?.StudyInstanceUID || ctx?.trackedStudy;
+        const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
+        const candidateSRDisplaySets = activeDisplaySets.filter(displaySet => {
+          const isSameStudy = !studyInstanceUID || displaySet?.StudyInstanceUID === studyInstanceUID;
+          return isSameStudy && displaySet?.Modality === 'SR';
+        });
+
+        // Prefer the newest SR in the target study when direct UID is not available yet.
+        candidateSRDisplaySets.sort((a, b) => {
+          const aSeriesNumber = Number(a?.SeriesNumber || 0);
+          const bSeriesNumber = Number(b?.SeriesNumber || 0);
+          if (aSeriesNumber !== bSeriesNumber) {
+            return bSeriesNumber - aSeriesNumber;
+          }
+          const aDateTime = `${a?.SeriesDate || ''}${a?.SeriesTime || ''}`;
+          const bDateTime = `${b?.SeriesDate || ''}${b?.SeriesTime || ''}`;
+          return bDateTime.localeCompare(aDateTime);
+        });
+
+        structuredReportDisplaySetUID = candidateSRDisplaySets[0]?.displaySetInstanceUID;
+      }
+
+      if (!structuredReportDisplaySetUID) {
+        return;
+      }
+
+      const structuredReportDisplaySet = displaySetService.getDisplaySetByUID(
+        structuredReportDisplaySetUID
+      );
+      const openStructuredReportInViewport = () => {
         viewportGridService.setDisplaySetsForViewport({
           viewportId: evt.data.viewportId,
-          displaySetInstanceUIDs: [StructuredReportDisplaySetInstanceUID],
+          displaySetInstanceUIDs: [structuredReportDisplaySetUID],
         });
+      };
+
+      if (structuredReportDisplaySet) {
+        // Prevent immediate auto-hydration flow from switching back to the source image
+        // right after creating/opening a fresh SR.
+        structuredReportDisplaySet.isHydrated = true;
+
+        if (typeof structuredReportDisplaySet.load === 'function') {
+          // Force reload so SR opens from the latest remote instance payload (WADO-URI path).
+          structuredReportDisplaySet.isLoaded = false;
+          // If a previous load promise exists, discard it so we don't reuse stale load path.
+          structuredReportDisplaySet._loadPromise = null;
+          Promise.resolve(structuredReportDisplaySet.load())
+            .catch(() => null)
+            .finally(openStructuredReportInViewport);
+          return;
+        }
       }
+
+      openStructuredReportInViewport();
     },
     discardPreviouslyTrackedMeasurements: (ctx, evt) => {
       const measurements = measurementService.getMeasurements();

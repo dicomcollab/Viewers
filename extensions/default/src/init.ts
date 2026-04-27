@@ -106,7 +106,6 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
   }
 
   const imageIds = instances.map(instance => instance.imageId);
-  const instanceMetadataArray = [];
 
   if (modality === 'RTDOSE') {
     const DoseGridScaling = instances[0].DoseGridScaling;
@@ -134,28 +133,40 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
     return;
   }
 
-  // try except block to prevent errors when the metadata is not correct
-  try {
-    imageIds.forEach(imageId => {
+  // Ensure PT images always have a scalingModule object so downstream GPU paths
+  // (e.g. isPTPrescaledWithSUV) never read `.scaled` from undefined.
+  imageIds.forEach(imageId => {
+    metadataProvider.addCustomMetadata(imageId, 'scalingModule', { scaled: false });
+  });
+
+  // Build metadata pairs defensively (per-image), since real-world PT studies can
+  // miss some required tags for SUV computation.
+  const imageIdMetadataPairs = [];
+  imageIds.forEach(imageId => {
+    try {
       const instanceMetadata = getPTImageIdInstanceMetadata(imageId);
       if (instanceMetadata) {
-        instanceMetadataArray.push(instanceMetadata);
+        imageIdMetadataPairs.push({ imageId, instanceMetadata });
       }
-    });
-
-    if (!instanceMetadataArray.length) {
-      return;
+    } catch (error) {
+      console.warn(`[PT SUV] Missing metadata for image ${imageId}. Using scaled:false fallback.`, error);
     }
+  });
 
-    const suvScalingFactors = calculateSUVScalingFactors(instanceMetadataArray);
-    instanceMetadataArray.forEach((instanceMetadata, index) => {
-      metadataProvider.addCustomMetadata(
-        imageIds[index],
-        'scalingModule',
-        suvScalingFactors[index]
-      );
+  if (!imageIdMetadataPairs.length) {
+    return;
+  }
+
+  try {
+    const suvScalingFactors = calculateSUVScalingFactors(
+      imageIdMetadataPairs.map(pair => pair.instanceMetadata)
+    );
+
+    imageIdMetadataPairs.forEach((pair, index) => {
+      const scalingFactor = suvScalingFactors[index] || { scaled: false };
+      metadataProvider.addCustomMetadata(pair.imageId, 'scalingModule', scalingFactor);
     });
   } catch (error) {
-    console.log(error);
+    console.warn('[PT SUV] Failed to calculate SUV scaling factors. Keeping scaled:false fallback.', error);
   }
 };

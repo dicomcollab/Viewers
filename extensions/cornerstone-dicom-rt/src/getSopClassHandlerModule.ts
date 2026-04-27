@@ -59,7 +59,7 @@ function _getDisplaySetsFromSeries(
     wadoUri,
     isOverlayDisplaySet: true,
     label: SeriesDescription || `${i18n.t('Series')} ${SeriesNumber} - ${i18n.t('RTSTRUCT')}`,
-  };
+  } as any;
 
   let referencedSeriesSequence = instance.ReferencedSeriesSequence;
   if (instance.ReferencedFrameOfReferenceSequence && !instance.ReferencedSeriesSequence) {
@@ -69,13 +69,26 @@ function _getDisplaySetsFromSeries(
     referencedSeriesSequence = instance.ReferencedSeriesSequence;
   }
 
-  if (!referencedSeriesSequence) {
-    throw new Error('ReferencedSeriesSequence is missing for the RTSTRUCT');
+  // Malformed/legacy RTStruct: do not throw (would crash the viewer and block the whole study).
+  if (
+    !referencedSeriesSequence ||
+    !referencedSeriesSequence.length ||
+    !referencedSeriesSequence[0]?.SeriesInstanceUID
+  ) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        'RTSTRUCT: ReferencedSeriesSequence is missing or incomplete; the series is skipped (unsupported).',
+        SOPInstanceUID
+      );
+    }
+    displaySet.unsupported = true;
+    displaySet.load = () => Promise.resolve();
+    return [displaySet];
   }
 
   const referencedSeries = referencedSeriesSequence[0];
 
-  displaySet.referencedImages = instance.ReferencedSeriesSequence.ReferencedInstanceSequence;
+  displaySet.referencedImages = referencedSeries?.ReferencedInstanceSequence;
   displaySet.referencedSeriesInstanceUID = referencedSeries.SeriesInstanceUID;
 
   const { displaySetService } = servicesManager.services;

@@ -23,6 +23,10 @@ const STACK = 'stack';
 // Cache for viewport dimensions, persists across component remounts
 const viewportDimensions = new Map<string, { width: number; height: number }>();
 
+/** See visibility listener below — ref-counted so the last viewport unmounts cleanly. */
+let documentVisibilityRefCount = 0;
+let documentVisibilityHandler: (() => void) | null = null;
+
 // Todo: This should be done with expose of internal API similar to react-vtkjs-viewport
 // Then we don't need to worry about the re-renders if the props change.
 const OHIFCornerstoneViewport = React.memo(
@@ -134,13 +138,23 @@ const OHIFCornerstoneViewport = React.memo(
           const entry = entries[0];
           const { width, height } = entry.contentRect;
 
+          // If the element has no size (e.g. tab in background, display:none), clear the
+          // cached dimensions so the next time we have a real size, resize runs. Otherwise
+          // the cache still holds the old width/height, hasDimensionsChanged is false when the
+          // tab becomes active again, and the rendering engine is never told to recover — a
+          // common cause of a persistent black viewport after multi-tab or panel switching.
+          if (width === 0 || height === 0) {
+            viewportDimensions.delete(viewportId);
+            return;
+          }
+
           const prevDimensions = viewportDimensions.get(viewportId) || { width: 0, height: 0 };
 
           // Check if dimensions actually changed and then only resize if they have changed
           const hasDimensionsChanged =
             prevDimensions.width !== width || prevDimensions.height !== height;
 
-          if (width > 0 && height > 0 && hasDimensionsChanged) {
+          if (hasDimensionsChanged) {
             viewportDimensions.set(viewportId, { width, height });
             // Perform resize operations
             cornerstoneViewportService.resize();
@@ -166,6 +180,42 @@ const OHIFCornerstoneViewport = React.memo(
         resizeObserver.disconnect();
       };
     }, [onResize]);
+
+    // When returning from a hidden tab, layout size may match the cache (so ResizeObserver
+    // does not run a "changed" callback), but the WebGL/canvas can still need a full resize+render.
+    // Ref-count: one document listener for all viewports, removed when none remain.
+    useEffect(() => {
+      if (typeof document === 'undefined') {
+        return;
+      }
+
+      documentVisibilityRefCount += 1;
+      if (documentVisibilityRefCount === 1) {
+        documentVisibilityHandler = () => {
+          if (document.visibilityState !== 'visible') {
+            return;
+          }
+          // After many tabs, the browser can revoke this tab's WebGL context; resize alone
+          // cannot fix stale GPU objects. Recover first, then resize.
+          requestAnimationFrame(() => {
+            void (async () => {
+              cornerstoneViewportService.markWebGlContextPossiblyLost();
+              await cornerstoneViewportService.recoverRenderingAfterWebGlContextLoss();
+              cornerstoneViewportService.resize();
+            })();
+          });
+        };
+        document.addEventListener('visibilitychange', documentVisibilityHandler);
+      }
+
+      return () => {
+        documentVisibilityRefCount -= 1;
+        if (documentVisibilityRefCount === 0 && documentVisibilityHandler) {
+          document.removeEventListener('visibilitychange', documentVisibilityHandler);
+          documentVisibilityHandler = null;
+        }
+      };
+    }, [cornerstoneViewportService]);
 
     const cleanUpServices = useCallback(
       viewportInfo => {
@@ -417,6 +467,8 @@ const OHIFCornerstoneViewport = React.memo(
       }
 
       const loadViewportData = async () => {
+        await cornerstoneViewportService.recoverRenderingAfterWebGlContextLoss();
+
         const viewportData = await cornerstoneCacheService.createViewportData(
           displaySets,
           viewportOptions,
