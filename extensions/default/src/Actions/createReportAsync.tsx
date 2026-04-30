@@ -8,6 +8,7 @@ async function createReportAsync({
   servicesManager,
   getReport,
   reportType = 'measurement',
+  dataSource,
 }: withAppTypes) {
   const { displaySetService, uiNotificationService, uiDialogService } = servicesManager.services;
 
@@ -22,6 +23,11 @@ async function createReportAsync({
     // When a new instance is added, it listens and
     // automatically calls makeDisplaySets
     DicomMetadataStore.addInstances([naturalizedReport], true);
+
+    await _refreshCreatedReportMetadata({
+      dataSource,
+      naturalizedReport,
+    });
 
     const displaySet = await _findCreatedReportDisplaySet(displaySetService, naturalizedReport);
     const displaySetInstanceUID = displaySet?.displaySetInstanceUID;
@@ -42,6 +48,36 @@ async function createReportAsync({
     throw new Error(`Failed to store ${reportType}. Error: ${error.message || 'Unknown error'}`);
   } finally {
     uiDialogService.hide('loading-dialog');
+  }
+}
+
+async function _refreshCreatedReportMetadata({ dataSource, naturalizedReport }) {
+  const { StudyInstanceUID, SeriesInstanceUID, SOPInstanceUID } = naturalizedReport || {};
+
+  if (!dataSource?.retrieve?.series?.metadata || !StudyInstanceUID || !SeriesInstanceUID) {
+    return;
+  }
+
+  // Force server-side metadata retrieval for the newly stored report series
+  // so SR display set can load from fresh instance metadata immediately.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await dataSource.retrieve.series.metadata({
+        StudyInstanceUID,
+        filters: { SeriesInstanceUID },
+      });
+      return;
+    } catch (error) {
+      if (attempt === 2) {
+        console.warn(
+          `Unable to refresh SR metadata for SOPInstanceUID=${SOPInstanceUID || 'unknown'}`,
+          error
+        );
+        return;
+      }
+
+      await new Promise(resolve => window.setTimeout(resolve, 400));
+    }
   }
 }
 

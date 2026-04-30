@@ -659,7 +659,9 @@ export default class HangingProtocolService extends PubSubService {
     const { displaySetService } = this._servicesManager.services;
     const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
     if (displaySet?.unsupported) {
-      throw new Error('Unsupported displaySet');
+      // Unsupported display sets (e.g. certain SR flows) should not crash
+      // interaction callbacks. Skip HP-driven updates for these items.
+      return [];
     }
     const protocol = this.protocol;
     const protocolStage = protocol.stages[this.stageIndex];

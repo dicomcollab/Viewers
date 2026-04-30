@@ -37,7 +37,7 @@ const commandsModule = ({
   servicesManager,
   extensionManager,
 }: Types.Extensions.ExtensionParams): Types.Extensions.CommandsModule => {
-  const { segmentationService, displaySetService, viewportGridService } =
+  const { segmentationService, displaySetService, viewportGridService, uiNotificationService } =
     servicesManager.services as AppTypes.Services;
 
   const actions = {
@@ -278,12 +278,28 @@ const commandsModule = ({
      *
      */
     downloadRTSS: async ({ segmentationId }) => {
-      const segmentations = segmentationService.getSegmentation(segmentationId);
+      const segmentationInOHIF = segmentationService.getSegmentation(segmentationId);
+      const segmentationInTools = cornerstoneToolsSegmentation.state.getSegmentation(segmentationId);
+
+      if (!segmentationInTools?.representationData?.Labelmap) {
+        uiNotificationService.show({
+          title: 'RTSS export',
+          message:
+            'RT Structure Set export currently requires a labelmap segmentation. Please export a labelmap-based segmentation.',
+          type: 'warning',
+          duration: 5000,
+        });
+        return;
+      }
 
       // inject colors to the segmentIndex
       const firstRepresentation =
         segmentationService.getRepresentationsForSegmentation(segmentationId)[0];
-      Object.entries(segmentations.segments).forEach(([segmentIndex, segment]) => {
+      Object.entries(segmentationInOHIF.segments).forEach(([segmentIndex, segment]) => {
+        if (!segment) {
+          return;
+        }
+
         segment.color = segmentationService.getSegmentColor(
           firstRepresentation.viewportId,
           segmentationId,
@@ -291,13 +307,13 @@ const commandsModule = ({
         );
       });
 
-      const RTSS = await generateRTSSFromSegmentations(
-        segmentations,
-        classes.MetadataProvider,
-        DicomMetadataStore
-      );
-
       try {
+        const RTSS = await generateRTSSFromSegmentations(
+          segmentationInOHIF,
+          classes.MetadataProvider,
+          DicomMetadataStore
+        );
+
         const reportBlob = datasetToBlob(RTSS);
 
         //Create a URL for the binary.
@@ -305,6 +321,13 @@ const commandsModule = ({
         window.location.assign(objectUrl);
       } catch (e) {
         console.warn(e);
+        uiNotificationService.show({
+          title: 'RTSS export failed',
+          message:
+            'Failed to generate RT Structure Set from the current segmentation. Check console logs for details.',
+          type: 'error',
+          duration: 5000,
+        });
       }
     },
     toggleActiveSegmentationUtility: ({ itemId: buttonId }) => {

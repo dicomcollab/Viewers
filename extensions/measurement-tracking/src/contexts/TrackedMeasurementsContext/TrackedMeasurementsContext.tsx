@@ -139,6 +139,7 @@ function TrackedMeasurementsContextProvider(
     showStructuredReportDisplaySetInActiveViewport: (ctx, evt) => {
       const createdDisplaySetUID = evt?.data?.createdDisplaySetInstanceUIDs?.[0];
       const createdSRSOPInstanceUID = evt?.data?.createdSRSOPInstanceUID;
+      const targetViewportId = evt?.data?.viewportId || viewportGridService.getState().activeViewportId;
       let structuredReportDisplaySetUID = createdDisplaySetUID;
 
       if (!structuredReportDisplaySetUID && createdSRSOPInstanceUID) {
@@ -186,8 +187,12 @@ function TrackedMeasurementsContextProvider(
         structuredReportDisplaySetUID
       );
       const openStructuredReportInViewport = () => {
+        if (!targetViewportId) {
+          return;
+        }
+
         viewportGridService.setDisplaySetsForViewport({
-          viewportId: evt.data.viewportId,
+          viewportId: targetViewportId,
           displaySetInstanceUIDs: [structuredReportDisplaySetUID],
         });
       };
@@ -242,6 +247,13 @@ function TrackedMeasurementsContextProvider(
       });
     },
     updatedViewports: (ctx, evt) => {
+      const createdDisplaySetUID = evt?.data?.createdDisplaySetInstanceUIDs?.[0];
+      if (createdDisplaySetUID) {
+        // A newly created SR was just opened in the viewport. Skipping hanging protocol
+        // updates avoids immediately switching back to the referenced image series.
+        return;
+      }
+
       const { hangingProtocolService } = servicesManager.services;
       const { displaySetInstanceUID, viewportId } = evt.data ?? evt;
 

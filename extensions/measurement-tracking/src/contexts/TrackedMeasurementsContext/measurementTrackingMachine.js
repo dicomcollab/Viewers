@@ -237,6 +237,7 @@ const machineConfiguration = {
               'clearAllMeasurements',
               'clearDisplaySetHydratedState',
               'setIsDirty',
+              'showStructuredReportDisplaySetInActiveViewport',
               'updatedViewports',
             ],
             cond: 'simplifiedAndLoadSR',
@@ -246,7 +247,7 @@ const machineConfiguration = {
           // - keep current viewport; user can open SR explicitly from study browser
           {
             target: 'idle',
-            actions: ['clearAllMeasurements'],
+            actions: ['clearAllMeasurements', 'showStructuredReportDisplaySetInActiveViewport'],
             cond: 'shouldSaveAndContinueWithSameReport',
           },
           // "starting a new report"
@@ -254,7 +255,11 @@ const machineConfiguration = {
           // - start tracking a new study + report
           {
             target: 'tracking',
-            actions: ['discardPreviouslyTrackedMeasurements', 'setTrackedStudyAndSeries'],
+            actions: [
+              'discardPreviouslyTrackedMeasurements',
+              'setTrackedStudyAndSeries',
+              'showStructuredReportDisplaySetInActiveViewport',
+            ],
             cond: 'shouldSaveAndStartNewReport',
           },
           // Cancel, back to tracking

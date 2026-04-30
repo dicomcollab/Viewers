@@ -28,6 +28,12 @@ const dicomRT = {
   viewport: '@ohif/extension-cornerstone-dicom-rt.viewportModule.dicom-rt',
   sopClassHandler: '@ohif/extension-cornerstone-dicom-rt.sopClassHandlerModule.dicom-rt',
 };
+
+const dicomSR = {
+  viewport: '@ohif/extension-cornerstone-dicom-sr.viewportModule.dicom-sr',
+  sopClassHandler: '@ohif/extension-cornerstone-dicom-sr.sopClassHandlerModule.dicom-sr',
+  sopClassHandler3D: '@ohif/extension-cornerstone-dicom-sr.sopClassHandlerModule.dicom-sr-3d',
+};
 /**
  * Just two dependencies to be able to render a viewport with panels in order
  * to make sure that the mode is working.
@@ -37,6 +43,7 @@ const extensionDependencies = {
   '@ohif/extension-cornerstone': '^3.0.0',
   '@ohif/extension-cornerstone-dicom-seg': '^3.0.0',
   '@ohif/extension-cornerstone-dicom-rt': '^3.0.0',
+  '@ohif/extension-cornerstone-dicom-sr': '^3.0.0',
 };
 
 function modeFactory({ modeConfiguration }) {
@@ -257,6 +264,10 @@ function modeFactory({ modeConfiguration }) {
                   namespace: dicomRT.viewport,
                   displaySetsToDisplay: [dicomRT.sopClassHandler],
                 },
+                {
+                  namespace: dicomSR.viewport,
+                  displaySetsToDisplay: [dicomSR.sopClassHandler, dicomSR.sopClassHandler3D],
+                },
               ],
             },
           };
@@ -270,7 +281,13 @@ function modeFactory({ modeConfiguration }) {
     // The example is used for a grid layout to specify that as a preferred layout
     hangingProtocol: ['@ohif/mnGrid'],
     /** SopClassHandlers used by the mode */
-    sopClassHandlers: [ohif.sopClassHandler, segmentation.sopClassHandler, dicomRT.sopClassHandler],
+    sopClassHandlers: [
+      ohif.sopClassHandler,
+      segmentation.sopClassHandler,
+      dicomRT.sopClassHandler,
+      dicomSR.sopClassHandler,
+      dicomSR.sopClassHandler3D,
+    ],
   };
 }
 

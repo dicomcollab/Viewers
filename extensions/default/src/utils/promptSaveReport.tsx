@@ -12,7 +12,10 @@ const { filterAnd, filterMeasurementsByStudyUID, filterMeasurementsBySeriesUID }
 async function promptSaveReport({ servicesManager, commandsManager, extensionManager }, ctx, evt) {
   const { measurementService, displaySetService } = servicesManager.services;
   const viewportId = evt.viewportId === undefined ? evt.data.viewportId : evt.viewportId;
-  const isBackupSave = evt.isBackupSave === undefined ? evt.data.isBackupSave : evt.isBackupSave;
+  const isBackupSave =
+    evt.isBackupSave === undefined
+      ? (evt.data?.isBackupSave ?? false)
+      : (evt.isBackupSave ?? false);
   const StudyInstanceUID = evt?.data?.StudyInstanceUID || ctx.trackedStudy;
   const SeriesInstanceUID = evt?.data?.SeriesInstanceUID;
   const { displaySetInstanceUID } = evt.data ?? evt;
@@ -71,12 +74,19 @@ async function promptSaveReport({ servicesManager, commandsManager, extensionMan
       displaySetInstanceUIDs = await createReportAsync({
         servicesManager,
         getReport,
+        dataSource,
       });
 
       const createdDisplaySetUID = displaySetInstanceUIDs?.[0];
       if (createdDisplaySetUID) {
         const createdDisplaySet = displaySetService.getDisplaySetByUID(createdDisplaySetUID);
         createdSRSOPInstanceUID = createdDisplaySet?.SOPInstanceUID;
+
+        // Force a full refresh after SR creation so the viewer re-initializes
+        // against server-side metadata/instances and opens SR consistently.
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 150);
       }
     } else if (promptResult.action === PROMPT_RESPONSES.CANCEL) {
       // Do nothing
