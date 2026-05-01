@@ -946,6 +946,8 @@ window.config = {
   /** “← Report” → POST viewDicomImg, then Synapse `/createreport/{dicomData._id}/{studyUID}?tempId=`. */
   risReportUseViewDicomApi: true,
   risApiBase: RIS_API_BASE,
+  // SR text push endpoint (used by SR text viewport "Send SR Text to RIS" button)
+  risSrTextUploadPath: '/api/v1/structured-report/send-text',
   keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images/upload`,
   // For curl-style basic auth: -u "USER:PASS"
   // Prefer setting this via dynamic config / env per deployment (do not commit real creds).
