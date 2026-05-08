@@ -4,6 +4,12 @@
 // It will be sent as: Authorization: Basic QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV
 const DEMO_TOKEN = 'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz'; // Replace with your actual token (e.g., "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV")
 
+/**
+ * Base64(user:pass) for URLs under /external/viewer — Authorization: Basic …
+ * No cookie/session token required for PACS on that route. Change per environment.
+ */
+const EXTERNAL_VIEWER_BASIC_TOKEN = DEMO_TOKEN;
+
 // Demo study UID - Only this study will use the demo token
 const DEMO_STUDY_UID = '1.2.840.113619.2.55.3.4271045733.996.1449464144.595';
 
@@ -217,6 +223,49 @@ function getDemoToken() {
   return null;
 }
 
+/**
+ * Pathname relative to router basename (matches React Router), for auth route checks.
+ */
+function getAppPathnameForAuthRoutes() {
+  if (typeof window === 'undefined' || !window.location) {
+    return '';
+  }
+  let path = window.location.pathname || '';
+  const cfg = window.config || {};
+  let basename = cfg.routerBasename;
+  if (basename == null || basename === '') {
+    basename = typeof window.PUBLIC_URL !== 'undefined' && window.PUBLIC_URL ? window.PUBLIC_URL : '/';
+  }
+  basename = String(basename).replace(/\/$/, '');
+  if (basename && basename !== '/' && path.startsWith(basename)) {
+    path = path.slice(basename.length) || '/';
+  }
+  if (path && !path.startsWith('/')) {
+    path = '/' + path;
+  }
+  return path;
+}
+
+/** Longitudinal viewer opened as /external/viewer — same UI as /viewer, fixed Basic auth to PACS */
+function isExternalViewerRoute() {
+  const path = getAppPathnameForAuthRoutes();
+  return path === '/external/viewer' || path.startsWith('/external/viewer/');
+}
+
+/** Credential used for DICOMweb when pathname is /external/viewer (or /external/viewer/:source) */
+function getExternalViewerBasicToken() {
+  if (!isExternalViewerRoute()) {
+    return null;
+  }
+  if (
+    EXTERNAL_VIEWER_BASIC_TOKEN &&
+    EXTERNAL_VIEWER_BASIC_TOKEN !== 'YOUR_EXTERNAL_VIEWER_BASIC_TOKEN_HERE'
+  ) {
+    return EXTERNAL_VIEWER_BASIC_TOKEN;
+  }
+  return null;
+}
+
 // Share link (ShortCode) - RIS API base and basic token for PACS when viewing via share link
 const RIS_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
 /** Synapse / RIS web portal origin. Align with platform/core risEnvironmentDefaults fallbacks when changing. */
@@ -298,6 +347,8 @@ if (typeof window !== 'undefined') {
   window.DEMO_STUDY_UID = DEMO_STUDY_UID;
   window.isDemoRoute = isDemoRoute;
   window.getDemoToken = getDemoToken;
+  window.isExternalViewerRoute = isExternalViewerRoute;
+  window.getExternalViewerBasicToken = getExternalViewerBasicToken;
   // Share link (ShortCode) helpers
   window.getShortCodeFromUrl = getShortCodeFromUrl;
   window.checkShortCodeExpiry = checkShortCodeExpiry;

@@ -277,6 +277,14 @@ function loadJPEGImage(imageId) {
 
       const token = getTokenFromCookie();
 
+      // /external/viewer: same fixed Basic credential as DicomWebDataSource (JPEG XHR bypasses userAuthenticationService)
+      const externalViewerBasic =
+        typeof window !== 'undefined' &&
+        window.getExternalViewerBasicToken &&
+        typeof window.getExternalViewerBasicToken === 'function'
+          ? window.getExternalViewerBasicToken()
+          : null;
+
       // Check if we're on a demo route and use demo token
       const isDemo =
         typeof window !== 'undefined' &&
@@ -301,7 +309,9 @@ function loadJPEGImage(imageId) {
 
       // Build authorization header
       let authHeader = '';
-      if (isDemo && demoToken) {
+      if (externalViewerBasic) {
+        authHeader = `Basic ${externalViewerBasic}`;
+      } else if (isDemo && demoToken) {
         authHeader = `Basic ${demoToken}`;
       } else if (shareLinkToken) {
         authHeader = `Basic ${shareLinkToken}`;

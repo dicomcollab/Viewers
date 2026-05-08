@@ -169,6 +169,19 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
 
+        // /external/viewer: embedded link with fixed Basic auth (no cookie/session)
+        const externalViewerBasic =
+          typeof window !== 'undefined' &&
+          (window as unknown as { getExternalViewerBasicToken?: () => string | null }).getExternalViewerBasicToken &&
+          typeof (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken ===
+            'function'
+            ? (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken()
+            : null;
+        if (externalViewerBasic) {
+          xhrRequestHeaders.Authorization = `Basic ${externalViewerBasic}`;
+          return xhrRequestHeaders;
+        }
+
         const isAzureDicomV2 = dicomWebConfig.isAzureDicomV2 === true;
         const preferCookieAuth =
           typeof window !== 'undefined' &&

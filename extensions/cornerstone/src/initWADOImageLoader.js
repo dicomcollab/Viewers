@@ -580,6 +580,13 @@ export default function initWADOImageLoader(
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};
 
+      const externalViewerBasic =
+        typeof window !== 'undefined' &&
+        window.getExternalViewerBasicToken &&
+        typeof window.getExternalViewerBasicToken === 'function'
+          ? window.getExternalViewerBasicToken()
+          : null;
+
       // Check if we're on a demo route and use demo token
       const isDemo =
         typeof window !== 'undefined' &&
@@ -595,7 +602,11 @@ export default function initWADOImageLoader(
           : null;
 
       let headers;
-      if (isDemo && demoToken) {
+      if (externalViewerBasic) {
+        headers = {
+          Authorization: `Basic ${externalViewerBasic}`,
+        };
+      } else if (isDemo && demoToken) {
         // Use Basic auth for demo token
         headers = {
           Authorization: `Basic ${demoToken}`,

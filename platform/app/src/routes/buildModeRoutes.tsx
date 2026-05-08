@@ -39,12 +39,12 @@ export default function buildModeRoutes({
     }
   });
 
-  modes.forEach(mode => {
-    // todo: for each route. add route to path.
-    dataSourceNames.forEach(dataSourceName => {
-      const path = `${mode.routeName}/${dataSourceName}`;
+  const pushModeRoutes = (mode: { routeName: string }, pathPrefix?: string) => {
+    const prefix = pathPrefix ? `${pathPrefix}/` : '';
 
-      // TODO move up.
+    dataSourceNames.forEach(dataSourceName => {
+      const path = `${prefix}${mode.routeName}/${dataSourceName}`;
+
       const children = () => (
         <ModeRoute
           mode={mode}
@@ -63,11 +63,8 @@ export default function buildModeRoutes({
       });
     });
 
-    // Add active DataSource route.
-    // This is the DataSource route for the active data source defined in ExtensionManager.getActiveDataSource
-    const path = `${mode.routeName}`;
+    const path = `${prefix}${mode.routeName}`;
 
-    // TODO move up.
     const children = () => (
       <ModeRoute
         mode={mode}
@@ -83,6 +80,14 @@ export default function buildModeRoutes({
       children,
       private: true,
     });
+  };
+
+  modes.forEach(mode => {
+    pushModeRoutes(mode);
+    // Embedded viewer: same longitudinal mode as /viewer but PACS uses fixed Basic auth (see default.js getExternalViewerBasicToken).
+    if (mode.routeName === 'viewer') {
+      pushModeRoutes(mode, 'external');
+    }
   });
 
   return routes;

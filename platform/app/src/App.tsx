@@ -239,6 +239,20 @@ function App({
 
   if (shouldUseCookieAuth) {
     const getAuthorizationHeader = () => {
+      // /external/viewer: fixed Basic auth for PACS (no cookie token)
+      const externalViewerBasic =
+        typeof window !== 'undefined' &&
+        (window as unknown as { getExternalViewerBasicToken?: () => string | null }).getExternalViewerBasicToken &&
+        typeof (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken ===
+          'function'
+          ? (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken()
+          : null;
+      if (externalViewerBasic) {
+        return {
+          Authorization: `Basic ${externalViewerBasic}`,
+        };
+      }
+
       const appCfg = typeof window !== 'undefined'
         ? (window as unknown as {
             config?: { pacsIntegration?: string; azurePacsPreferCookieAuth?: boolean };
