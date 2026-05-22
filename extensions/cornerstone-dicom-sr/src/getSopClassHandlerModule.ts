@@ -33,11 +33,20 @@ type InstanceMetadata = OhifTypes.InstanceMetadata;
  * - [ ] Get stacks from referenced displayInstanceUID and load into wrapped CornerStone viewport
  */
 
+// All DICOM SR storage SOP classes (incl. dose / CAD reports shown as "SR Dose Report", etc.)
 const sopClassUids = [
   sopClassDictionary.BasicTextSR,
   sopClassDictionary.EnhancedSR,
   sopClassDictionary.ComprehensiveSR,
   sopClassDictionary.Comprehensive3DSR,
+  sopClassDictionary.ProcedureLog,
+  sopClassDictionary.MammographyCADSR,
+  sopClassDictionary.KeyObjectSelection,
+  sopClassDictionary.ChestCADSR,
+  sopClassDictionary.XRayRadiationDoseSR,
+  sopClassDictionary.RadiopharmaceuticalRadiationDoseSR,
+  sopClassDictionary.ColonCADSR,
+  sopClassDictionary.ImplantationPlanSRDocumentStorage,
 ];
 
 const validateSameStudyUID = (uid: string, instances): void => {
@@ -396,8 +405,8 @@ async function _fetchSRInstanceViaWadoUri({
 }
 
 function _resolveWadoUriBase(config: Record<string, unknown> = {}) {
-  const explicitWadoUri = config?.wadoUri;
-  if (explicitWadoUri) {
+  const explicitWadoUri = config?.wadoUri ?? config?.wadoUriRoot;
+  if (explicitWadoUri && typeof explicitWadoUri === 'string') {
     return explicitWadoUri;
   }
 

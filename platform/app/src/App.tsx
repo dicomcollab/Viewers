@@ -87,29 +87,39 @@ function App({
   // Suppress known transient VTK shader crash during rapid advanced layout switches
   // (MPR/axial-primary/3D). This prevents the React runtime overlay from interrupting workflow.
   useEffect(() => {
-    const shouldSuppressIsAttributeUsedError = (value: unknown) => {
+    const shouldSuppressBenignViewerError = (value: unknown) => {
       const text = String(value ?? '');
-      return text.includes('isAttributeUsed');
+      if (!text || text === '[object Object]') {
+        return false;
+      }
+      return (
+        text.includes('isAttributeUsed') ||
+        text.includes('pixel data is missing') ||
+        text.includes('The pixel data is missing') ||
+        text.includes('request failed') ||
+        text.includes('Cannot convert undefined or null to object') ||
+        text.includes('loading aborted') ||
+        text.includes('request was aborted')
+      );
     };
 
     const onWindowError = (event: ErrorEvent) => {
       const message = event?.message ?? '';
       const stack = event?.error?.stack ?? '';
-      if (shouldSuppressIsAttributeUsedError(message) || shouldSuppressIsAttributeUsedError(stack)) {
+      if (shouldSuppressBenignViewerError(message) || shouldSuppressBenignViewerError(stack)) {
         event.preventDefault();
-        // Some runtime overlays subscribe before our handler; stop propagation too.
         event.stopImmediatePropagation?.();
       }
     };
 
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
       const reason = event?.reason as any;
-      const reasonMessage = reason?.message ?? reason?.toString?.() ?? '';
+      const reasonMessage = reason?.message ?? (typeof reason === 'string' ? reason : '');
       const reasonStack = reason?.stack ?? '';
-      if (
-        shouldSuppressIsAttributeUsedError(reasonMessage) ||
-        shouldSuppressIsAttributeUsedError(reasonStack)
-      ) {
+      const reasonText =
+        reasonMessage ||
+        (reason && typeof reason === 'object' ? JSON.stringify(reason) : String(reason ?? ''));
+      if (shouldSuppressBenignViewerError(reasonText) || shouldSuppressBenignViewerError(reasonStack)) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
       }
@@ -119,7 +129,7 @@ function App({
     window.onerror = function (message, source, lineno, colno, error) {
       const msg = typeof message === 'string' ? message : String(message ?? '');
       const stack = (error as any)?.stack ?? '';
-      if (shouldSuppressIsAttributeUsedError(msg) || shouldSuppressIsAttributeUsedError(stack)) {
+      if (shouldSuppressBenignViewerError(msg) || shouldSuppressBenignViewerError(stack)) {
         return true;
       }
       if (typeof previousOnError === 'function') {
@@ -142,7 +152,7 @@ function App({
       hook.reportRuntimeError = (error: unknown) => {
         const msg = (error as any)?.message ?? String(error ?? '');
         const stack = (error as any)?.stack ?? '';
-        if (shouldSuppressIsAttributeUsedError(msg) || shouldSuppressIsAttributeUsedError(stack)) {
+        if (shouldSuppressBenignViewerError(msg) || shouldSuppressBenignViewerError(stack)) {
           return;
         }
         return originalReportRuntimeError.call(hook, error);

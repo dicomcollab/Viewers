@@ -1,8 +1,28 @@
 import { imageLoader } from '@cornerstonejs/core';
+import dicomImageLoader from '@cornerstonejs/dicom-image-loader';
 import {
   isRedirectToRisOn401Enabled,
   resolveRis401RedirectUrlFromConfig,
 } from './risRedirectConfig.js';
+import { syncImageNumberOfComponents } from './syncImageNumberOfComponents.js';
+import { ensureImagePreScale } from './ensureImagePreScale.js';
+
+export function isJpegWadoUriImageId(imageId) {
+  if (!imageId || typeof imageId !== 'string') {
+    return false;
+  }
+  const url = imageId.includes(':') ? imageId.substring(imageId.indexOf(':') + 1) : imageId;
+  return (
+    url.includes('contentType=image/jpeg') || url.includes('contentType=image%2Fjpeg')
+  );
+}
+
+function toDicomwebJpegImageId(imageId) {
+  if (imageId.startsWith('dicomweb-jpeg:')) {
+    return imageId;
+  }
+  return `dicomweb-jpeg:${imageId.replace(/^dicomweb:/i, '')}`;
+}
 
 function dispatchJPEGLoadProgress(imageId, progress, lengthComputable = true) {
   if (typeof window === 'undefined') {
@@ -61,7 +81,7 @@ function detectColorImage(imageData, width, height) {
 /**
  * Process JPEG image and convert to Cornerstone format
  */
-async function processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve, reject) {
+async function processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject) {
   const img = new Image();
 
   img.onload = () => {
@@ -73,14 +93,6 @@ async function processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve
       ctx.drawImage(img, 0, 0);
 
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      // Debug: Check if we're getting actual image data
-      console.log('Image Debug:', {
-        width: imageData.width,
-        height: imageData.height,
-        first20Pixels: Array.from(imageData.data.slice(0, 20)),
-        frameNumber: frameNumber,
-      });
 
       let pixelData, color, rgba, photometricInterpretation, samplesPerPixel, sizeInBytes;
 
@@ -101,18 +113,8 @@ async function processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve
         jpegUrl.toLowerCase().includes('heart') ||
         jpegUrl.toLowerCase().includes('ultrasound');
 
-      // Force color for multi-frame images (echocardiograms are typically multi-frame and color)
-      const isMultiFrame = frameNumber !== null && frameNumber !== undefined;
-      const isColorImage = detectedAsColor || isFundusByUrl || isEchoByUrl || isMultiFrame;
-
-      console.log('Color Detection Result:', {
-        detectedAsColor: detectedAsColor,
-        isFundusByUrl: isFundusByUrl,
-        isEchoByUrl: isEchoByUrl,
-        isMultiFrame: isMultiFrame,
-        isColorImage: isColorImage,
-        frameNumber: frameNumber,
-      });
+      // Do not treat multi-frame URLs as color (OT OCT and other modalities use &frame= for grayscale).
+      const isColorImage = detectedAsColor || isFundusByUrl || isEchoByUrl;
 
       if (isColorImage) {
         // Convert RGBA to RGB for color images
@@ -169,11 +171,15 @@ async function processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve
         bitsAllocated: 8,
         bitsStored: 8,
         samplesPerPixel: samplesPerPixel,
+        numberOfComponents: samplesPerPixel,
         planarConfiguration: 0,
         pixelRepresentation: 0,
       };
 
-      // Mark this image as fully ready for UI loaders that rely on progress events.
+      syncImageNumberOfComponents(image);
+      ensureImagePreScale(image);
+
+      // Mark this image is fully ready for UI loaders that rely on progress events.
       // We don't get streaming progress from `fetch()` here, but we can guarantee completion.
       dispatchJPEGLoadProgress(imageId, 1, true);
       resolve(image);
@@ -256,11 +262,7 @@ function loadJPEGImage(imageId) {
       // Handle both 'dicomweb-jpeg:' and 'dicomweb:' prefixes
       let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
 
-      // Extract frame number from URL parameters
-      const dicomUrlParams = new URLSearchParams(dicomUrl.split('?')[1] || '');
-      const frameNumber = dicomUrlParams.get('frame');
-
-      // Remove frame parameter from URL if present (we'll add it back if needed)
+      // Strip frame query param; WADO-URI frame is already encoded in the request URL when needed.
       const urlWithoutFrame = dicomUrl.split('&frame=')[0];
 
       // Ensure contentType is image/jpeg (replace if it's application/dicom)
@@ -352,7 +354,7 @@ function loadJPEGImage(imageId) {
             return;
           }
           dispatchJPEGLoadProgress(imageId, 1, true);
-          processJPEGImage(jpegBlob, imageId, jpegUrl, frameNumber, resolve, reject);
+          processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject);
         } catch (err) {
           reject(err);
         }
@@ -383,19 +385,34 @@ function loadJPEGImage(imageId) {
 }
 
 /**
+ * Route dicomweb: JPEG WADO-URI through the JPEG loader (DICOM parser cannot read JPEG bytes).
+ * Must run after dicomImageLoader.init() so wadouri.loadImage exists.
+ */
+function wrapDicomwebLoaderForJpeg() {
+  const dicomwebLoader =
+    typeof dicomImageLoader?.wadouri?.loadImage === 'function'
+      ? imageId => dicomImageLoader.wadouri.loadImage(imageId)
+      : null;
+
+  imageLoader.registerImageLoader('dicomweb', imageId => {
+    if (isJpegWadoUriImageId(imageId)) {
+      return loadJPEGImage(toDicomwebJpegImageId(imageId));
+    }
+    if (!dicomwebLoader) {
+      throw new Error(`No DICOM loader available for imageId: ${imageId}`);
+    }
+    return dicomwebLoader(imageId);
+  });
+}
+
+/**
  * Register the JPEG image loader with Cornerstone
  */
 export function registerJPEGImageLoader() {
   try {
-    // Register a custom image loader for JPEG images
     imageLoader.registerImageLoader('jpeg', loadJPEGImage);
-
-    // Also register it for dicomweb-jpeg protocol to intercept JPEG requests
     imageLoader.registerImageLoader('dicomweb-jpeg', loadJPEGImage);
-
-    // Note: We don't register for 'dicomweb' protocol as it would override the default loader
-    // Instead, the wadouriTransform in getImageId.js will ensure URLs have contentType=image/jpeg
-    // and the JPEG loader will be called via the 'dicomweb-jpeg' protocol or we can check in the loader itself
+    wrapDicomwebLoaderForJpeg();
     console.log('JPEG Image Loader registered successfully');
   } catch (error) {
     console.error('Error registering JPEG Image Loader:', error);

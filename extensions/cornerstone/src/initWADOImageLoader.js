@@ -452,14 +452,6 @@ export default function initWADOImageLoader(
   // XHR hook: WADO/DICOM download % (all formats using dicom-image-loader XHR) + optional cache
   interceptXHRForImageCaching();
 
-  // Register JPEG image loader when data source is localviewer-image-jpeg
-  const activeDataSource = extensionManager.getActiveDataSource()?.[0];
-  const dataSourceName = activeDataSource?.sourceName || appConfig.defaultDataSourceName;
-
-  if (dataSourceName === 'localviewer-image-jpeg') {
-    registerJPEGImageLoader();
-  }
-
   // Wrap loadFileRequest with caching (only once)
   if (!isWrapped && originalLoadFileRequest) {
     const wrappedLoadFileRequest = async function(imageId) {
@@ -635,6 +627,9 @@ export default function initWADOImageLoader(
       errorHandler.getHTTPErrorHandler();
     },
   });
+
+  // After dicomImageLoader.init — wrap dicomweb: so JPEG WADO-URI is not parsed as DICOM.
+  registerJPEGImageLoader();
 }
 
 export function destroy() {

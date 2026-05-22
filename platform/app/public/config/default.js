@@ -2,7 +2,8 @@
 // This will be sent as: Authorization: Basic YOUR_TOKEN
 // Example: If token is "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV"
 // It will be sent as: Authorization: Basic QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV
-const DEMO_TOKEN = 'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz'; // Replace with your actual token (e.g., "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV")
+const DEMO_TOKEN =
+  'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz'; // Replace with your actual token (e.g., "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV")
 
 /**
  * Base64(user:pass) for URLs under /external/viewer — Authorization: Basic …
@@ -102,7 +103,10 @@ function updateAzurePacsTokenEverywhere(newToken) {
     }
     if (!AZURE_PACS_PREFER_COOKIE_AUTH && window.config && window.config.dataSources) {
       window.config.dataSources.forEach(function (ds) {
-        if (ds.configuration && Object.prototype.hasOwnProperty.call(ds.configuration, 'azureToken')) {
+        if (
+          ds.configuration &&
+          Object.prototype.hasOwnProperty.call(ds.configuration, 'azureToken')
+        ) {
           ds.configuration.azureToken = newToken;
         }
       });
@@ -129,12 +133,16 @@ var FRAME_RETRIEVAL_DATA_SOURCE_OPTIONS = [
   {
     sourceName: 'frame-multipart-octet-default',
     friendlyName: 'Multipart octet-stream (default 1.2.840.10008.1.2.1)',
-    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1'],
+    acceptHeader: [
+      'multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1',
+    ],
   },
   {
     sourceName: 'frame-multipart-octet-explicit',
     friendlyName: 'Multipart octet-stream (Little Endian Explicit)',
-    acceptHeader: ['multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1'],
+    acceptHeader: [
+      'multipart/related; type="application/octet-stream"; transfer-syntax=1.2.840.10008.1.2.1',
+    ],
   },
   {
     sourceName: 'frame-multipart-jp2-default',
@@ -234,7 +242,8 @@ function getAppPathnameForAuthRoutes() {
   const cfg = window.config || {};
   let basename = cfg.routerBasename;
   if (basename == null || basename === '') {
-    basename = typeof window.PUBLIC_URL !== 'undefined' && window.PUBLIC_URL ? window.PUBLIC_URL : '/';
+    basename =
+      typeof window.PUBLIC_URL !== 'undefined' && window.PUBLIC_URL ? window.PUBLIC_URL : '/';
   }
   basename = String(basename).replace(/\/$/, '');
   if (basename && basename !== '/' && path.startsWith(basename)) {
@@ -294,7 +303,11 @@ async function checkShortCodeExpiry(shortCode) {
   if (!shortCode) return { error: true, errorMessage: 'No shortCode' };
 
   const now = Date.now();
-  if (_shareLinkExpiryCache.shortCode === shortCode && _shareLinkExpiryCache.apiResponse != null && (now - _shareLinkExpiryCache.ts) < SHARE_LINK_EXPIRY_CACHE_MS) {
+  if (
+    _shareLinkExpiryCache.shortCode === shortCode &&
+    _shareLinkExpiryCache.apiResponse != null &&
+    now - _shareLinkExpiryCache.ts < SHARE_LINK_EXPIRY_CACHE_MS
+  ) {
     if (typeof window !== 'undefined' && _shareLinkExpiryCache.expiryState) {
       window['_shareLinkExpiry'] = _shareLinkExpiryCache.expiryState;
     }
@@ -305,13 +318,24 @@ async function checkShortCodeExpiry(shortCode) {
   try {
     const res = await fetch(url);
     const json = await res.json();
-    const expiryState = json.error === false && json.data
-      ? { shortCode: json.data.shortCode, isExpired: json.data.isExpired, expiresAt: json.data.expiresAt, studyInstanceUID: json.data.studyInstanceUID }
-      : { isExpired: true };
+    const expiryState =
+      json.error === false && json.data
+        ? {
+            shortCode: json.data.shortCode,
+            isExpired: json.data.isExpired,
+            expiresAt: json.data.expiresAt,
+            studyInstanceUID: json.data.studyInstanceUID,
+          }
+        : { isExpired: true };
     if (typeof window !== 'undefined') {
       window['_shareLinkExpiry'] = expiryState;
     }
-    _shareLinkExpiryCache = { apiResponse: json, expiryState: expiryState, shortCode: shortCode, ts: now };
+    _shareLinkExpiryCache = {
+      apiResponse: json,
+      expiryState: expiryState,
+      shortCode: shortCode,
+      ts: now,
+    };
     return json;
   } catch (err) {
     const expiryState = { isExpired: true, error: err?.message };
@@ -319,7 +343,12 @@ async function checkShortCodeExpiry(shortCode) {
       window['_shareLinkExpiry'] = expiryState;
     }
     const apiResponse = { error: true, errorMessage: err?.message || 'check-expiry failed' };
-    _shareLinkExpiryCache = { apiResponse: apiResponse, expiryState: expiryState, shortCode: shortCode, ts: now };
+    _shareLinkExpiryCache = {
+      apiResponse: apiResponse,
+      expiryState: expiryState,
+      shortCode: shortCode,
+      ts: now,
+    };
     return apiResponse;
   }
 }
@@ -336,7 +365,9 @@ function getShareLinkBasicToken() {
   if (!isShareLinkMode()) return null;
   const result = getShareLinkExpiryResult();
   if (!result || result.isExpired) return null;
-  return SHARE_LINK_BASIC_TOKEN && SHARE_LINK_BASIC_TOKEN !== 'YOUR_DEMO_TOKEN_HERE' ? SHARE_LINK_BASIC_TOKEN : null;
+  return SHARE_LINK_BASIC_TOKEN && SHARE_LINK_BASIC_TOKEN !== 'YOUR_DEMO_TOKEN_HERE'
+    ? SHARE_LINK_BASIC_TOKEN
+    : null;
 }
 
 // Make demo token globally accessible for extensions
@@ -373,7 +404,14 @@ function getTokenFromCookie() {
     return demoToken;
   }
   // Otherwise get token from cookie: try token then patientToken (parent app may set either)
-  return getCookie('token') || getCookie('patientToken') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt') || null;
+  return (
+    getCookie('token') ||
+    getCookie('patientToken') ||
+    getCookie('accessToken') ||
+    getCookie('authToken') ||
+    getCookie('jwt') ||
+    null
+  );
 }
 
 // Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
@@ -408,7 +446,11 @@ function getCookie(name) {
 function parseCookieValue(value) {
   if (value == null || value === '') return value;
   const trimmed = String(value).trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || trimmed.startsWith('[') || trimmed.startsWith('{')) {
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('{')
+  ) {
     try {
       return JSON.parse(trimmed);
     } catch (_) {
@@ -474,7 +516,17 @@ function getPreferencesFromCookies() {
     }
   }
   const hasHotkeysParts = raw._hotkeysParts && Object.keys(raw._hotkeysParts).length > 0;
-  console.log('[getPreferencesFromCookies] userPreferences_ cookies found:', foundCookieNames, '| hotkeys parts:', hasHotkeysParts ? Object.keys(raw._hotkeysParts) : 'none', '| cookie names in document.cookie:', cookieString.split(';').map(s => s.trim().split('=')[0]).filter(Boolean));
+  console.log(
+    '[getPreferencesFromCookies] userPreferences_ cookies found:',
+    foundCookieNames,
+    '| hotkeys parts:',
+    hasHotkeysParts ? Object.keys(raw._hotkeysParts) : 'none',
+    '| cookie names in document.cookie:',
+    cookieString
+      .split(';')
+      .map(s => s.trim().split('=')[0])
+      .filter(Boolean)
+  );
   if (Object.keys(raw).length === 0 && !raw._hotkeysParts) return null;
 
   const prefs = {};
@@ -485,7 +537,12 @@ function getPreferencesFromCookies() {
       if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
       return String(a).localeCompare(String(b));
     });
-    console.log('[Hotkeys cookie] Found hotkeys parts:', indices, 'part0 length=', raw._hotkeysParts[indices[0]]?.length);
+    console.log(
+      '[Hotkeys cookie] Found hotkeys parts:',
+      indices,
+      'part0 length=',
+      raw._hotkeysParts[indices[0]]?.length
+    );
     const parts = indices.map(i => raw._hotkeysParts[i]);
     let hotkeysStr = (parts[0] || '') + (parts.slice(1).join('') || '');
     // When hotkeys are split across cookies, the boundary has ..."previousSta" + "ge"... => ..."previousSta""ge"... Remove the duplicate "" so we get ..."previousStage"...
@@ -498,9 +555,21 @@ function getPreferencesFromCookies() {
       prefs.hotkeys = Array.isArray(parsed) ? parsed : [];
       // [Hotkeys debug] Cookie hotkeys parsed
       const zoomIn = (prefs.hotkeys || []).find(h => h.commandName === 'scaleUpViewport');
-      console.log('[Hotkeys cookie] Parsed hotkeys count:', (prefs.hotkeys || []).length, 'Zoom In (scaleUpViewport) keys:', zoomIn?.keys, 'raw:', zoomIn);
+      console.log(
+        '[Hotkeys cookie] Parsed hotkeys count:',
+        (prefs.hotkeys || []).length,
+        'Zoom In (scaleUpViewport) keys:',
+        zoomIn?.keys,
+        'raw:',
+        zoomIn
+      );
     } catch (e) {
-      console.warn('[Hotkeys cookie] Parse failed:', e?.message || e, 'hotkeysStr length:', hotkeysStr?.length);
+      console.warn(
+        '[Hotkeys cookie] Parse failed:',
+        e?.message || e,
+        'hotkeysStr length:',
+        hotkeysStr?.length
+      );
       prefs.hotkeys = [];
     }
   }
@@ -509,7 +578,10 @@ function getPreferencesFromCookies() {
   if (raw.globalToolColor != null) prefs.globalToolColor = parseCookieValue(raw.globalToolColor);
   if (raw.mousePreferences != null) {
     try {
-      let parsed = typeof raw.mousePreferences === 'string' ? JSON.parse(raw.mousePreferences) : raw.mousePreferences;
+      let parsed =
+        typeof raw.mousePreferences === 'string'
+          ? JSON.parse(raw.mousePreferences)
+          : raw.mousePreferences;
       // Cookie may be double-encoded: "{\"bindings\":{\"WindowLevel\":\"Primary\",...}}"
       while (typeof parsed === 'string') {
         parsed = JSON.parse(parsed);
@@ -533,16 +605,28 @@ function getPreferencesFromCookies() {
   }
   if (raw.windowLevelPresets != null) {
     try {
-      prefs.windowLevelPresets = typeof raw.windowLevelPresets === 'string' ? JSON.parse(raw.windowLevelPresets) : raw.windowLevelPresets;
+      prefs.windowLevelPresets =
+        typeof raw.windowLevelPresets === 'string'
+          ? JSON.parse(raw.windowLevelPresets)
+          : raw.windowLevelPresets;
     } catch (_) {
       prefs.windowLevelPresets = raw.windowLevelPresets;
     }
   }
   if (raw.dataSourceFormat != null) prefs.dataSourceFormat = parseCookieValue(raw.dataSourceFormat);
 
-  const hasAny = prefs.hotkeys?.length > 0 || prefs.globalLineColor != null || prefs.globalTextColor != null ||
-    prefs.globalToolColor != null || (prefs.tools && (Array.isArray(prefs.tools) ? prefs.tools.length > 0 : Object.keys(prefs.tools).length > 0)) ||
-    (prefs.mousePreferences && Object.keys(prefs.mousePreferences).length > 0) || prefs.windowLevelPresets != null || prefs.dataSourceFormat != null;
+  const hasAny =
+    prefs.hotkeys?.length > 0 ||
+    prefs.globalLineColor != null ||
+    prefs.globalTextColor != null ||
+    prefs.globalToolColor != null ||
+    (prefs.tools &&
+      (Array.isArray(prefs.tools)
+        ? prefs.tools.length > 0
+        : Object.keys(prefs.tools).length > 0)) ||
+    (prefs.mousePreferences && Object.keys(prefs.mousePreferences).length > 0) ||
+    prefs.windowLevelPresets != null ||
+    prefs.dataSourceFormat != null;
   return hasAny ? prefs : null;
 }
 
@@ -560,7 +644,12 @@ async function fetchPreferences() {
       if (fromCookies != null) {
         _preferencesCache = fromCookies;
         const zoomIn = (fromCookies.hotkeys || []).find(h => h.commandName === 'scaleUpViewport');
-        console.log('[fetchPreferences] Using cookie preferences. Hotkeys count=', (fromCookies.hotkeys || []).length, 'Zoom In keys=', zoomIn?.keys);
+        console.log(
+          '[fetchPreferences] Using cookie preferences. Hotkeys count=',
+          (fromCookies.hotkeys || []).length,
+          'Zoom In keys=',
+          zoomIn?.keys
+        );
         return fromCookies;
       }
 
@@ -569,16 +658,13 @@ async function fetchPreferences() {
         console.warn('No token found in cookie');
         return null;
       }
-      const response = await fetch(
-        `${RIS_API_BASE}/api/v1/preferences/getPreferences`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            Token: token,
-          },
-        }
-      );
+      const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/getPreferences`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Token: token,
+        },
+      });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -609,17 +695,14 @@ async function savePreferences(payload) {
       console.warn('No token found in cookie');
       return null;
     }
-    const response = await fetch(
-      `${RIS_API_BASE}/api/v1/preferences/savePreferences`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Token: token,
-        },
-        body: JSON.stringify(payload || {}),
-      }
-    );
+    const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/savePreferences`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Token: token,
+      },
+      body: JSON.stringify(payload || {}),
+    });
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -650,8 +733,7 @@ function getDefaultDataSourceName() {
     console.log(`Using cached default data source: ${cachedDataSource}`);
     return cachedDataSource;
   }
-  const defaultName =
-    PACS_INTEGRATION === 'azurepacs' ? 'dicomweb' : 'localviewer-image-jpeg';
+  const defaultName = PACS_INTEGRATION === 'azurepacs' ? 'dicomweb' : 'localviewer-image-jpeg';
   console.log(`Using fallback default data source: ${defaultName}`);
   return defaultName;
 }
@@ -688,7 +770,9 @@ function getClinicalDicomWebDataSources() {
             transform: url => url.replace('/pixeldata.mp4', '/rendered'),
           },
           omitQuotationForMultipartRequest: false,
-          acceptHeader: ['multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90'],
+          acceptHeader: [
+            'multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90',
+          ],
           isAzureDicomV2: true,
           azureToken: token,
         },
@@ -801,7 +885,9 @@ function getClinicalDicomWebDataSources() {
             transform: url => url.replace('/pixeldata.mp4', '/rendered'),
           },
           omitQuotationForMultipartRequest: true,
-          acceptHeader: ['multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90'],
+          acceptHeader: [
+            'multipart/related; type="image/jp2";transfer-syntax=1.2.840.10008.1.2.4.90',
+          ],
           isAzureDicomV2: true,
           azureToken: token,
           onConfiguration: config => {
@@ -988,8 +1074,8 @@ window.config = {
   // createReportAppBaseUrl: 'http://localhost:5173',
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: true,
-  redirectToRisOn401: true,
+  redirectRootToRis: false,
+  redirectToRisOn401: false,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1031,7 +1117,7 @@ window.config = {
     // above, the number of requests can be go a lot higher.
     prefetch: 25,
   },
-  showErrorDetails: 'always', // 'always', 'dev', 'production'
+  showErrorDetails: 'dev', // 'always' | 'dev' (no full-screen overlay in production) | 'production'
   // RIS → viewer: postMessage LOAD_STUDY to reuse one tab (SPA navigate, no new tab / full reload).
   // Set enabled true and list your RIS origins (exact event.origin strings).
   risPostMessage: {
@@ -1315,7 +1401,9 @@ window.config = {
         '[DICOMweb] Auth rejected — check cookie token / Basic auth for your PACS (and ShortCode share link if used).'
       );
     } else if (status === 404) {
-      console.warn('[DICOMweb] Not found — study/series/instance may be missing or wrong data source.');
+      console.warn(
+        '[DICOMweb] Not found — study/series/instance may be missing or wrong data source.'
+      );
     } else if (status === 0 || status == null) {
       console.warn(
         '[DICOMweb] Status 0 / unknown — often CORS, blocked network, wrong HTTPS, or adblock.'

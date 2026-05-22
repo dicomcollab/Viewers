@@ -80,6 +80,15 @@ class MetadataProvider {
       if (customMetadata[imageURI]) {
         return customMetadata[imageURI];
       }
+      // Cornerstone PT GPU paths read scalingModule.scaled; avoid undefined when
+      // metadata is not ready yet or frame-specific imageIds were not registered.
+      if (query === 'scalingModule') {
+        return { scaled: false };
+      }
+    }
+
+    if (query === 'scalingModule') {
+      return { scaled: false };
     }
 
     return this.getTagFromInstance(query, instance, options);

@@ -47,26 +47,30 @@ export function cleanDenaturalizedDataset(
     return obj;
   }
   Object.keys(obj).forEach(key => {
-    if (obj[key].Value === null && obj[key].vr) {
-      delete obj[key].Value;
-    } else if (Array.isArray(obj[key].Value) && obj[key].vr) {
-      if (obj[key].Value.length === 1 && obj[key].Value[0].BulkDataURI) {
+    const tag = obj[key];
+    if (!tag || typeof tag !== 'object') {
+      return;
+    }
+    if (tag.Value === null && tag.vr) {
+      delete tag.Value;
+    } else if (Array.isArray(tag.Value) && tag.vr) {
+      if (tag.Value.length === 1 && tag.Value[0]?.BulkDataURI) {
         if (options?.dataSourceConfig) {
           // Not needed unless data source is directly used for loading data.
-          fixBulkDataURI(obj[key].Value[0], options, options.dataSourceConfig);
+          fixBulkDataURI(tag.Value[0], options, options.dataSourceConfig);
         }
 
-        obj[key].BulkDataURI = obj[key].Value[0].BulkDataURI;
+        tag.BulkDataURI = tag.Value[0].BulkDataURI;
 
         // prevent mixed-content blockage
-        if (window.location.protocol === 'https:' && obj[key].BulkDataURI.startsWith('http:')) {
-          obj[key].BulkDataURI = obj[key].BulkDataURI.replace('http:', 'https:');
+        if (window.location.protocol === 'https:' && tag.BulkDataURI.startsWith('http:')) {
+          tag.BulkDataURI = tag.BulkDataURI.replace('http:', 'https:');
         }
-        delete obj[key].Value;
-      } else if (vrNumerics.has(obj[key].vr)) {
-        obj[key].Value = obj[key].Value.map(v => +v);
+        delete tag.Value;
+      } else if (vrNumerics.has(tag.vr)) {
+        tag.Value = tag.Value.map(v => +v);
       } else {
-        obj[key].Value = obj[key].Value.map(entry => cleanDenaturalizedDataset(entry, options));
+        tag.Value = tag.Value.map(entry => cleanDenaturalizedDataset(entry, options));
       }
     }
   });

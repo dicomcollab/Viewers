@@ -8,6 +8,43 @@ import { useNotification } from '../../contextProviders';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+const shouldSuppressBenignViewerError = (value: unknown) => {
+  const text = String(value ?? '');
+  if (!text) {
+    return false;
+  }
+  return (
+    text.includes('isAttributeUsed') ||
+    text.includes('pixel data is missing') ||
+    text.includes('The pixel data is missing') ||
+    text.includes('request failed') ||
+    text.includes('Cannot convert undefined or null to object')
+  );
+};
+
+const normalizeToError = (value: unknown): ErrorBoundaryError => {
+  if (value instanceof Error) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return new Error(value);
+  }
+  if (value && typeof value === 'object') {
+    const message =
+      (value as { message?: string }).message ||
+      (value as { error?: { message?: string } }).error?.message;
+    if (message) {
+      return new Error(message);
+    }
+    try {
+      return new Error(JSON.stringify(value));
+    } catch {
+      return new Error('[object Object]');
+    }
+  }
+  return new Error(String(value ?? 'Unknown error'));
+};
+
 /**
  * Parses an error stack trace to extract important information
  * Extracts the first function name from the stack trace
@@ -277,19 +314,33 @@ const ErrorBoundary = ({
     let errorTimeout: NodeJS.Timeout;
 
     const handleError = (event: ErrorEvent) => {
+      const normalized = normalizeToError(event.error ?? event.message);
+      if (shouldSuppressBenignViewerError(normalized.message) || shouldSuppressBenignViewerError(normalized.stack)) {
+        event.preventDefault();
+        return;
+      }
       clearTimeout(errorTimeout);
       errorTimeout = setTimeout(() => {
-        setError(event.error);
-        onErrorHandler(event.error, null);
+        if (showErrorDetails === ShowErrorDetails.always || !isProduction) {
+          setError(normalized);
+        }
+        onErrorHandler(normalized, null);
       }, 100);
     };
 
     const handleRejection = (event: PromiseRejectionEvent) => {
+      const normalized = normalizeToError(event.reason);
+      if (shouldSuppressBenignViewerError(normalized.message) || shouldSuppressBenignViewerError(normalized.stack)) {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       clearTimeout(errorTimeout);
       errorTimeout = setTimeout(() => {
-        setError(event.reason || event);
-        onErrorHandler(event.reason || event, null);
+        if (showErrorDetails === ShowErrorDetails.always || !isProduction) {
+          setError(normalized);
+        }
+        onErrorHandler(normalized, null);
       }, 100);
     };
 
@@ -325,7 +376,7 @@ const ErrorBoundary = ({
     >
       <>
         {children}
-        {error && (
+        {error && (showErrorDetails === ShowErrorDetails.always || !isProduction) && (
           <FallbackComponent
             error={error}
             context={context}

@@ -1,5 +1,25 @@
 import getWADORSImageId from './getWADORSImageId';
 
+function isJpegWadoUriUrl(url) {
+  return (
+    typeof url === 'string' &&
+    (url.includes('contentType=image/jpeg') || url.includes('contentType=image%2Fjpeg'))
+  );
+}
+
+/** Use dicomweb-jpeg: whenever the WADO-URI requests image/jpeg (not only when transform edits the URL). */
+export function normalizeJpegImageId(imageId) {
+  if (
+    typeof imageId === 'string' &&
+    imageId.startsWith('dicomweb:') &&
+    !imageId.startsWith('dicomweb-jpeg:') &&
+    isJpegWadoUriUrl(imageId)
+  ) {
+    return `dicomweb-jpeg:${imageId.substring('dicomweb:'.length)}`;
+  }
+  return imageId;
+}
+
 function buildInstanceWadoUrl(config, instance) {
   if (!instance) {
     throw new Error('buildInstanceWadoUrl: instance is required');
@@ -45,7 +65,7 @@ export default function getImageId({ instance, frame, config, thumbnail = false 
   }
 
   if (instance.imageId && frame === undefined) {
-    return instance.imageId;
+    return normalizeJpegImageId(instance.imageId);
   }
 
   if (instance.url) {
@@ -62,24 +82,18 @@ export default function getImageId({ instance, frame, config, thumbnail = false 
 
     try {
       let wadouri = buildInstanceWadoUrl(config, instance);
-      let useJPEGProtocol = false;
 
       // Apply wadouriTransform if it exists in the config
       if (config.wadouriTransform && typeof config.wadouriTransform === 'function') {
         try {
-          const originalWadouri = wadouri;
           wadouri = config.wadouriTransform(wadouri);
-          // Check if the transform changed contentType to image/jpeg
-          if (wadouri !== originalWadouri && wadouri.includes('contentType=image/jpeg')) {
-            useJPEGProtocol = true;
-          }
         } catch (error) {
           console.error('Error applying wadouriTransform:', error);
           // Continue with original URL if transform fails
         }
       }
 
-      // Use dicomweb-jpeg protocol if we're using JPEG content type
+      const useJPEGProtocol = isJpegWadoUriUrl(wadouri);
       const protocol = useJPEGProtocol ? 'dicomweb-jpeg:' : 'dicomweb:';
       let imageId = protocol + wadouri;
       if (frame !== undefined) {

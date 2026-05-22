@@ -16,6 +16,7 @@ import { retrieveStudyMetadata, deleteStudyMetadataPromise } from './retrieveStu
 import StaticWadoClient from './utils/StaticWadoClient';
 import getDirectURL from '../utils/getDirectURL';
 import { fixBulkDataURI } from './utils/fixBulkDataURI';
+import { cleanDenaturalizedDataset } from './utils/cleanDenaturalizedDataset';
 import {HeadersInterface} from '@ohif/core/src/types/RequestHeaders';
 import { getCachedStudiesSearch } from './utils/studiesQueryCache.js';
 
@@ -637,7 +638,9 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       );
 
       // first naturalize the data
-      const naturalizedInstancesMetadata = data.map(naturalizeDataset);
+      const naturalizedInstancesMetadata = data.map(instance =>
+        cleanDenaturalizedDataset(naturalizeDataset(instance))
+      );
 
       const seriesSummaryMetadata = {};
       const instancesPerSeries = {};
@@ -721,6 +724,9 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         }
         for (const key of Object.keys(naturalized)) {
           const value = naturalized[key];
+          if (value == null) {
+            continue;
+          }
 
           if (Array.isArray(value) && typeof value[0] === 'object') {
             // Fix recursive values
@@ -748,7 +754,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
        * @returns naturalized dataset, with retrieveBulkData methods
        */
       const addRetrieveBulkData = instance => {
-        const naturalized = naturalizeDataset(instance);
+        const naturalized = cleanDenaturalizedDataset(naturalizeDataset(instance));
 
         // if we know the server doesn't use bulkDataURI, then don't
         if (!dicomWebConfig.bulkDataURI?.enabled) {

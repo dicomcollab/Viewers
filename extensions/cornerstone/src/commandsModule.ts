@@ -1239,6 +1239,17 @@ function commandsModule({
 
       const { viewport } = enabledElement;
 
+      // resetProperties reads windowCenter/windowWidth from csImage; skip if no frame is loaded yet.
+      if (viewport instanceof StackViewport) {
+        const csImage = viewport.getCornerstoneImage?.();
+        const imageIds = viewport.getImageIds?.() ?? [];
+        if (!csImage || !imageIds.length) {
+          viewport.resetCamera();
+          viewport.render();
+          return;
+        }
+      }
+
       viewport.resetProperties?.();
       viewport.resetCamera();
 

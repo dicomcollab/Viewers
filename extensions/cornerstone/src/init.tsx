@@ -44,6 +44,8 @@ import interleaveTopToBottom from './utils/interleaveTopToBottom';
 import initContextMenu from './initContextMenu';
 import initDoubleClick from './initDoubleClick';
 import initViewTiming from './utils/initViewTiming';
+import { syncImageNumberOfComponents } from './utils/syncImageNumberOfComponents';
+import { ensureImagePreScale } from './utils/ensureImagePreScale';
 import { colormaps } from './utils/colormaps';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import { useLutPresentationStore } from './stores/useLutPresentationStore';
@@ -189,6 +191,18 @@ export default async function init({
   ); // this provider is required for Calibration tool
   metaData.addProvider(metadataProvider.get.bind(metadataProvider), 9999);
 
+  // Fallback so Cornerstone never reads scalingModule.scaled from undefined (PT / multiframe / JPEG).
+  metaData.addProvider((type, imageId) => {
+    if (type !== 'scalingModule' || !imageId) {
+      return;
+    }
+    const scaling = metadataProvider.get('scalingModule', imageId);
+    return {
+      scaled: false,
+      ...(typeof scaling === 'object' && scaling ? scaling : {}),
+    };
+  }, 10000);
+
   // These are set reasonably low to allow for interleaved retrieves and slower
   // connections.
   imageLoadPoolManager.maxNumRequests = {
@@ -199,6 +213,15 @@ export default async function init({
   };
 
   initWADOImageLoader(userAuthenticationService, appConfig, extensionManager);
+
+  // Keep VTK component count aligned with pixel buffer (OT / PALETTE / JPEG metadata mismatches).
+  eventTarget.addEventListener(EVENTS.IMAGE_LOADED, (evt: CustomEvent) => {
+    const image = evt.detail?.image;
+    if (image) {
+      syncImageNumberOfComponents(image);
+      ensureImagePreScale(image);
+    }
+  });
 
   /* Measurement Service */
   this.measurementServiceSource = connectToolsToMeasurementService({

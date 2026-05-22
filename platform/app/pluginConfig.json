@@ -18,7 +18,7 @@
     },
     {
       "packageName": "@ohif/extension-cornerstone-dicom-sr",
-      "default": false,
+      "default": true,
       "version": "3.0.0"
     },
     {

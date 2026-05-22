@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useImageViewer } from '@ohif/ui-next';
 import { useSystem, utils } from '@ohif/core';
 import { useNavigate } from 'react-router-dom';
+import { DicomMetadataStore } from '@ohif/core';
 import { useViewportGrid, StudyBrowser, Separator, ProgressLoadingBar } from '@ohif/ui-next';
 import { PanelStudyBrowserHeader } from './PanelStudyBrowserHeader';
 import { defaultActionIcons } from './constants';
 import MoreDropdownMenu from '../../Components/MoreDropdownMenu';
 import { CallbackCustomization } from 'platform/core/src/types';
 import { type TabsProps } from '@ohif/core/src/utils/createStudyBrowserTabs';
+import { normalizeJpegImageId } from '../../DicomWebDataSource/utils/getImageId';
 
 const { sortStudyInstances, formatDate, createStudyBrowserTabs } = utils;
 
@@ -178,16 +180,39 @@ function PanelStudyBrowser({
 
   const onDoubleClickThumbnailHandler = useCallback(
     async displaySetInstanceUID => {
-      const targetDisplaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
-      if (targetDisplaySet?.Modality === 'SR' && typeof targetDisplaySet.load === 'function') {
-        // Force a fresh SR load on double click so the latest instance payload
-        // is fetched (WADO-URI path) instead of relying on possibly stale metadata.
-        targetDisplaySet.isLoaded = false;
-        targetDisplaySet._loadPromise = null;
-        try {
-          await targetDisplaySet.load();
-        } catch (error) {
-          console.warn('Unable to load SR display set on double click', error);
+      let targetDisplaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+      if (targetDisplaySet?.Modality === 'SR') {
+        const { StudyInstanceUID, SeriesInstanceUID } = targetDisplaySet;
+        const series = DicomMetadataStore.getSeries(StudyInstanceUID, SeriesInstanceUID);
+        if (!series?.instances?.length && dataSource?.retrieve?.series?.metadata) {
+          try {
+            await dataSource.retrieve.series.metadata({
+              StudyInstanceUID,
+              filters: { seriesInstanceUID: SeriesInstanceUID },
+              madeInClient: true,
+            });
+            targetDisplaySet =
+              displaySetService.getDisplaySetByUID(displaySetInstanceUID) ||
+              displaySetService
+                .getActiveDisplaySets()
+                .find(
+                  ds =>
+                    ds.Modality === 'SR' && ds.SeriesInstanceUID === SeriesInstanceUID
+                );
+          } catch (error) {
+            console.warn('Unable to load SR series metadata on double click', error);
+          }
+        }
+
+        if (targetDisplaySet && typeof targetDisplaySet.load === 'function') {
+          // Force a fresh SR load so ContentSequence is fetched via WADO-URI.
+          targetDisplaySet.isLoaded = false;
+          targetDisplaySet._loadPromise = null;
+          try {
+            await targetDisplaySet.load();
+          } catch (error) {
+            console.warn('Unable to load SR display set on double click', error);
+          }
         }
       }
 
@@ -209,6 +234,20 @@ function PanelStudyBrowser({
         await handler(displaySetInstanceUID);
       }
       onDoubleClickThumbnailHandlerCallBack?.(displaySetInstanceUID);
+
+      // Viewport may load JPEG fine while an earlier thumbnail attempt failed — refresh after display.
+      const uid = displaySetInstanceUID;
+      window.setTimeout(async () => {
+        const ds = displaySetService.getDisplaySetByUID(uid);
+        const thumbnailSrc = await loadThumbnailForDisplaySet({
+          displaySet: ds,
+          dataSource,
+          getImageSrc,
+        });
+        if (thumbnailSrc) {
+          setThumbnailImageSrcMap(prev => ({ ...prev, [uid]: thumbnailSrc }));
+        }
+      }, 400);
     },
     [
       activeViewportId,
@@ -217,6 +256,8 @@ function PanelStudyBrowser({
       isHangingProtocolLayout,
       customizationService,
       displaySetService,
+      dataSource,
+      getImageSrc,
     ]
   );
 
@@ -318,30 +359,22 @@ function PanelStudyBrowser({
     }
 
     currentDisplaySets.forEach(async dSet => {
-      const newImageSrcEntry = {};
       const displaySet = displaySetService.getDisplaySetByUID(dSet.displaySetInstanceUID);
-      const imageIds = dataSource.getImageIdsForDisplaySet(dSet);
-
-      const imageId = getImageIdForThumbnail(displaySet, imageIds);
-
-      // TODO: Is it okay that imageIds are not returned here for SR displaySets?
       if (displaySet?.unsupported) {
         return;
       }
-      // When the image arrives, render it and store the result in the thumbnailImgSrcMap
-      let { thumbnailSrc } = displaySet;
-      if (!thumbnailSrc && displaySet.getThumbnailSrc) {
-        thumbnailSrc = await displaySet.getThumbnailSrc({ getImageSrc });
-      }
-      if (!thumbnailSrc && imageId) {
-        const thumbnailSrc = await getImageSrc(imageId);
-        displaySet.thumbnailSrc = thumbnailSrc;
-      }
-      newImageSrcEntry[dSet.displaySetInstanceUID] = thumbnailSrc;
-
-      setThumbnailImageSrcMap(prevState => {
-        return { ...prevState, ...newImageSrcEntry };
+      const thumbnailSrc = await loadThumbnailForDisplaySet({
+        displaySet,
+        dataSource,
+        getImageSrc,
       });
+      if (!thumbnailSrc) {
+        return;
+      }
+      setThumbnailImageSrcMap(prevState => ({
+        ...prevState,
+        [dSet.displaySetInstanceUID]: thumbnailSrc,
+      }));
     });
   }, [displaySetService, dataSource, getImageSrc, activeViewportId, hasLoadedViewports]);
 
@@ -412,7 +445,6 @@ function PanelStudyBrowser({
         const { displaySetsAdded, options } = data;
         displaySetsAdded.forEach(async dSet => {
           const displaySetInstanceUID = dSet.displaySetInstanceUID;
-          const newImageSrcEntry = {};
           const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
           if (displaySet?.unsupported) {
             return;
@@ -421,28 +453,19 @@ function PanelStudyBrowser({
             setJumpToDisplaySet(displaySetInstanceUID);
           }
 
-          const imageIds = dataSource.getImageIdsForDisplaySet(displaySet);
-          const imageId = getImageIdForThumbnail(displaySet, imageIds);
-
-          // TODO: Is it okay that imageIds are not returned here for SR displaysets?
-          if (!imageId) {
+          const thumbnailSrc = await loadThumbnailForDisplaySet({
+            displaySet,
+            dataSource,
+            getImageSrc,
+          });
+          if (!thumbnailSrc) {
             return;
           }
 
-          // When the image arrives, render it and store the result in the thumbnailImgSrcMap
-          let { thumbnailSrc } = displaySet;
-          if (!thumbnailSrc && displaySet.getThumbnailSrc) {
-            thumbnailSrc = await displaySet.getThumbnailSrc({ getImageSrc });
-          }
-          if (!thumbnailSrc) {
-            thumbnailSrc = await getImageSrc(imageId);
-            displaySet.thumbnailSrc = thumbnailSrc;
-          }
-          newImageSrcEntry[displaySetInstanceUID] = thumbnailSrc;
-
-          setThumbnailImageSrcMap(prevState => {
-            return { ...prevState, ...newImageSrcEntry };
-          });
+          setThumbnailImageSrcMap(prevState => ({
+            ...prevState,
+            [displaySetInstanceUID]: thumbnailSrc,
+          }));
         });
       }
     );
@@ -830,10 +853,48 @@ function getImageIdForThumbnail(displaySet, imageIds) {
     const middleIndex = Math.floor(timePoints.length / 2);
     const middleTimePointImageIds = timePoints[middleIndex];
     imageId = middleTimePointImageIds[Math.floor(middleTimePointImageIds.length / 2)];
-  } else {
+  } else if (imageIds?.length) {
     imageId = imageIds[Math.floor(imageIds.length / 2)];
   }
-  return imageId;
+  return imageId ? normalizeJpegImageId(imageId) : imageId;
+}
+
+async function loadThumbnailForDisplaySet({ displaySet, dataSource, getImageSrc }) {
+  if (!displaySet || displaySet.unsupported) {
+    return null;
+  }
+
+  const imageIds = dataSource.getImageIdsForDisplaySet(displaySet);
+  const imageId = getImageIdForThumbnail(displaySet, imageIds);
+
+  if (!imageId) {
+    return null;
+  }
+
+  let thumbnailSrc = displaySet.thumbnailSrc;
+
+  if (!thumbnailSrc && displaySet.getThumbnailSrc) {
+    try {
+      thumbnailSrc = await displaySet.getThumbnailSrc({ getImageSrc });
+    } catch {
+      thumbnailSrc = null;
+    }
+  }
+
+  if (!thumbnailSrc) {
+    try {
+      thumbnailSrc = await getImageSrc(imageId);
+    } catch (error) {
+      console.warn('Study browser thumbnail failed', displaySet.displaySetInstanceUID, error);
+      return null;
+    }
+  }
+
+  if (thumbnailSrc) {
+    displaySet.thumbnailSrc = thumbnailSrc;
+  }
+
+  return thumbnailSrc;
 }
 
 function _findTabAndStudyOfDisplaySet(

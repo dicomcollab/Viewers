@@ -1,5 +1,12 @@
 import { utils } from '@ohif/core';
 import i18n from '@ohif/i18n';
+import { ensureStructuredReportDisplaySet } from '../utils/ensureStructuredReportDisplaySet';
+import {
+  buildViewportsUpdateForDisplaySet,
+  isStructuredReportDisplaySet,
+  resolveViewportIdForStructuredReport,
+} from '../utils/openStructuredReportInViewport';
+
 const { formatDate } = utils;
 
 export default {
@@ -69,18 +76,57 @@ export default {
     callbacks: [
       ({ activeViewportId, servicesManager, commandsManager, isHangingProtocolLayout }) =>
         async displaySetInstanceUID => {
-          const { hangingProtocolService, uiNotificationService } = servicesManager.services;
-          let updatedViewports = [];
-          const viewportId = activeViewportId;
+          const { hangingProtocolService, displaySetService, uiNotificationService } =
+            servicesManager.services;
+          const extensionManager =
+            commandsManager?.extensionManager || (typeof window !== 'undefined' && window.extensionManager);
+          const dataSource = extensionManager?.getActiveDataSource?.()?.[0];
 
-          try {
-            updatedViewports = hangingProtocolService.getViewportsRequireUpdate(
-              viewportId,
-              displaySetInstanceUID,
-              isHangingProtocolLayout
-            );
-          } catch (error) {
-            console.warn(error);
+          let displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+
+          if (displaySet?.unsupported) {
+            displaySet = await ensureStructuredReportDisplaySet(displaySet, {
+              dataSource,
+              displaySetService,
+            });
+          }
+
+          if (!displaySet || displaySet.unsupported) {
+            uiNotificationService.show({
+              title: i18n.t('StudyBrowser:Thumbnail Double Click'),
+              message: i18n.t(
+                'StudyBrowser:This series is not supported in the viewer.'
+              ),
+              type: 'warning',
+              duration: 4000,
+            });
+            return;
+          }
+
+          if (isStructuredReportDisplaySet(displaySet) && typeof displaySet.load === 'function') {
+            displaySet.isLoaded = false;
+            displaySet._loadPromise = null;
+            try {
+              await displaySet.load();
+            } catch (error) {
+              console.warn('[SR] Unable to load structured report', error);
+            }
+          }
+
+          const viewportId = resolveViewportIdForStructuredReport(displaySet, {
+            activeViewportId,
+            viewportGridService: servicesManager.services.viewportGridService,
+            displaySetService,
+          });
+
+          const updatedViewports = buildViewportsUpdateForDisplaySet(
+            displaySetInstanceUID,
+            viewportId,
+            hangingProtocolService,
+            isHangingProtocolLayout
+          );
+
+          if (!updatedViewports?.length) {
             uiNotificationService.show({
               title: i18n.t('StudyBrowser:Thumbnail Double Click'),
               message: i18n.t(
@@ -89,6 +135,7 @@ export default {
               type: 'error',
               duration: 3000,
             });
+            return;
           }
 
           commandsManager.run('setDisplaySetsForViewports', {

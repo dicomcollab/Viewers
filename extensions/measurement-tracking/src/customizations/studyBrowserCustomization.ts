@@ -1,4 +1,10 @@
 import { measurementTrackingMode } from '../contexts/TrackedMeasurementsContext/promptBeginTracking';
+import { ensureStructuredReportDisplaySet } from '@ohif/extension-default/src/utils/ensureStructuredReportDisplaySet';
+import {
+  buildViewportsUpdateForDisplaySet,
+  isStructuredReportDisplaySet,
+  resolveViewportIdForStructuredReport,
+} from '@ohif/extension-default/src/utils/openStructuredReportInViewport';
 
 type CheckHasDirtyAndSimplifiedModeProps = {
   servicesManager: AppTypes.ServicesManager;
@@ -8,36 +14,77 @@ type CheckHasDirtyAndSimplifiedModeProps = {
 
 const onDoubleClickHandler = {
   callbacks: [
-    ({ activeViewportId, servicesManager, isHangingProtocolLayout, appConfig }) =>
+    ({ activeViewportId, servicesManager, commandsManager, isHangingProtocolLayout, appConfig }) =>
       async displaySetInstanceUID => {
-        const { hangingProtocolService, viewportGridService, uiNotificationService } =
+        const { hangingProtocolService, displaySetService, viewportGridService, uiNotificationService } =
           servicesManager.services;
-        let updatedViewports = [];
-        const viewportId = activeViewportId;
         const haveDirtyMeasurementsInSimplifiedMode = checkHasDirtyAndSimplifiedMode({
           servicesManager,
           appConfig,
           displaySetInstanceUID,
         });
 
-        try {
-          if (!haveDirtyMeasurementsInSimplifiedMode) {
-            updatedViewports = hangingProtocolService.getViewportsRequireUpdate(
-              viewportId,
-              displaySetInstanceUID,
-              isHangingProtocolLayout
-            );
-            viewportGridService.setDisplaySetsForViewports(updatedViewports);
+        if (haveDirtyMeasurementsInSimplifiedMode) {
+          return;
+        }
+
+        const extensionManager =
+          commandsManager?.extensionManager || (typeof window !== 'undefined' && window.extensionManager);
+        const dataSource = extensionManager?.getActiveDataSource?.()?.[0];
+
+        let displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
+
+        if (displaySet?.unsupported) {
+          displaySet = await ensureStructuredReportDisplaySet(displaySet, {
+            dataSource,
+            displaySetService,
+          });
+        }
+
+        if (!displaySet || displaySet.unsupported) {
+          uiNotificationService.show({
+            title: 'Thumbnail Double Click',
+            message: 'This series is not supported in the viewer.',
+            type: 'warning',
+            duration: 4000,
+          });
+          return;
+        }
+
+        if (isStructuredReportDisplaySet(displaySet) && typeof displaySet.load === 'function') {
+          displaySet.isLoaded = false;
+          displaySet._loadPromise = null;
+          try {
+            await displaySet.load();
+          } catch (error) {
+            console.warn('[SR] Unable to load structured report', error);
           }
-        } catch (error) {
-          console.warn(error);
+        }
+
+        const viewportId = resolveViewportIdForStructuredReport(displaySet, {
+          activeViewportId,
+          viewportGridService,
+          displaySetService,
+        });
+
+        const updatedViewports = buildViewportsUpdateForDisplaySet(
+          displaySetInstanceUID,
+          viewportId,
+          hangingProtocolService,
+          isHangingProtocolLayout
+        );
+
+        if (!updatedViewports?.length) {
           uiNotificationService.show({
             title: 'Thumbnail Double Click',
             message: 'The selected display sets could not be added to the viewport.',
             type: 'error',
             duration: 3000,
           });
+          return;
         }
+
+        viewportGridService.setDisplaySetsForViewports(updatedViewports);
       },
   ],
 };

@@ -2,6 +2,7 @@ import { DicomMetadataStore, classes } from '@ohif/core';
 import { calculateSUVScalingFactors } from '@cornerstonejs/calculate-suv';
 
 import getPTImageIdInstanceMetadata from './getPTImageIdInstanceMetadata';
+import getRelatedImageIds, { isJpegRenderedImageId } from './utils/getRelatedImageIds';
 import { registerHangingProtocolAttributes } from './hangingprotocols';
 import { HotkeysManager } from '@ohif/core';
 
@@ -105,7 +106,7 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
     return;
   }
 
-  const imageIds = instances.map(instance => instance.imageId);
+  const imageIds = instances.flatMap(instance => getRelatedImageIds(instance));
 
   if (modality === 'RTDOSE') {
     const DoseGridScaling = instances[0].DoseGridScaling;
@@ -133,23 +134,33 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
     return;
   }
 
+  const defaultScaling = { scaled: false };
+
   // Ensure PT images always have a scalingModule object so downstream GPU paths
   // (e.g. isPTPrescaledWithSUV) never read `.scaled` from undefined.
   imageIds.forEach(imageId => {
-    metadataProvider.addCustomMetadata(imageId, 'scalingModule', { scaled: false });
+    metadataProvider.addCustomMetadata(imageId, 'scalingModule', defaultScaling);
   });
 
-  // Build metadata pairs defensively (per-image), since real-world PT studies can
-  // miss some required tags for SUV computation.
+  // JPEG WADO-URI renders do not carry SUV tags; skip SUV calculation (no console noise).
+  const instancesByBaseImageId = new Map(
+    instances.map(instance => [instance.imageId, instance])
+  );
+
   const imageIdMetadataPairs = [];
-  imageIds.forEach(imageId => {
+  instances.forEach(instance => {
+    const baseImageId = instance.imageId;
+    if (!baseImageId || isJpegRenderedImageId(baseImageId)) {
+      return;
+    }
+
     try {
-      const instanceMetadata = getPTImageIdInstanceMetadata(imageId);
+      const instanceMetadata = getPTImageIdInstanceMetadata(baseImageId);
       if (instanceMetadata) {
-        imageIdMetadataPairs.push({ imageId, instanceMetadata });
+        imageIdMetadataPairs.push({ imageId: baseImageId, instanceMetadata, instance });
       }
-    } catch (error) {
-      console.warn(`[PT SUV] Missing metadata for image ${imageId}. Using scaled:false fallback.`, error);
+    } catch {
+      // scaled:false already applied to base + frame imageIds above
     }
   });
 
@@ -163,10 +174,20 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
     );
 
     imageIdMetadataPairs.forEach((pair, index) => {
-      const scalingFactor = suvScalingFactors[index] || { scaled: false };
-      metadataProvider.addCustomMetadata(pair.imageId, 'scalingModule', scalingFactor);
+      const raw = suvScalingFactors[index];
+      const scalingFactor = {
+        scaled: false,
+        ...(typeof raw === 'object' && raw ? raw : {}),
+      };
+      if (scalingFactor.suvbw != null) {
+        scalingFactor.scaled = true;
+      }
+      const relatedIds = getRelatedImageIds(pair.instance || instancesByBaseImageId.get(pair.imageId));
+      relatedIds.forEach(imageId => {
+        metadataProvider.addCustomMetadata(imageId, 'scalingModule', scalingFactor);
+      });
     });
-  } catch (error) {
-    console.warn('[PT SUV] Failed to calculate SUV scaling factors. Keeping scaled:false fallback.', error);
+  } catch {
+    // scaled:false fallback already applied
   }
 };

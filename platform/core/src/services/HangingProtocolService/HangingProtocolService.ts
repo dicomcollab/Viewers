@@ -659,9 +659,12 @@ export default class HangingProtocolService extends PubSubService {
     const { displaySetService } = this._servicesManager.services;
     const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
     if (displaySet?.unsupported) {
-      // Unsupported display sets (e.g. certain SR flows) should not crash
-      // interaction callbacks. Skip HP-driven updates for these items.
+      // Unsupported display sets should not crash interaction callbacks.
+      // Structured reports handled by cornerstone-dicom-sr are never marked unsupported.
       return [];
+    }
+    if (displaySet?.Modality === 'SR') {
+      return defaultReturn;
     }
     const protocol = this.protocol;
     const protocolStage = protocol.stages[this.stageIndex];
