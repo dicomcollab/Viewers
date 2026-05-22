@@ -1,4 +1,4 @@
-import { imageLoader } from '@cornerstonejs/core';
+import { imageLoader, metaData } from '@cornerstonejs/core';
 import dicomImageLoader from '@cornerstonejs/dicom-image-loader';
 import {
   isRedirectToRisOn401Enabled,
@@ -40,14 +40,41 @@ function dispatchJPEGLoadProgress(imageId, progress, lengthComputable = true) {
   );
 }
 
+function isMultiframeImageId(imageId) {
+  return (
+    typeof imageId === 'string' &&
+    (/&frame=\d+/i.test(imageId) || /\/frames\/\d+/i.test(imageId))
+  );
+}
+
+function getDicomColorHints(imageId) {
+  const generalSeries = metaData.get('generalSeriesModule', imageId) || {};
+  const imagePixel = metaData.get('imagePixelModule', imageId) || {};
+  const modality = (generalSeries.modality || '').toUpperCase();
+  const samplesPerPixel = Number(imagePixel.samplesPerPixel) || 0;
+  const pi = String(imagePixel.photometricInterpretation || '').toUpperCase();
+
+  const forceColor =
+    samplesPerPixel >= 3 ||
+    pi.includes('RGB') ||
+    pi.includes('YBR') ||
+    pi === 'PALETTE COLOR';
+
+  const forceGrayscale =
+    samplesPerPixel === 1 && (pi === 'MONOCHROME1' || pi === 'MONOCHROME2');
+
+  return { modality, samplesPerPixel, photometricInterpretation: pi, forceColor, forceGrayscale };
+}
+
 /**
- * Detect if an image is a color image (like fundus) vs grayscale (like X-ray)
+ * Detect color in decoded JPEG pixels (sparse overlays on gray backgrounds still count).
  */
 function detectColorImage(imageData, width, height) {
   const step = Math.max(1, Math.floor(Math.sqrt(width * height) / 50));
   let colorVariation = 0;
   let totalSamples = 0;
   let colorPixels = 0;
+  let maxVariation = 0;
 
   for (let y = 0; y < height; y += step) {
     for (let x = 0; x < width; x += step) {
@@ -65,8 +92,9 @@ function detectColorImage(imageData, width, height) {
       const minChannel = Math.min(r, g, b);
       const variation = maxChannel - minChannel;
       colorVariation += variation;
+      maxVariation = Math.max(maxVariation, variation);
 
-      if (variation > 20) {
+      if (variation > 12) {
         colorPixels++;
       }
     }
@@ -75,7 +103,62 @@ function detectColorImage(imageData, width, height) {
   const avgColorVariation = totalSamples > 0 ? colorVariation / totalSamples : 0;
   const colorRatio = totalSamples > 0 ? colorPixels / totalSamples : 0;
 
-  return avgColorVariation > 15 || colorRatio > 0.2;
+  return avgColorVariation > 8 || colorRatio > 0.03 || maxVariation > 20;
+}
+
+function isColorReportUrl(jpegUrl) {
+  const u = (jpegUrl || '').toLowerCase();
+  return (
+    u.includes('4dm') ||
+    u.includes('scoring') ||
+    u.includes('composite') ||
+    u.includes('report') ||
+    u.includes('result')
+  );
+}
+
+/**
+ * JPEG from WADO is always RGBA in canvas; only reduce to grayscale when clearly mono.
+ */
+function shouldDecodeJpegAsColor(imageId, jpegUrl, imageData, width, height) {
+  const hints = getDicomColorHints(imageId);
+  const detectedAsColor = detectColorImage(imageData, width, height);
+
+  if (hints.forceColor) {
+    return true;
+  }
+
+  const urlLower = (jpegUrl || '').toLowerCase();
+  const isFundusByUrl =
+    urlLower.includes('fundus') ||
+    urlLower.includes('retina') ||
+    urlLower.includes('ophthalm') ||
+    urlLower.includes('eye');
+  const isEchoByUrl =
+    urlLower.includes('echo') ||
+    urlLower.includes('cardiac') ||
+    urlLower.includes('heart') ||
+    urlLower.includes('ultrasound');
+
+  // OT secondary-capture / 4DM composite reports are color (often 1 frame).
+  if (hints.modality === 'OT' && !isMultiframeImageId(imageId)) {
+    return true;
+  }
+  if (hints.modality === 'SC' || hints.modality === 'DOC') {
+    return true;
+  }
+
+  if (isColorReportUrl(jpegUrl) || isFundusByUrl || isEchoByUrl || detectedAsColor) {
+    return true;
+  }
+
+  // Multiframe OT (e.g. OCT B-scans) stays grayscale when pixels are not color.
+  if (hints.forceGrayscale && !detectedAsColor) {
+    return false;
+  }
+
+  // Default: preserve JPEG color unless explicitly mono DICOM.
+  return !hints.forceGrayscale;
 }
 
 /**
@@ -96,25 +179,13 @@ async function processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject) {
 
       let pixelData, color, rgba, photometricInterpretation, samplesPerPixel, sizeInBytes;
 
-      // Detect if this is a color image
-      const detectedAsColor = detectColorImage(imageData, canvas.width, canvas.height);
-
-      // Check if this looks like a fundus image based on URL
-      const isFundusByUrl =
-        jpegUrl.toLowerCase().includes('fundus') ||
-        jpegUrl.toLowerCase().includes('retina') ||
-        jpegUrl.toLowerCase().includes('ophthalm') ||
-        jpegUrl.toLowerCase().includes('eye');
-
-      // Check if this looks like an echocardiogram (which has color Doppler)
-      const isEchoByUrl =
-        jpegUrl.toLowerCase().includes('echo') ||
-        jpegUrl.toLowerCase().includes('cardiac') ||
-        jpegUrl.toLowerCase().includes('heart') ||
-        jpegUrl.toLowerCase().includes('ultrasound');
-
-      // Do not treat multi-frame URLs as color (OT OCT and other modalities use &frame= for grayscale).
-      const isColorImage = detectedAsColor || isFundusByUrl || isEchoByUrl;
+      const isColorImage = shouldDecodeJpegAsColor(
+        imageId,
+        jpegUrl,
+        imageData,
+        canvas.width,
+        canvas.height
+      );
 
       if (isColorImage) {
         // Convert RGBA to RGB for color images

@@ -191,7 +191,9 @@ function wireWadoXhrProgress(xhr, requestId, requestUrl) {
       return;
     }
     const totalFromEvent =
-      event.lengthComputable && typeof event.total === 'number' && event.total > 0 ? event.total : 0;
+      event.lengthComputable && typeof event.total === 'number' && event.total > 0
+        ? event.total
+        : 0;
     const total = totalFromEvent || (headerContentLength > 0 ? headerContentLength : 0);
     const computable = total > 0;
     const ratio = computable ? Math.min(1, loaded / total) : undefined;
@@ -245,7 +247,7 @@ function interceptXHRForImageCaching() {
   const OriginalXHR = window.XMLHttpRequest;
   const imageCache = getImageCache();
 
-  window.XMLHttpRequest = function(...args) {
+  window.XMLHttpRequest = function (...args) {
     const xhr = new OriginalXHR(...args);
     const originalOpen = xhr.open;
     const originalSend = xhr.send;
@@ -253,9 +255,13 @@ function interceptXHRForImageCaching() {
     let isImageRequest = false;
 
     // Intercept open() to capture the URL
-    xhr.open = function(method, url, ...rest) {
+    xhr.open = function (method, url, ...rest) {
       const urlForMatch =
-        typeof url === 'string' ? url : url && typeof url.toString === 'function' ? url.toString() : String(url);
+        typeof url === 'string'
+          ? url
+          : url && typeof url.toString === 'function'
+            ? url.toString()
+            : String(url);
       requestUrl = urlForMatch;
       isImageRequest = isLikelyDicomImageGetRequest(method, urlForMatch);
 
@@ -263,7 +269,7 @@ function interceptXHRForImageCaching() {
     };
 
     // Intercept send() to check cache before making the request
-    xhr.send = function(...args) {
+    xhr.send = function (...args) {
       if (!isImageRequest || !requestUrl) {
         return originalSend.apply(this, args);
       }
@@ -287,7 +293,7 @@ function interceptXHRForImageCaching() {
       // Capture existing event listeners
       if (xhr.addEventListener) {
         const originalAddEventListener = xhr.addEventListener;
-        xhr.addEventListener = function(type, listener, options) {
+        xhr.addEventListener = function (type, listener, options) {
           if (type === 'load') {
             loadListeners.push({ listener, options });
           } else if (type === 'readystatechange') {
@@ -307,29 +313,29 @@ function interceptXHRForImageCaching() {
               Object.defineProperty(xhr, 'status', {
                 value: 200,
                 writable: true,
-                configurable: true
+                configurable: true,
               });
               Object.defineProperty(xhr, 'statusText', {
                 value: 'OK',
                 writable: true,
-                configurable: true
+                configurable: true,
               });
               Object.defineProperty(xhr, 'response', {
                 value: cachedData,
                 writable: true,
-                configurable: true
+                configurable: true,
               });
               Object.defineProperty(xhr, 'responseType', {
                 value: 'arraybuffer',
                 writable: true,
-                configurable: true
+                configurable: true,
               });
 
               // Set readyState to DONE (4)
               Object.defineProperty(xhr, 'readyState', {
                 value: 4,
                 writable: true,
-                configurable: true
+                configurable: true,
               });
 
               // Trigger readystatechange first (for compatibility)
@@ -396,7 +402,7 @@ function interceptXHRForImageCaching() {
         };
 
         if (originalOnLoad) {
-          xhr.onload = function() {
+          xhr.onload = function () {
             cacheResponse();
             originalOnLoad.call(xhr);
           };
@@ -454,7 +460,7 @@ export default function initWADOImageLoader(
 
   // Wrap loadFileRequest with caching (only once)
   if (!isWrapped && originalLoadFileRequest) {
-    const wrappedLoadFileRequest = async function(imageId) {
+    const wrappedLoadFileRequest = async function (imageId) {
       const imageCache = getImageCache();
 
       // Extract the actual URL from imageId (remove protocol prefix if present)
@@ -476,7 +482,12 @@ export default function initWADOImageLoader(
       }
 
       // Try to get from cache first (only for valid HTTP URL strings)
-      if (imageCache && url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+      if (
+        imageCache &&
+        url &&
+        typeof url === 'string' &&
+        (url.startsWith('http://') || url.startsWith('https://'))
+      ) {
         try {
           const cachedData = await imageCache.getCachedImage(url);
           if (cachedData && cachedData instanceof ArrayBuffer) {
@@ -493,7 +504,13 @@ export default function initWADOImageLoader(
         const result = await originalLoadFileRequest.call(this, imageId);
 
         // Cache the result if it's an ArrayBuffer and we have a valid HTTP URL
-        if (imageCache && result instanceof ArrayBuffer && url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+        if (
+          imageCache &&
+          result instanceof ArrayBuffer &&
+          url &&
+          typeof url === 'string' &&
+          (url.startsWith('http://') || url.startsWith('https://'))
+        ) {
           // Store in cache asynchronously (don't wait)
           imageCache.setCachedImage(url, result).catch(() => {
             // Silently fail - don't break image loading

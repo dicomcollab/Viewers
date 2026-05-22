@@ -143,9 +143,7 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
   });
 
   // JPEG WADO-URI renders do not carry SUV tags; skip SUV calculation (no console noise).
-  const instancesByBaseImageId = new Map(
-    instances.map(instance => [instance.imageId, instance])
-  );
+  const instancesByBaseImageId = new Map(instances.map(instance => [instance.imageId, instance]));
 
   const imageIdMetadataPairs = [];
   instances.forEach(instance => {
@@ -182,7 +180,9 @@ const handleScalingModules = ({ SeriesInstanceUID, StudyInstanceUID }) => {
       if (scalingFactor.suvbw != null) {
         scalingFactor.scaled = true;
       }
-      const relatedIds = getRelatedImageIds(pair.instance || instancesByBaseImageId.get(pair.imageId));
+      const relatedIds = getRelatedImageIds(
+        pair.instance || instancesByBaseImageId.get(pair.imageId)
+      );
       relatedIds.forEach(imageId => {
         metadataProvider.addCustomMetadata(imageId, 'scalingModule', scalingFactor);
       });
