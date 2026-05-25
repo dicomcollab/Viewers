@@ -1,4 +1,12 @@
-import React, { createContext, useCallback, useContext, useEffect, useReducer } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+} from 'react';
 
 const DEFAULT_STATE = {
   isCineEnabled: false,
@@ -13,40 +21,78 @@ const DEFAULT_CINE = { isPlaying: false, frameRate: 24 };
 
 export const CineContext = createContext(null);
 
+function safeGetSyncedViewports(service, viewportId) {
+  try {
+    if (typeof service?.getSyncedViewports !== 'function') {
+      return [];
+    }
+
+    return service.getSyncedViewports(viewportId) ?? [];
+  } catch (error) {
+    if (typeof window !== 'undefined' && (window as Window & { OHIF_DEBUG_CINE?: boolean }).OHIF_DEBUG_CINE) {
+      console.warn('[OHIF Cine][CineProvider] getSyncedViewports failed', { viewportId, error });
+    }
+
+    return [];
+  }
+}
+
 export default function CineProvider({ children, service }) {
   const reducer = (state, action) => {
     switch (action.type) {
       case 'SET_CINE': {
         const { id, frameRate, isPlaying = undefined } = action.payload;
-        const cines = state.cines;
+        const cines = { ...state.cines };
 
-        const syncedCineIds = service.getSyncedViewports(id).map(({ viewportId }) => viewportId);
+        const syncedCineIds = safeGetSyncedViewports(service, id).map(({ viewportId }) => viewportId);
         const cineIdsToUpdate = [id, ...syncedCineIds].filter(curId => {
           const currentCine = cines[curId] ?? {};
-          const shouldUpdateFrameRate =
-            currentCine.frameRate !== (frameRate ?? currentCine.frameRate);
-          const shouldUpdateIsPlaying =
-            currentCine.isPlaying !== (isPlaying ?? currentCine.isPlaying);
+          const nextFrameRate = frameRate ?? currentCine.frameRate;
+          const nextIsPlaying = isPlaying ?? currentCine.isPlaying;
+          const shouldUpdateFrameRate = currentCine.frameRate !== nextFrameRate;
+          const shouldUpdateIsPlaying = currentCine.isPlaying !== nextIsPlaying;
 
           return shouldUpdateFrameRate || shouldUpdateIsPlaying;
         });
 
+        if (
+          typeof window !== 'undefined' &&
+          (window as Window & { OHIF_DEBUG_CINE?: boolean }).OHIF_DEBUG_CINE
+        ) {
+          console.log('[OHIF Cine][CineProvider] SET_CINE', {
+            id,
+            frameRate,
+            isPlaying,
+            syncedCineIds,
+            cineIdsToUpdate,
+          });
+        }
+
+        if (!cineIdsToUpdate.length) {
+          return state;
+        }
+
         cineIdsToUpdate.forEach(currId => {
-          let cine = cines[currId];
+          const currentCine = cines[currId] ?? { ...DEFAULT_CINE };
 
-          if (!cine) {
-            cine = { id, ...DEFAULT_CINE };
-            cines[currId] = cine;
-          }
-
-          cine.frameRate = frameRate ?? cine.frameRate;
-          cine.isPlaying = isPlaying ?? cine.isPlaying;
+          cines[currId] = {
+            ...currentCine,
+            frameRate: frameRate ?? currentCine.frameRate,
+            isPlaying: isPlaying ?? currentCine.isPlaying,
+          };
         });
 
-        return { ...state, ...cines };
+        return { ...state, cines };
       }
       case 'SET_IS_CINE_ENABLED': {
-        return { ...state, ...{ isCineEnabled: action.payload } };
+        if (
+          typeof window !== 'undefined' &&
+          (window as Window & { OHIF_DEBUG_CINE?: boolean }).OHIF_DEBUG_CINE
+        ) {
+          console.log('[OHIF Cine][CineProvider] SET_IS_CINE_ENABLED', action.payload);
+        }
+
+        return { ...state, isCineEnabled: action.payload };
       }
       default:
         return action.payload;
@@ -54,8 +100,10 @@ export default function CineProvider({ children, service }) {
   };
 
   const [state, dispatch] = useReducer(reducer, DEFAULT_STATE);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  const getState = useCallback(() => state, [state]);
+  const getState = useCallback(() => stateRef.current, []);
 
   const setIsCineEnabled = useCallback(
     isCineEnabled => dispatch({ type: 'SET_IS_CINE_ENABLED', payload: isCineEnabled }),
@@ -75,27 +123,25 @@ export default function CineProvider({ children, service }) {
     [dispatch]
   );
 
-  /**
-   * Sets the implementation of a modal service that can be used by extensions.
-   *
-   * @returns void
-   */
   useEffect(() => {
     if (service) {
       service.setServiceImplementation({ getState, setIsCineEnabled, setCine });
     }
   }, [getState, service, setCine, setIsCineEnabled]);
 
-  const api = {
-    getState,
-    setCine,
-    setIsCineEnabled: isCineEnabled => service.setIsCineEnabled(isCineEnabled),
-    playClip: (element, playClipOptions) => service.playClip(element, playClipOptions),
-    stopClip: (element, stopClipOptions) => service.stopClip(element, stopClipOptions),
-    setViewportCineClosed: viewportId => service.setViewportCineClosed(viewportId),
-    clearViewportCineClosed: viewportId => service.clearViewportCineClosed(viewportId),
-    isViewportCineClosed: viewportId => service.isViewportCineClosed(viewportId),
-  };
+  const api = useMemo(
+    () => ({
+      getState,
+      setCine,
+      setIsCineEnabled: isCineEnabled => service.setIsCineEnabled(isCineEnabled),
+      playClip: (element, playClipOptions) => service.playClip(element, playClipOptions),
+      stopClip: (element, stopClipOptions) => service.stopClip(element, stopClipOptions),
+      setViewportCineClosed: viewportId => service.setViewportCineClosed(viewportId),
+      clearViewportCineClosed: viewportId => service.clearViewportCineClosed(viewportId),
+      isViewportCineClosed: viewportId => service.isViewportCineClosed(viewportId),
+    }),
+    [service, setCine]
+  );
 
   return <CineContext.Provider value={[state, api]}>{children}</CineContext.Provider>;
 }

@@ -835,7 +835,9 @@ function commandsModule({
       const { viewports } = viewportGridService.getState();
       const { isCineEnabled } = cineService.getState();
       cineService.setIsCineEnabled(!isCineEnabled);
-      viewports.forEach((_, index) => cineService.setCine({ id: index, isPlaying: false }));
+      viewports.forEach(({ viewportId }) =>
+        cineService.setCine({ id: viewportId, isPlaying: false })
+      );
     },
 
     setViewportWindowLevel({

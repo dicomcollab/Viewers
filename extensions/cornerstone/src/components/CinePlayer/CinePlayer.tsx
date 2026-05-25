@@ -1,7 +1,63 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useCine } from '@ohif/ui-next';
-import { Enums, eventTarget, cache } from '@cornerstonejs/core';
+import { Enums, eventTarget, cache, metaData, getEnabledElement } from '@cornerstonejs/core';
 import { useAppConfig } from '@state';
+import { cineDebug, cineDebugWarn } from '../../utils/cineDebug';
+
+function getPetFrameReferenceTimeFromImageId(imageId: string) {
+  if (!imageId) {
+    return null;
+  }
+
+  const instance = metaData.get('instance', imageId);
+  let frameReferenceTime =
+    instance?.FrameReferenceTime ?? metaData.get('petImageModule', imageId)?.frameReferenceTime;
+
+  if (frameReferenceTime == null || frameReferenceTime === '') {
+    return null;
+  }
+
+  const numeric = Number(frameReferenceTime);
+
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildPetCineDynamicInfo({
+  cornerstoneViewportService,
+  viewportId,
+  displaySetService,
+  viewportGridService,
+}) {
+  const { viewports } = viewportGridService.getState();
+  const { displaySetInstanceUIDs = [] } = viewports.get(viewportId) || {};
+  const displaySet = displaySetInstanceUIDs
+    .map(uid => displaySetService.getDisplaySetByUID(uid))
+    .find(ds => ds?.Modality === 'PT');
+
+  if (!displaySet || (displaySet.numImageFrames ?? 0) <= 1) {
+    return null;
+  }
+
+  const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+  const imageIds = viewport?.getImageIds?.() || [];
+  const hasFrameReferenceTime = imageIds.some(
+    imageId => getPetFrameReferenceTimeFromImageId(imageId) != null
+  );
+
+  if (!hasFrameReferenceTime) {
+    return null;
+  }
+
+  const imageIndex = viewport?.getCurrentImageIdIndex?.() ?? 0;
+  const frameReferenceTime = getPetFrameReferenceTimeFromImageId(imageIds[imageIndex]);
+
+  return {
+    viewportId,
+    dimensionGroupNumber: imageIndex + 1,
+    numDimensionGroups: imageIds.length,
+    label: frameReferenceTime != null ? `FRT: ${frameReferenceTime} ms` : 'PET',
+  };
+}
 
 function WrappedCinePlayer({
   enabledVPElement,
@@ -11,134 +67,264 @@ function WrappedCinePlayer({
   enabledVPElement: HTMLElement;
   viewportId: string;
 }>) {
-  const { customizationService, displaySetService, viewportGridService } = servicesManager.services;
+  const { customizationService, displaySetService, viewportGridService, cornerstoneViewportService } =
+    servicesManager.services;
   const [{ isCineEnabled, cines }, cineService] = useCine();
   const [newStackFrameRate, setNewStackFrameRate] = useState(24);
   const [dynamicInfo, setDynamicInfo] = useState(null);
   const [appConfig] = useAppConfig();
-  const isMountedRef = useRef(null);
 
-  const cineHandler = () => {
-    if (!cines?.[viewportId] || !enabledVPElement) {
-      return;
-    }
+  const isMountedRef = useRef(false);
+  const cinesRef = useRef(cines);
+  const isCineEnabledRef = useRef(isCineEnabled);
+  const cineServiceRef = useRef(cineService);
+  const enabledVPElementRef = useRef(enabledVPElement);
+  const lastPlaybackRef = useRef<{ isPlaying: boolean; frameRate: number } | null>(null);
 
-    const { isPlaying = false, frameRate = 24 } = cines[viewportId];
-    const validFrameRate = Math.max(frameRate, 1);
+  cinesRef.current = cines;
+  isCineEnabledRef.current = isCineEnabled;
+  cineServiceRef.current = cineService;
+  enabledVPElementRef.current = enabledVPElement;
 
-    return isPlaying
-      ? cineService.playClip(enabledVPElement, { framesPerSecond: validFrameRate, viewportId })
-      : cineService.stopClip(enabledVPElement);
-  };
+  const isPlaying = cines?.[viewportId]?.isPlaying ?? false;
+  const frameRate = cines?.[viewportId]?.frameRate ?? 24;
+
+  const applyPlayback = useCallback(
+    (playing: boolean, fps: number) => {
+      const element = enabledVPElementRef.current;
+      const service = cineServiceRef.current;
+
+      if (!element || !isMountedRef.current) {
+        cineDebugWarn('CinePlayer', 'applyPlayback skipped — no element or not mounted', {
+          viewportId,
+          playing,
+          fps,
+          hasElement: !!element,
+          mounted: isMountedRef.current,
+        });
+        return;
+      }
+
+      const validFrameRate = Math.max(fps, 1);
+      const last = lastPlaybackRef.current;
+
+      if (last?.isPlaying === playing && last?.frameRate === validFrameRate) {
+        cineDebug('CinePlayer', 'applyPlayback skipped — unchanged', {
+          viewportId,
+          playing,
+          fps: validFrameRate,
+        });
+        return;
+      }
+
+      lastPlaybackRef.current = { isPlaying: playing, frameRate: validFrameRate };
+
+      const enabledElement = getEnabledElement(element);
+      const viewport = enabledElement?.viewport;
+      const imageIdCount =
+        typeof viewport?.getImageIds === 'function' ? viewport.getImageIds()?.length ?? 0 : 0;
+      const currentIndex =
+        typeof viewport?.getCurrentImageIdIndex === 'function'
+          ? viewport.getCurrentImageIdIndex()
+          : null;
+
+      if (playing) {
+        cineDebug('CinePlayer', 'applyPlayback → playClip', {
+          viewportId,
+          fps: validFrameRate,
+          hasEnabledElement: !!enabledElement,
+          cornerstoneViewportId: viewport?.id,
+          imageIdCount,
+          currentIndex,
+        });
+
+        if (!enabledElement) {
+          cineDebugWarn('CinePlayer', 'Cannot play — viewport element not enabled yet', { viewportId });
+          return;
+        }
+
+        if (imageIdCount <= 1) {
+          cineDebugWarn('CinePlayer', 'Cannot play — only one frame in stack', {
+            viewportId,
+            imageIdCount,
+          });
+          return;
+        }
+
+        service.playClip(element, { framesPerSecond: validFrameRate, viewportId });
+      } else {
+        cineDebug('CinePlayer', 'applyPlayback → stopClip', {
+          viewportId,
+          imageIdCount,
+          currentIndex,
+        });
+        service.stopClip(element, { viewportId });
+      }
+    },
+    [viewportId]
+  );
 
   const newDisplaySetHandler = useCallback(() => {
-    if (!enabledVPElement || !isCineEnabled) {
+    if (!enabledVPElementRef.current || !isCineEnabledRef.current) {
       return;
     }
 
     const { viewports } = viewportGridService.getState();
-    const { displaySetInstanceUIDs } = viewports.get(viewportId);
-    let frameRate = 24;
-    let isPlaying = cines[viewportId]?.isPlaying || false;
+    const viewportState = viewports.get(viewportId);
+
+    if (!viewportState?.displaySetInstanceUIDs?.length) {
+      cineDebugWarn('CinePlayer', 'newDisplaySetHandler — no display sets', { viewportId });
+      return;
+    }
+
+    const { displaySetInstanceUIDs } = viewportState;
+    let nextFrameRate = 24;
+    let nextIsPlaying = cinesRef.current[viewportId]?.isPlaying || false;
+
     displaySetInstanceUIDs.forEach(displaySetInstanceUID => {
       const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
 
       if (displaySet.FrameRate) {
-        // displaySet.FrameRate corresponds to DICOM tag (0018,1063) which is defined as the the frame time in milliseconds
-        // So a bit of math to get the actual frame rate.
-        frameRate = Math.round(1000 / displaySet.FrameRate);
-        isPlaying ||= !!appConfig.autoPlayCine;
+        nextFrameRate = Math.round(1000 / displaySet.FrameRate);
+        nextIsPlaying ||= !!appConfig.autoPlayCine;
       }
 
-      // check if the displaySet is dynamic and set the dynamic info
       if (displaySet.isDynamicVolume) {
         const { dynamicVolumeInfo } = displaySet;
-        const numDimensionGroups = dynamicVolumeInfo.timePoints.length;
-        const label = dynamicVolumeInfo.splittingTag;
-        const dimensionGroupNumber = dynamicVolumeInfo.dimensionGroupNumber || 1;
         setDynamicInfo({
           volumeId: displaySet.displaySetInstanceUID,
-          dimensionGroupNumber,
-          numDimensionGroups,
-          label,
+          dimensionGroupNumber: dynamicVolumeInfo.dimensionGroupNumber || 1,
+          numDimensionGroups: dynamicVolumeInfo.timePoints.length,
+          label: dynamicVolumeInfo.splittingTag,
         });
+      } else if (displaySet.Modality === 'PT') {
+        setDynamicInfo(
+          buildPetCineDynamicInfo({
+            cornerstoneViewportService,
+            viewportId,
+            displaySetService,
+            viewportGridService,
+          })
+        );
       } else {
         setDynamicInfo(null);
       }
     });
 
-    if (isPlaying) {
-      cineService.setIsCineEnabled(isPlaying);
+    cineDebug('CinePlayer', 'newDisplaySetHandler', {
+      viewportId,
+      nextFrameRate,
+      nextIsPlaying,
+    });
+
+    if (nextIsPlaying) {
+      cineServiceRef.current.setIsCineEnabled(true);
     }
-    cineService.setCine({ id: viewportId, isPlaying, frameRate });
-    setNewStackFrameRate(frameRate);
-  }, [displaySetService, viewportId, viewportGridService, cines, isCineEnabled, enabledVPElement]);
+
+    const currentCine = cinesRef.current[viewportId];
+
+    if (currentCine?.frameRate !== nextFrameRate || currentCine?.isPlaying !== nextIsPlaying) {
+      cineServiceRef.current.setCine({
+        id: viewportId,
+        isPlaying: nextIsPlaying,
+        frameRate: nextFrameRate,
+      });
+    }
+
+    setNewStackFrameRate(nextFrameRate);
+  }, [
+    appConfig.autoPlayCine,
+    cornerstoneViewportService,
+    displaySetService,
+    viewportGridService,
+    viewportId,
+  ]);
+
+  const newDisplaySetHandlerRef = useRef(newDisplaySetHandler);
+  newDisplaySetHandlerRef.current = newDisplaySetHandler;
 
   useEffect(() => {
     isMountedRef.current = true;
-
+    cineDebug('CinePlayer', 'mounted', { viewportId });
     newDisplaySetHandler();
 
     return () => {
       isMountedRef.current = false;
+      lastPlaybackRef.current = null;
+      cineDebug('CinePlayer', 'unmounted', { viewportId });
     };
-  }, [isCineEnabled, newDisplaySetHandler]);
+  }, [isCineEnabled, newDisplaySetHandler, viewportId]);
 
-  useEffect(() => {
-    if (!isCineEnabled) {
-      return;
-    }
-
-    cineHandler();
-  }, [isCineEnabled, cineHandler, enabledVPElement]);
-
-  /**
-   * Use effect for handling new display set
-   */
   useEffect(() => {
     if (!enabledVPElement) {
       return;
     }
 
-    enabledVPElement.addEventListener(Enums.Events.VIEWPORT_NEW_IMAGE_SET, newDisplaySetHandler);
-    // this doesn't makes sense that we are listening to this event on viewport element
-    enabledVPElement.addEventListener(
-      Enums.Events.VOLUME_VIEWPORT_NEW_VOLUME,
-      newDisplaySetHandler
-    );
+    const handler = () => newDisplaySetHandlerRef.current();
+
+    enabledVPElement.addEventListener(Enums.Events.VIEWPORT_NEW_IMAGE_SET, handler);
+    enabledVPElement.addEventListener(Enums.Events.VOLUME_VIEWPORT_NEW_VOLUME, handler);
 
     return () => {
-      cineService.setCine({ id: viewportId, isPlaying: false });
-
-      enabledVPElement.removeEventListener(
-        Enums.Events.VIEWPORT_NEW_IMAGE_SET,
-        newDisplaySetHandler
-      );
-      enabledVPElement.removeEventListener(
-        Enums.Events.VOLUME_VIEWPORT_NEW_VOLUME,
-        newDisplaySetHandler
-      );
+      enabledVPElement.removeEventListener(Enums.Events.VIEWPORT_NEW_IMAGE_SET, handler);
+      enabledVPElement.removeEventListener(Enums.Events.VOLUME_VIEWPORT_NEW_VOLUME, handler);
     };
-  }, [enabledVPElement, newDisplaySetHandler, viewportId]);
+  }, [enabledVPElement]);
 
   useEffect(() => {
-    if (!cines || !cines[viewportId] || !enabledVPElement || !isMountedRef.current) {
+    if (!isCineEnabled) {
+      if (lastPlaybackRef.current?.isPlaying) {
+        applyPlayback(false, frameRate);
+      }
+      lastPlaybackRef.current = null;
       return;
     }
 
-    cineHandler();
+    applyPlayback(isPlaying, frameRate);
+  }, [isCineEnabled, isPlaying, frameRate, applyPlayback]);
+
+  useEffect(() => {
+    if (!enabledVPElement) {
+      return;
+    }
+
+    const onStackNewImage = () => {
+      setDynamicInfo(prev => {
+        if (prev?.volumeId) {
+          return prev;
+        }
+
+        return buildPetCineDynamicInfo({
+          cornerstoneViewportService,
+          viewportId,
+          displaySetService,
+          viewportGridService,
+        });
+      });
+    };
+
+    enabledVPElement.addEventListener(Enums.Events.STACK_NEW_IMAGE, onStackNewImage);
 
     return () => {
-      cineService.stopClip(enabledVPElement, { viewportId });
+      enabledVPElement.removeEventListener(Enums.Events.STACK_NEW_IMAGE, onStackNewImage);
     };
-  }, [cines, viewportId, cineService, enabledVPElement, cineHandler]);
+  }, [cornerstoneViewportService, displaySetService, enabledVPElement, viewportGridService, viewportId]);
+
+  useEffect(() => {
+    return () => {
+      const element = enabledVPElementRef.current;
+
+      if (element) {
+        cineDebug('CinePlayer', 'cleanup stopClip on unmount', { viewportId });
+        cineServiceRef.current.stopClip(element, { viewportId });
+        lastPlaybackRef.current = null;
+      }
+    };
+  }, [viewportId]);
 
   if (!isCineEnabled) {
     return null;
   }
-
-  const cine = cines[viewportId];
-  const isPlaying = cine?.isPlaying || false;
 
   return (
     <RenderCinePlayer
@@ -148,6 +334,7 @@ function WrappedCinePlayer({
       isPlaying={isPlaying}
       dynamicInfo={dynamicInfo}
       customizationService={customizationService}
+      cornerstoneViewportService={cornerstoneViewportService}
     />
   );
 }
@@ -159,6 +346,7 @@ function RenderCinePlayer({
   isPlaying,
   dynamicInfo: dynamicInfoProp,
   customizationService,
+  cornerstoneViewportService,
 }) {
   const CinePlayerComponent = customizationService.getCustomization('cinePlayer');
 
@@ -168,11 +356,8 @@ function RenderCinePlayer({
     setDynamicInfo(dynamicInfoProp);
   }, [dynamicInfoProp]);
 
-  /**
-   * Use effect for handling 4D time index changed
-   */
   useEffect(() => {
-    if (!dynamicInfo) {
+    if (!dynamicInfo?.volumeId) {
       return;
     }
 
@@ -192,25 +377,51 @@ function RenderCinePlayer({
         handleDimensionGroupChange
       );
     };
-  }, [dynamicInfo]);
+  }, [dynamicInfo?.volumeId]);
 
   useEffect(() => {
-    if (!dynamicInfo) {
+    if (!dynamicInfo?.volumeId) {
       return;
     }
 
-    const { volumeId, dimensionGroupNumber, numDimensionGroups, splittingTag } = dynamicInfo || {};
+    const { volumeId, dimensionGroupNumber, numDimensionGroups, splittingTag } = dynamicInfo;
     const volume = cache.getVolume(volumeId, true);
-    volume.dimensionGroupNumber = dimensionGroupNumber;
+
+    if (volume) {
+      volume.dimensionGroupNumber = dimensionGroupNumber;
+    }
 
     setDynamicInfo({ volumeId, dimensionGroupNumber, numDimensionGroups, label: splittingTag });
-  }, []);
+  }, [dynamicInfo?.volumeId]);
 
-  const updateDynamicInfo = useCallback(props => {
-    const { volumeId, dimensionGroupNumber } = props;
-    const volume = cache.getVolume(volumeId, true);
-    volume.dimensionGroupNumber = dimensionGroupNumber;
-  }, []);
+  const updateDynamicInfo = useCallback(
+    props => {
+      const { volumeId, dimensionGroupNumber, viewportId: petViewportId } = props;
+
+      if (volumeId) {
+        const volume = cache.getVolume(volumeId, true);
+
+        if (volume) {
+          volume.dimensionGroupNumber = dimensionGroupNumber;
+        }
+        return;
+      }
+
+      if (petViewportId) {
+        cineDebug('CinePlayer', 'PET frame scrub', { petViewportId, dimensionGroupNumber });
+
+        const viewport = cornerstoneViewportService.getCornerstoneViewport(petViewportId);
+        const { isCineEnabled } = cineService.getState();
+
+        if (isCineEnabled) {
+          cineService.setCine({ id: petViewportId, isPlaying: false });
+        }
+
+        viewport?.setImageIdIndex?.(dimensionGroupNumber - 1);
+      }
+    },
+    [cornerstoneViewportService, cineService]
+  );
 
   return (
     <CinePlayerComponent
@@ -218,7 +429,7 @@ function RenderCinePlayer({
       frameRate={newStackFrameRate}
       isPlaying={isPlaying}
       onClose={() => {
-        // also stop the clip
+        cineDebug('CinePlayer', 'onClose', { viewportId });
         cineService.setCine({
           id: viewportId,
           isPlaying: false,
@@ -226,18 +437,20 @@ function RenderCinePlayer({
         cineService.setIsCineEnabled(false);
         cineService.setViewportCineClosed(viewportId);
       }}
-      onPlayPauseChange={isPlaying => {
+      onPlayPauseChange={playing => {
+        cineDebug('CinePlayer', 'onPlayPauseChange', { viewportId, playing });
         cineService.setCine({
           id: viewportId,
-          isPlaying,
+          isPlaying: playing,
         });
       }}
-      onFrameRateChange={frameRate =>
+      onFrameRateChange={nextFrameRate => {
+        cineDebug('CinePlayer', 'onFrameRateChange', { viewportId, nextFrameRate });
         cineService.setCine({
           id: viewportId,
-          frameRate,
-        })
-      }
+          frameRate: nextFrameRate,
+        });
+      }}
       dynamicInfo={dynamicInfo}
       updateDynamicInfo={updateDynamicInfo}
     />

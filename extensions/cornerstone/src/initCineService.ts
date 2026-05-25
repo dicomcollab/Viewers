@@ -1,70 +1,80 @@
-import { cache, Types } from '@cornerstonejs/core';
+import { getEnabledElement } from '@cornerstonejs/core';
 import { utilities } from '@cornerstonejs/tools';
-
-function _getVolumeFromViewport(viewport: Types.IBaseVolumeViewport) {
-  const volumeIds = viewport.getAllVolumeIds();
-  const volumes = volumeIds.map(id => cache.getVolume(id));
-  const dynamicVolume = volumes.find(volume => volume.isDynamicVolume());
-
-  return dynamicVolume ?? volumes[0];
-}
-
-/**
- * Return all viewports that needs to be synchronized with the source
- * viewport passed as parameter when cine is updated.
- * @param servicesManager ServiceManager
- * @param srcViewportIndex Source viewport index
- * @returns array with viewport information.
- */
-function _getSyncedViewports(servicesManager: AppTypes.ServicesManager, srcViewportId) {
-  const { viewportGridService, cornerstoneViewportService } = servicesManager.services;
-
-  const { viewports: viewportsStates } = viewportGridService.getState();
-  const srcViewportState = viewportsStates.get(srcViewportId);
-
-  if (srcViewportState?.viewportOptions?.viewportType !== 'volume') {
-    return [];
-  }
-
-  const srcViewport = cornerstoneViewportService.getCornerstoneViewport(srcViewportId);
-
-  const srcVolume = srcViewport ? _getVolumeFromViewport(srcViewport) : null;
-
-  if (!srcVolume?.isDynamicVolume()) {
-    return [];
-  }
-
-  const { volumeId: srcVolumeId } = srcVolume;
-
-  return Array.from(viewportsStates.values())
-    .filter(({ viewportId }) => {
-      const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
-
-      return viewportId !== srcViewportId && viewport?.hasVolumeId?.(srcVolumeId);
-    })
-    .map(({ viewportId }) => ({ viewportId }));
-}
+import { getSyncedViewports } from './utils/cineSyncUtils';
+import { cineDebug, cineDebugError, cineDebugWarn } from './utils/cineDebug';
 
 function initCineService(servicesManager: AppTypes.ServicesManager) {
   const { cineService } = servicesManager.services;
 
-  const getSyncedViewports = viewportId => {
-    return _getSyncedViewports(servicesManager, viewportId);
+  const getSyncedViewportsForViewport = viewportId => {
+    const synced = getSyncedViewports(servicesManager, viewportId);
+    cineDebug('initCineService', 'getSyncedViewports', { viewportId, synced });
+    return synced;
   };
 
-  const playClip = (element, playClipOptions) => {
-    return utilities.cine.playClip(element, playClipOptions);
+  const playClip = (element, playClipOptions = {}) => {
+    const { viewportId, framesPerSecond } = playClipOptions as {
+      viewportId?: string;
+      framesPerSecond?: number;
+    };
+
+    try {
+      const enabledElement = getEnabledElement(element);
+
+      if (!enabledElement) {
+        cineDebugWarn('initCineService', 'playClip skipped — element is not a Cornerstone enabled element', {
+          viewportId,
+          framesPerSecond,
+        });
+        return;
+      }
+
+      const viewport = enabledElement.viewport;
+      const numScrollSteps =
+        typeof viewport?.getImageIds === 'function' ? viewport.getImageIds()?.length ?? 0 : 0;
+
+      cineDebug('initCineService', 'playClip', {
+        viewportId,
+        framesPerSecond,
+        cornerstoneViewportId: viewport?.id,
+        viewportType: viewport?.type,
+        numScrollSteps,
+      });
+
+      if (numScrollSteps <= 1) {
+        cineDebugWarn('initCineService', 'playClip — stack has ≤1 frame; cine cannot advance', {
+          viewportId,
+          numScrollSteps,
+        });
+      }
+
+      return utilities.cine.playClip(element, playClipOptions);
+    } catch (error) {
+      cineDebugError('initCineService', 'playClip failed', error);
+      throw error;
+    }
   };
 
-  const stopClip = (element, stopClipOptions) => {
-    return utilities.cine.stopClip(element, stopClipOptions);
+  const stopClip = (element, stopClipOptions = {}) => {
+    const { viewportId } = stopClipOptions as { viewportId?: string };
+
+    cineDebug('initCineService', 'stopClip', { viewportId });
+
+    try {
+      return utilities.cine.stopClip(element, stopClipOptions);
+    } catch (error) {
+      cineDebugError('initCineService', 'stopClip failed', error);
+      throw error;
+    }
   };
 
   cineService.setServiceImplementation({
-    getSyncedViewports,
+    getSyncedViewports: getSyncedViewportsForViewport,
     playClip,
     stopClip,
   });
+
+  cineDebug('initCineService', 'Cine service implementation registered');
 }
 
 export default initCineService;

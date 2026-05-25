@@ -135,6 +135,22 @@ const makeDisplaySet = instances => {
 
   imageSet.sort(customizationService);
 
+  // PET dynamic series: order instances by Frame Reference Time for 4D-style cine.
+  if (instance.Modality === 'PT') {
+    const hasFrameReferenceTime = instances.some(
+      inst => inst.FrameReferenceTime !== undefined && inst.FrameReferenceTime !== null
+    );
+
+    if (hasFrameReferenceTime) {
+      imageSet.sortBy((a, b) => {
+        const frameReferenceTimeA = Number(a.FrameReferenceTime) || 0;
+        const frameReferenceTimeB = Number(b.FrameReferenceTime) || 0;
+
+        return frameReferenceTimeA - frameReferenceTimeB;
+      });
+    }
+  }
+
   // Include the first image instance number (after sorted)
   /*imageSet.setAttribute(
     'instanceNumber',
