@@ -17,9 +17,14 @@ if ('function' === typeof importScripts) {
   );
 
   var supportsServiceWorker = 'serviceWorker' in navigator;
-  var isNotLocalDevelopment = ['localhost', '127'].indexOf(location.hostname) === -1;
+  var hostname = location.hostname || '';
+  var isLocalDevelopment =
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost');
 
-  if (supportsServiceWorker && isNotLocalDevelopment) {
+  if (supportsServiceWorker && !isLocalDevelopment) {
     const swFileLocation = (window.PUBLIC_URL || '/') + 'sw.js';
     const wb = new Workbox(swFileLocation);
 

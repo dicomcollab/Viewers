@@ -11,7 +11,9 @@ import './ViewerLayout.css';
 
 const resizableHandleClassName = 'mt-[1px] bg-black';
 
-// Utility function to detect iframe mode
+/** Tablet landscape and below; desktop layouts stay wider. */
+const MOBILE_TABLET_MAX_WIDTH_PX = 1024;
+
 const isInIframe = () => {
   try {
     return window.self !== window.top;
@@ -19,6 +21,39 @@ const isInIframe = () => {
     return true;
   }
 };
+
+/** iPadOS 13+ may report as Mac; still treat as tablet when touch-capable. */
+const isIPad = () =>
+  typeof navigator !== 'undefined' &&
+  (/iPad/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+/**
+ * Phones and tablets only — not desktop browsers with a narrow window.
+ * Uses touch-primary media queries plus viewport width (and iPad fallback).
+ */
+const isMobileOrTabletScreen = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const withinMobileTabletWidth = window.matchMedia(
+    `(max-width: ${MOBILE_TABLET_MAX_WIDTH_PX}px)`
+  ).matches;
+
+  if (!withinMobileTabletWidth) {
+    return false;
+  }
+
+  if (isIPad()) {
+    return true;
+  }
+
+  return window.matchMedia('(hover: none), (pointer: coarse)').matches;
+};
+
+/** Close both sidebars by default only when embedded or on a mobile/tablet device. */
+const shouldDefaultPanelsClosed = () => isInIframe() || isMobileOrTabletScreen();
 
 function ViewerLayout({
   // From Extension Module Params
@@ -43,9 +78,10 @@ function ViewerLayout({
   const { panelService, hangingProtocolService, customizationService } = servicesManager.services;
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(appConfig.showLoadingIndicator);
 
-  // Detect iframe mode and close left panel by default
   const isIframeMode = isInIframe();
-  const effectiveLeftPanelClosed = isIframeMode ? true : leftPanelClosed;
+  const defaultPanelsClosed = shouldDefaultPanelsClosed();
+  const effectiveLeftPanelClosed = defaultPanelsClosed ? true : leftPanelClosed;
+  const effectiveRightPanelClosed = defaultPanelsClosed ? true : rightPanelClosed;
 
   const hasPanels = useCallback(
     (side): boolean => !!panelService.getPanels(side).length,
@@ -55,7 +91,7 @@ function ViewerLayout({
   const [hasRightPanels, setHasRightPanels] = useState(hasPanels('right'));
   const [hasLeftPanels, setHasLeftPanels] = useState(hasPanels('left'));
   const [leftPanelClosedState, setLeftPanelClosed] = useState(effectiveLeftPanelClosed);
-  const [rightPanelClosedState, setRightPanelClosed] = useState(rightPanelClosed);
+  const [rightPanelClosedState, setRightPanelClosed] = useState(effectiveRightPanelClosed);
 
   const [
     leftPanelProps,
@@ -68,7 +104,7 @@ function ViewerLayout({
   ] = useResizablePanels(
     effectiveLeftPanelClosed,
     setLeftPanelClosed,
-    rightPanelClosed,
+    effectiveRightPanelClosed,
     setRightPanelClosed,
     hasLeftPanels,
     hasRightPanels,

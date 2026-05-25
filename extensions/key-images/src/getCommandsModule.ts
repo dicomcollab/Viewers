@@ -1,18 +1,7 @@
 import { DicomMetadataStore } from '@ohif/core';
 import { captureViewportImage } from '@ohif/extension-cornerstone';
-
-function toBasicAuthHeaderValue(creds: string) {
-  // creds expected as "USER:PASS"
-  try {
-    return `Basic ${btoa(creds)}`;
-  } catch {
-    // If btoa fails due to unicode, fall back to UTF-8 safe conversion
-    const bytes = new TextEncoder().encode(creds);
-    let binary = '';
-    bytes.forEach(b => (binary += String.fromCharCode(b)));
-    return `Basic ${btoa(binary)}`;
-  }
-}
+import { getActiveStudyInstanceUID } from './utils/getActiveStudyInstanceUID';
+import { getKeyImagesAuthHeader } from './utils/getKeyImagesAuthHeader';
 
 function getCommandsModule({ servicesManager, commandsManager }) {
   const {
@@ -122,11 +111,24 @@ function getCommandsModule({ servicesManager, commandsManager }) {
     },
 
     saveKeyImages: async () => {
-      const keyImages = keyImagesService.getKeyImages();
+      const activeStudyUID = getActiveStudyInstanceUID(servicesManager);
+      const keyImages = activeStudyUID
+        ? keyImagesService.getKeyImagesForStudy(activeStudyUID)
+        : [];
+
+      if (!activeStudyUID) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: 'No active study selected. Open a study before saving key images.',
+          type: 'warning',
+        });
+        return;
+      }
+
       if (!keyImages.length) {
         uiNotificationService.show({
           title: 'Key Images',
-          message: 'No key images to save.',
+          message: 'No key images to save for the current study.',
           type: 'warning',
         });
         return;
@@ -142,17 +144,25 @@ function getCommandsModule({ servicesManager, commandsManager }) {
         return;
       }
 
-      // Basic auth (like: curl -u "USER:PASS")
-      // Configure via window.config.keyImagesBasicAuth = "USER:PASS"
-      // or window.config.keyImagesAuthorization = "Basic base64..." (full header value)
-      const authHeaderValue =
-        window.config?.keyImagesAuthorization ||
-        (window.config?.keyImagesBasicAuth
-          ? toBasicAuthHeaderValue(window.config.keyImagesBasicAuth)
-          : null);
+      const appConfig =
+        typeof window !== 'undefined'
+          ? (window.config as Parameters<typeof getKeyImagesAuthHeader>[0])
+          : undefined;
+      const authHeaders = getKeyImagesAuthHeader(appConfig);
+
+      if (!authHeaders?.Authorization) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message:
+            'Missing API credentials. Set keyImagesBasicAuthToken or keyImagesAuthorization in app config.',
+          type: 'error',
+        });
+        return;
+      }
 
       const metadata = {
         createdAt: new Date().toISOString(),
+        studyInstanceUID: activeStudyUID,
         reportContextId: new URLSearchParams(window.location.search).get('reportContextId') || null,
         tempId: new URLSearchParams(window.location.search).get('tempId') || null,
         keyImages: keyImages.map(item => ({
@@ -186,11 +196,7 @@ function getCommandsModule({ servicesManager, commandsManager }) {
 
       const response = await fetch(keyImagesUploadUrl, {
         method: 'POST',
-        headers: authHeaderValue
-          ? {
-              Authorization: 'Basic ' + 'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz',
-            }
-          : undefined,
+        headers: authHeaders,
         body: formData,
       });
 

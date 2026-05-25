@@ -126,8 +126,9 @@ module.exports = (env, argv) => {
           PUBLIC_URL: PUBLIC_URL,
         },
       }),
-      // Generate a service worker for fast local loads
-      ...(IS_COVERAGE
+      // Service worker / precache only for production builds.
+      // In dev, InjectManifest + HMR causes stale chunk manifests and ChunkLoadError.
+      ...(IS_COVERAGE || !isProdBuild
         ? []
         : [
             new InjectManifest({
@@ -174,9 +175,12 @@ module.exports = (env, argv) => {
       historyApiFallback: {
         disableDotRule: true,
         index: PUBLIC_URL + 'index.html',
+        // Missing .js chunks must 404 — not index.html (causes "Unexpected token '<'").
+        htmlAcceptHeaders: ['text/html', 'application/xhtml+xml'],
       },
       devMiddleware: {
-        writeToDisk: true,
+        // Memory-only in dev avoids stale on-disk chunks conflicting with HMR.
+        writeToDisk: isProdBuild,
       },
     },
   });

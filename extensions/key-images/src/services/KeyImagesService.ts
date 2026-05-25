@@ -38,6 +38,14 @@ export default class KeyImagesService extends PubSubService {
     return [...this._keyImages];
   }
 
+  public getKeyImagesForStudy(studyInstanceUID?: string | null): KeyImageItem[] {
+    if (!studyInstanceUID) {
+      return [];
+    }
+
+    return this._keyImages.filter(item => item.studyInstanceUID === studyInstanceUID);
+  }
+
   public addKeyImage(keyImage: KeyImageItem): void {
     this._keyImages = [keyImage, ...this._keyImages];
     this._persistToStorage();

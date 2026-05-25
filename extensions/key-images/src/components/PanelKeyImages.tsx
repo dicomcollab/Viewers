@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useActiveViewportDisplaySets } from '@ohif/core';
 
 type PanelKeyImagesProps = {
   servicesManager: AppTypes.ServicesManager;
@@ -6,27 +7,56 @@ type PanelKeyImagesProps = {
 };
 
 function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProps) {
-  const { keyImagesService } = servicesManager.services as AppTypes.Services & {
+  const { keyImagesService, hangingProtocolService } = servicesManager.services as AppTypes.Services & {
     keyImagesService: {
-      getKeyImages: () => any[];
+      getKeyImagesForStudy: (studyInstanceUID?: string | null) => any[];
       subscribe: (eventName: string, cb: (evt: any) => void) => { unsubscribe: () => void };
       EVENTS: { KEY_IMAGES_CHANGED: string };
     };
   };
 
-  const [keyImages, setKeyImages] = useState(() => keyImagesService.getKeyImages());
+  const activeDisplaySets = useActiveViewportDisplaySets();
+
+  const resolveActiveStudyUID = useCallback(() => {
+    return (
+      hangingProtocolService?.getState?.()?.activeStudyUID ||
+      activeDisplaySets?.[0]?.StudyInstanceUID ||
+      null
+    );
+  }, [activeDisplaySets, hangingProtocolService]);
+
+  const refreshKeyImages = useCallback(() => {
+    setKeyImages(keyImagesService.getKeyImagesForStudy(resolveActiveStudyUID()));
+  }, [keyImagesService, resolveActiveStudyUID]);
+
+  const activeStudyUID = resolveActiveStudyUID();
+  const [keyImages, setKeyImages] = useState(() =>
+    keyImagesService.getKeyImagesForStudy(resolveActiveStudyUID())
+  );
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    const { unsubscribe } = keyImagesService.subscribe(
-      keyImagesService.EVENTS.KEY_IMAGES_CHANGED,
-      () => {
-        setKeyImages(keyImagesService.getKeyImages());
-      }
-    );
+    refreshKeyImages();
+  }, [refreshKeyImages]);
 
-    return () => unsubscribe();
-  }, [keyImagesService]);
+  useEffect(() => {
+    const refresh = () => refreshKeyImages();
+
+    const subscriptions = [
+      keyImagesService.subscribe(keyImagesService.EVENTS.KEY_IMAGES_CHANGED, refresh),
+    ];
+
+    if (hangingProtocolService?.subscribe && hangingProtocolService?.EVENTS?.PROTOCOL_CHANGED) {
+      subscriptions.push(
+        hangingProtocolService.subscribe(
+          hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
+          refresh
+        )
+      );
+    }
+
+    return () => subscriptions.forEach(sub => sub.unsubscribe());
+  }, [keyImagesService, hangingProtocolService, refreshKeyImages]);
 
   const onSave = async () => {
     setIsSaving(true);
@@ -52,7 +82,9 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
 
       {keyImages.length === 0 && (
         <div className="text-muted-foreground text-xs">
-          No key images yet. Use the Add Key Image toolbar button.
+          {activeStudyUID
+            ? 'No key images for this study. Use the Add Key Image toolbar button.'
+            : 'No active study. Open a study to add key images.'}
         </div>
       )}
 

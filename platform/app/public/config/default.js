@@ -1086,9 +1086,11 @@ window.config = {
   // SR text push endpoint (used by SR text viewport "Send SR Text to RIS" button)
   risSrTextUploadPath: '/api/v1/structured-report/send-text',
   keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images/upload`,
-  // For curl-style basic auth: -u "USER:PASS"
-  // Prefer setting this via dynamic config / env per deployment (do not commit real creds).
-  keyImagesBasicAuth: 'B7X9V3LQ2ZW8M6RFD0J5PYT4KN1GHSU:Z4M1K9F8QX7TRD5W2LCV0BJN6SGYHP3v',
+  // Pre-encoded Basic token (Authorization: Basic <token>). Same pattern as DEMO_TOKEN / DicomWeb.
+  keyImagesBasicAuthToken: DEMO_TOKEN,
+  keyImagesAuthorization: `Basic ${DEMO_TOKEN}`,
+  // Legacy user:pass (runtime btoa) — prefer keyImagesBasicAuthToken above.
+  // keyImagesBasicAuth: 'user:pass',
   // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,
