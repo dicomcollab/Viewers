@@ -62,6 +62,7 @@ export default {
     {
       id: 'WindowLevel',
       inheritsFrom: 'ohif.overlayItem.windowLevel',
+      title: 'Window Level',
     },
     {
       id: 'petFrameReferenceTime',
@@ -84,6 +85,7 @@ export default {
     {
       id: 'InstanceNumber',
       inheritsFrom: 'ohif.overlayItem.instanceNumber',
+      title: 'Instance Number',
     },
   ],
 };

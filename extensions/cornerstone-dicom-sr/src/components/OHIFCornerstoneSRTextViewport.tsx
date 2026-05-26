@@ -72,7 +72,7 @@ function OHIFCornerstoneSRTextViewport(props: withAppTypes) {
   const contentDateTimeLine = [formattedContentDate, formattedContentTime].filter(Boolean).join(' ');
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-auto p-4 text-white">
+    <div className="text-foreground relative flex h-full w-full flex-col overflow-auto p-4">
       <div>
         <div className="mb-3 text-sm">
           {patientLine ? (

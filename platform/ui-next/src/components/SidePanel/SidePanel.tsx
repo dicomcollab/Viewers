@@ -58,7 +58,7 @@ const closeIconWidth = 30;
 const gridHorizontalPadding = 10;
 const tabSpacerWidth = 2;
 
-const baseClasses = 'bg-black border-black justify-start box-content flex flex-col';
+const baseClasses = 'bg-background border-background justify-start box-content flex flex-col';
 
 const openStateIconName = {
   left: 'SidePanelCloseLeft',
@@ -163,7 +163,9 @@ const getToolTipContent = (label: string, disabled: boolean) => {
   return (
     <>
       <div>{label}</div>
-      {disabled && <div className="text-white">{'Not available based on current context'}</div>}
+      {disabled && (
+        <div className="text-foreground">{'Not available based on current context'}</div>
+      )}
     </>
   );
 };
@@ -373,12 +375,9 @@ const SidePanel = ({
                 <React.Fragment key={tabIndex}>
                   {tabIndex % numCols !== 0 && (
                     <div
-                      className={classnames(
-                        'flex h-[28px] w-[2px] items-center bg-black',
-                        tabSpacerWidth
-                      )}
+                      className={classnames('flex h-[28px] w-[2px] items-center', tabSpacerWidth)}
                     >
-                      <div className="bg-primary-dark h-[20px] w-full"></div>
+                      <div className="bg-muted h-[20px] w-full"></div>
                     </div>
                   )}
                   <Tooltip key={tabIndex}>
@@ -449,7 +448,7 @@ const SidePanel = ({
         </div>
         <Separator
           orientation="horizontal"
-          className="bg-black"
+          className="bg-background"
           thickness="2px"
         />
       </>

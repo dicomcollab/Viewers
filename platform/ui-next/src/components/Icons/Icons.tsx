@@ -99,6 +99,7 @@ import {
   ToolCobbAngle,
   ToolCreateThreshold,
   ToolCrosshair,
+  ToolCrosshairChecked,
   ToolDicomTagBrowser,
   ToolFlipHorizontal,
   ToolFlipVertical,
@@ -233,6 +234,7 @@ import ChevronLeft from './Sources/ChevronLeft';
 import StatusAlert from './Sources/StatusAlert';
 import Undo from './Sources/Undo';
 import TabContours from './Sources/TabContours';
+import IllustrationNotFound from './Sources/IllustrationNotFound';
 //
 //
 type IconProps = React.HTMLAttributes<SVGElement>;
@@ -437,6 +439,7 @@ export const Icons = {
   ToolCobbAngle,
   ToolCreateThreshold,
   ToolCrosshair,
+  ToolCrosshairChecked,
   ToolDicomTagBrowser,
   ToolFlipHorizontal,
   ToolFlipVertical,
@@ -706,6 +709,7 @@ export const Icons = {
   'tool-cobb-angle': (props: IconProps) => ToolCobbAngle(props),
   'tool-create-threshold': (props: IconProps) => ToolCreateThreshold(props),
   'tool-crosshair': (props: IconProps) => ToolCrosshair(props),
+  'tool-crosshair-checked': (props: IconProps) => ToolCrosshairChecked(props),
   'dicom-tag-browser': (props: IconProps) => ToolDicomTagBrowser(props),
   'tool-flip-horizontal': (props: IconProps) => ToolFlipHorizontal(props),
   'tool-flip-vertical': (props: IconProps) => ToolFlipVertical(props),
@@ -804,6 +808,7 @@ export const Icons = {
   Undo,
   Redo,
   JumpToSlice,
+  IllustrationNotFound,
 
   /** Adds an icon to the set of icons */
   addIcon: (name: string, icon) => {

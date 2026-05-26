@@ -1263,6 +1263,7 @@ function ViewerViewportGrid(props: withAppTypes) {
         >
           <div
             data-cy="viewport-pane"
+            data-is-active={isActive}
             className="relative flex h-full w-full min-w-[5px] flex-col"
           >
             <ViewportComponent

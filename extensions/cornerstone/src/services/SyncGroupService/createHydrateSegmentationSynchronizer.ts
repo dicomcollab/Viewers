@@ -6,6 +6,8 @@ import {
   Types as ToolsTypes,
 } from '@cornerstonejs/tools';
 
+import { isAnyDisplaySetCommon } from '../../utils/isAnyDisplaySetCommon';
+
 const { createSynchronizer } = SynchronizerManager;
 const { SEGMENTATION_REPRESENTATION_MODIFIED } = Enums.Events;
 const { BlendModes } = CoreEnums;
@@ -34,6 +36,12 @@ export default function createHydrateSegmentationSynchronizer(
   return stackImageSynchronizer;
 }
 
+/**
+ * This method will add the segmentation representation to any target viewports having:
+ *
+ * 1. the same FrameOfReferenceUID (FOR) as the segmentation representation, or
+ * 2. a shared DisplaySet with the source viewport when no FOR is present.
+ */
 const segmentationRepresentationModifiedCallback = async (
   synchronizerInstance: Synchronizer,
   sourceViewport: Types.IViewportId,
@@ -44,15 +52,29 @@ const segmentationRepresentationModifiedCallback = async (
   const event = sourceEvent as ToolsTypes.EventTypes.SegmentationRepresentationModifiedEventType;
 
   const { segmentationId, type: segmentationRepresentationType } = event.detail;
-  const { segmentationService } = servicesManager.services;
+  const { segmentationService, cornerstoneViewportService } = servicesManager.services;
 
   const targetViewportId = targetViewport.viewportId;
+  const sourceViewportId = sourceViewport.viewportId;
 
   const { viewport } = getEnabledElementByViewportId(targetViewportId);
+  const sourceViewportInfo = cornerstoneViewportService.getViewportInfo(sourceViewportId);
+  const targetViewportInfo = cornerstoneViewportService.getViewportInfo(targetViewportId);
+
+  const sourceDisplaySetUIDs = extractDisplaySetUIDs(sourceViewportInfo);
+  const targetDisplaySetUIDs = extractDisplaySetUIDs(targetViewportInfo);
+
+  const sharedDisplaySetExists = isAnyDisplaySetCommon(sourceDisplaySetUIDs, targetDisplaySetUIDs);
 
   const targetFrameOfReferenceUID = viewport.getFrameOfReferenceUID();
+  const sourceFrameOfReferenceUID =
+    getEnabledElementByViewportId(sourceViewportId)?.viewport?.getFrameOfReferenceUID();
 
-  if (!targetFrameOfReferenceUID) {
+  if (!sharedDisplaySetExists && !targetFrameOfReferenceUID) {
+    return;
+  }
+
+  if (!sharedDisplaySetExists && targetFrameOfReferenceUID !== sourceFrameOfReferenceUID) {
     return;
   }
 
@@ -77,7 +99,14 @@ const segmentationRepresentationModifiedCallback = async (
     type,
     config: {
       blendMode:
-        viewport.getBlendMode() === 1 ? BlendModes.LABELMAP_EDGE_PROJECTION_BLEND : undefined,
+        viewport?.getBlendMode?.() === 1 ? BlendModes.LABELMAP_EDGE_PROJECTION_BLEND : undefined,
     },
   });
 };
+
+/**
+ * Extracts the displaySetInstanceUIDs from a viewportInfo.
+ */
+function extractDisplaySetUIDs(viewportInfo) {
+  return viewportInfo.getViewportData().data.map(ds => ds.displaySetInstanceUID);
+}

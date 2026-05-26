@@ -107,7 +107,7 @@ const Thumbnail = ({
         )}
       >
         <div className="h-[114px] w-[128px]">
-          <div className="relative bg-black">
+          <div className="relative bg-background">
             {imageSrc ? (
               <img
                 src={imageSrc}
@@ -128,7 +128,12 @@ const Thumbnail = ({
                   showLoading && 'bg-primary/25'
                 )}
               ></div>
-              <div className="text-[11px] font-semibold text-white">{modality}</div>
+              <div
+                className="text-foreground text-[11px] font-semibold"
+                data-cy="series-modality-label"
+              >
+                {modality}
+              </div>
             </div>
 
             {/* top right */}
@@ -155,7 +160,7 @@ const Thumbnail = ({
                       </div>
                       <div className="flex flex-1 flex-col">
                         <span>
-                          <span className="text-white">
+                          <span className="text-foreground">
                             {isTracked ? 'Series is tracked' : 'Series is untracked'}
                           </span>
                         </span>
@@ -201,7 +206,10 @@ const Thumbnail = ({
           <Tooltip>
             <TooltipContent>{description}</TooltipContent>
             <TooltipTrigger>
-              <div className="min-h-[18px] w-[128px] overflow-hidden text-ellipsis whitespace-nowrap pb-0.5 pl-1 text-left text-[12px] font-normal leading-4 text-white">
+              <div
+                className="text-foreground min-h-[18px] w-[128px] overflow-hidden text-ellipsis whitespace-nowrap pb-0.5 pl-1 text-left text-[12px] font-normal leading-4"
+                data-cy="series-description-label"
+              >
                 {description}
               </div>
             </TooltipTrigger>
@@ -266,11 +274,19 @@ const Thumbnail = ({
           ></div>
           <div className="flex h-full w-[calc(100%-12px)] flex-col justify-start">
             <div className="flex items-center gap-[7px]">
-              <div className="text-[13px] font-semibold text-white">{modality}</div>
+              <div
+                className="text-foreground text-[13px] font-semibold"
+                data-cy="series-modality-label"
+              >
+                {modality}
+              </div>
               <Tooltip>
                 <TooltipContent>{description}</TooltipContent>
                 <TooltipTrigger className="w-full overflow-hidden">
-                  <div className="max-w-[160px] overflow-hidden overflow-ellipsis whitespace-nowrap text-left text-[13px] font-normal text-white">
+                  <div
+                    className="text-foreground max-w-[160px] overflow-hidden overflow-ellipsis whitespace-nowrap text-left text-[13px] font-normal"
+                    data-cy="series-description-label"
+                  >
                     {description}
                   </div>
                 </TooltipTrigger>
@@ -333,7 +349,7 @@ const Thumbnail = ({
                   </div>
                   <div className="flex flex-1 flex-col">
                     <span>
-                      <span className="text-white">
+                      <span className="text-foreground">
                         {isTracked ? 'Series is tracked' : 'Series is untracked'}
                       </span>
                     </span>

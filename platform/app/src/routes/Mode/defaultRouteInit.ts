@@ -1,5 +1,5 @@
-import getStudies from './studiesList';
 import { DicomMetadataStore, log, utils, Enums } from '@ohif/core';
+import getStudies from './studiesList';
 import isSeriesFilterUsed from '../../utils/isSeriesFilterUsed';
 
 const { getSplitParam } = utils;
@@ -14,7 +14,12 @@ const { getSplitParam } = utils;
  * @returns array of subscriptions to cancel
  */
 export async function defaultRouteInit(
-  { servicesManager, studyInstanceUIDs, dataSource, filters, appConfig }: withAppTypes,
+  {
+    servicesManager,
+    studyInstanceUIDs,
+    dataSource,
+    filters,
+  }: withAppTypes & { studyInstanceUIDs?: string[] },
   hangingProtocolId,
   stageIndex
 ) {
@@ -27,13 +32,20 @@ export async function defaultRouteInit(
    */
   function applyHangingProtocol() {
     const displaySets = displaySetService.getActiveDisplaySets();
+    // The display sets are not necessarily in load order, even though the
+    // series got started in load order, so re-sort them before hanging
+    const sortCriteria = customizationService.getCustomization('sortingCriteria') as (
+      a,
+      b
+    ) => number;
 
     if (!displaySets || !displaySets.length) {
       return;
     }
+    const sortedDisplaySets = [...displaySets].sort(sortCriteria);
 
     // Gets the studies list to use
-    const studies = getStudies(studyInstanceUIDs, displaySets);
+    const studies = getStudies(studyInstanceUIDs, sortedDisplaySets);
 
     // study being displayed, and is thus the "active" study.
     const activeStudy = studies[0];
@@ -45,7 +57,7 @@ export async function defaultRouteInit(
 
     // run the hanging protocol matching on the displaySets
     // If protocolIdToUse is undefined, it will automatically match the best protocol
-    hangingProtocolService.run({ studies, activeStudy, displaySets }, protocolIdToUse, {
+    hangingProtocolService.run({ studies, activeStudy, displaySets: sortedDisplaySets }, protocolIdToUse, {
       stageIndex,
     });
   }

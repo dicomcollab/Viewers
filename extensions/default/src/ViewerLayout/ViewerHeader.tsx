@@ -283,7 +283,8 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
         <div className="text-primary flex cursor-pointer items-center">
           <Button
             variant="ghost"
-            className="hover:bg-primary-dark"
+            className="hover:bg-muted"
+            data-cy="undo-btn"
             onClick={() => {
               commandsManager.run('undo');
             }}
@@ -292,7 +293,8 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
           </Button>
           <Button
             variant="ghost"
-            className="hover:bg-primary-dark"
+            className="hover:bg-muted"
+            data-cy="redo-btn"
             onClick={() => {
               commandsManager.run('redo');
             }}

@@ -112,6 +112,7 @@ function _getDisplaySetsFromSeries(
     SeriesTime,
     ConceptNameCodeSequence,
     SOPClassUID,
+    imageId: predecessorImageId,
   } = instance;
   validateSameStudyUID(instance.StudyInstanceUID, instances);
 
@@ -140,6 +141,7 @@ function _getDisplaySetsFromSeries(
     isImagingMeasurementReport,
     sopClassUids,
     instance,
+    predecessorImageId,
     addInstances,
     label: SeriesDescription || `${i18n.t('Series')} ${SeriesNumber} - ${i18n.t('SR')}`,
   };
@@ -213,6 +215,10 @@ async function _load(
     srDisplaySet.referencedImages = [];
     srDisplaySet.measurements = [];
   }
+  const { predecessorImageId } = srDisplaySet;
+  for (const measurement of srDisplaySet.measurements) {
+    measurement.predecessorImageId = predecessorImageId;
+  }
 
   const mappings = measurementService.getSourceMappings(
     CORNERSTONE_3D_TOOLS_SOURCE_NAME,
@@ -223,8 +229,13 @@ async function _load(
   srDisplaySet.isRehydratable = isRehydratable(srDisplaySet, mappings);
   srDisplaySet.isLoaded = true;
 
-  /** Check currently added displaySets and add measurements if the sources exist */
-  displaySetService.activeDisplaySets.forEach(activeDisplaySet => {
+  /** Check currently added displaySets and add measurements if the sources exist.
+   *  Walk the SR's study first in default series order (not load order) so SCOORD3D
+   *  FrameOfReference matching picks a stable series when several share FOR. */
+  const displaySetsForSRPass = utils.sortDisplaySetsCopy(displaySetService.activeDisplaySets, {
+    studyInstanceUIDFirst: srDisplaySet.StudyInstanceUID,
+  });
+  displaySetsForSRPass.forEach(activeDisplaySet => {
     _checkIfCanAddMeasurementsToDisplaySet(
       srDisplaySet,
       activeDisplaySet,
@@ -828,15 +839,39 @@ function _processNonGeometricallyDefinedMeasurement(mergedContentSequence) {
   NUMContentItems.forEach(item => {
     const { ConceptNameCodeSequence, ContentSequence, MeasuredValueSequence } = item;
 
-    const { ValueType } = ContentSequence;
-    if (!ValueType === 'SCOORD') {
-      console.warn(`Graphic ${ValueType} not currently supported, skipping annotation.`);
-      return;
-    }
+    // Handle spatial reference ONLY if ContentSequence exists.
+    // ContentSequence may be a scalar SCOORD or an array when additional named
+    // SCOORDs (e.g. control points) are nested alongside the primary geometry.
+    // Pick the primary geometry entry: prefer the SCOORD without a
+    // ConceptNameCodeSequence (plain polyline), falling back to the first SCOORD.
+    if (ContentSequence) {
+      const scoordItem = Array.isArray(ContentSequence)
+        ? (ContentSequence.find(
+            cs =>
+              (cs.ValueType === 'SCOORD' || cs.ValueType === 'SCOORD3D') &&
+              !cs.ConceptNameCodeSequence
+          ) ?? ContentSequence.find(cs => cs.ValueType === 'SCOORD' || cs.ValueType === 'SCOORD3D'))
+        : ContentSequence;
 
-    const coords = _getCoordsFromSCOORDOrSCOORD3D(ContentSequence);
-    if (coords) {
-      measurement.coords.push(coords);
+      if (!scoordItem) {
+        console.warn(
+          'ContentSequence array contains no SCOORD or SCOORD3D entry, skipping annotation.'
+        );
+        return;
+      }
+
+      const { ValueType } = scoordItem;
+
+      if (ValueType !== 'SCOORD' && ValueType !== 'SCOORD3D') {
+        console.warn(`Graphic ${ValueType} not currently supported, skipping annotation.`);
+        return;
+      }
+
+      const coords = _getCoordsFromSCOORDOrSCOORD3D(scoordItem);
+
+      if (coords) {
+        measurement.coords.push(coords);
+      }
     }
 
     if (MeasuredValueSequence) {

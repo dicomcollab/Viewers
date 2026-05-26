@@ -9,7 +9,7 @@ import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from
 import useResizablePanels from './ResizablePanelsHook';
 import './ViewerLayout.css';
 
-const resizableHandleClassName = 'mt-[1px] bg-black';
+const resizableHandleClassName = 'mt-[1px] bg-background';
 
 /** Tablet landscape and below; desktop layouts stay wider. */
 const MOBILE_TABLET_MAX_WIDTH_PX = 1024;
@@ -128,11 +128,11 @@ function ViewerLayout({
    * is sized to our viewport.
    */
   useEffect(() => {
-    document.body.classList.add('bg-black');
+    document.body.classList.add('bg-background');
     document.body.classList.add('overflow-hidden');
 
     return () => {
-      document.body.classList.remove('bg-black');
+      document.body.classList.remove('bg-background');
       document.body.classList.remove('overflow-hidden');
     };
   }, []);
@@ -208,11 +208,11 @@ function ViewerLayout({
         isIframeMode={isIframeMode}
       />
       <div
-        className="relative flex w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
+        className="relative flex w-full flex-row flex-nowrap items-stretch overflow-hidden bg-background"
         style={{ height: 'calc(100vh - 52px' }}
       >
         <React.Fragment>
-          {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-black" />}
+          {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-background" />}
           <ResizablePanelGroup {...resizablePanelGroupProps}>
             {/* LEFT SIDEPANELS */}
             {hasLeftPanels ? (
@@ -236,7 +236,7 @@ function ViewerLayout({
             <ResizablePanel {...resizableViewportGridPanelProps}>
               <div className={`flex h-full flex-1 flex-col ${isIframeMode ? 'iframe-mode' : ''}`}>
                 <div
-                  className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-black"
+                  className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-background"
                   onMouseEnter={handleMouseEnter}
                 >
                   <ViewportGridComp

@@ -1,10 +1,9 @@
-import { test } from 'playwright-test-coverage';
 import {
-  visitStudy,
   checkForScreenshot,
   screenShotPaths,
-  simulateClicksOnElement,
-  simulateDoubleClickOnElement,
+  test,
+  visitStudy,
+  waitForViewportRenderCycle,
 } from './utils';
 
 test.beforeEach(async ({ page }) => {
@@ -13,33 +12,32 @@ test.beforeEach(async ({ page }) => {
   await visitStudy(page, studyInstanceUID, mode, 2000);
 });
 
-test('should display the arrow tool and allow free-form text to be entered', async ({ page }) => {
-  await page.getByTestId('trackedMeasurements-btn').click();
+test('should display the arrow tool and allow free-form text to be entered', async ({
+  page,
+  DOMOverlayPageObject,
+  mainToolbarPageObject,
+  rightPanelPageObject,
+  viewportPageObject,
+}) => {
+  await rightPanelPageObject.measurementsPanel.select();
 
-  await page.getByTestId('MeasurementTools-split-button-secondary').click();
-  await page.getByTestId('ArrowAnnotate').click();
+  await mainToolbarPageObject.measurementTools.arrowAnnotate.click();
 
-  const locator = page.getByTestId('viewport-pane').locator('canvas');
-  await simulateClicksOnElement({
-    locator,
-    points: [
-      {
-        x: 164,
-        y: 234,
-      },
-      {
-        x: 344,
-        y: 232,
-      },
-    ],
-  });
+  const activeViewport = await viewportPageObject.active;
+  await activeViewport.clickAt([
+    { x: 164, y: 234 },
+    { x: 344, y: 232 },
+  ]);
 
-  await page.getByTestId('dialog-input').fill('Ringo Starr was the drummer for The Beatles');
-  await page.getByTestId('input-dialog-save-button').click();
+  await DOMOverlayPageObject.dialog.input.fillAndSave(
+    'Ringo Starr was the drummer for The Beatles'
+  );
 
-  await page.getByTestId('prompt-begin-tracking-yes-btn').click();
+  const viewportRenderCycle = waitForViewportRenderCycle(page);
 
-  await page.waitForTimeout(2000);
+  await DOMOverlayPageObject.viewport.measurementTracking.confirm.click();
+
+  await viewportRenderCycle;
 
   await checkForScreenshot({
     page,
@@ -49,18 +47,9 @@ test('should display the arrow tool and allow free-form text to be entered', asy
 
   // Now edit the arrow text and the label should not change.
 
-  await simulateDoubleClickOnElement({
-    locator,
-    point: {
-      x: 164,
-      y: 234,
-    },
-  });
+  await activeViewport.doubleClickAt({ x: 164, y: 234 });
 
-  await page.getByTestId('dialog-input').fill('Neil Peart was the drummer for Rush');
-  await page.getByTestId('input-dialog-save-button').click();
-
-  await page.waitForTimeout(2000);
+  await DOMOverlayPageObject.dialog.input.fillAndSave('Neil Peart was the drummer for Rush');
 
   await checkForScreenshot({
     page,
@@ -70,13 +59,9 @@ test('should display the arrow tool and allow free-form text to be entered', asy
 
   // Now edit the label and the text should not change.
 
-  await page.getByTestId('actionsMenuTrigger').click();
-  await page.getByTestId('Rename').click();
-
-  await page.getByTestId('dialog-input').fill('Drummer annotation arrow');
-  await page.getByTestId('input-dialog-save-button').click();
-
-  await page.waitForTimeout(2000);
+  await rightPanelPageObject.measurementsPanel.panel
+    .nthMeasurement(0)
+    .actions.rename('Drummer annotation arrow');
 
   await checkForScreenshot({
     page,

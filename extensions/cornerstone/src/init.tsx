@@ -150,10 +150,18 @@ export default async function init({
     getSegmentationPresentationId
   );
 
-  cornerstoneTools.segmentation.config.style.setStyle(
+  segmentationService.setStyle(
     { type: SegmentationRepresentations.Contour },
     {
+      // Declare these alpha values at the Contour type level so that they can be set/changed/inherited for all contour segmentations.
+      fillAlpha: 0.5,
+      fillAlphaInactive: 0.4,
+
+      // In general do not fill contours so that hydrated RTSTRUCTs are not filled in when active or inactive by default.
+      // However, hydrated RTSTRUCTs are filled in when active or inactive if the user chooses to fill ALL contours.
+      // Those Contours created in OHIF (i.e. using the Segmentation Panel) will override both fill properties upon creation.
       renderFill: false,
+      renderFillInactive: false,
     }
   );
 
@@ -183,7 +191,20 @@ export default async function init({
     );
   });
 
-  // add metadata providers
+  // These are set reasonably low to allow for interleaved retrieves and slower
+  // connections.
+  imageLoadPoolManager.maxNumRequests = {
+    [RequestTypes.Interaction]: appConfig?.maxNumRequests?.interaction || 10,
+    [RequestTypes.Thumbnail]: appConfig?.maxNumRequests?.thumbnail || 5,
+    [RequestTypes.Prefetch]: appConfig?.maxNumRequests?.prefetch || 5,
+    [RequestTypes.Compute]: appConfig?.maxNumRequests?.compute || 10,
+  };
+
+  initWADOImageLoader(userAuthenticationService, appConfig, extensionManager);
+
+  // Add OHIF metadata providers after dicomImageLoader.init().
+  // The linked metadata branch clears providers during loader init.
+  metaData.addProvider(csUtilities.genericMetadataProvider.get, 9998);
   metaData.addProvider(
     csUtilities.calibratedPixelSpacingMetadataProvider.get.bind(
       csUtilities.calibratedPixelSpacingMetadataProvider
@@ -202,17 +223,6 @@ export default async function init({
       ...(typeof scaling === 'object' && scaling ? scaling : {}),
     };
   }, 10000);
-
-  // These are set reasonably low to allow for interleaved retrieves and slower
-  // connections.
-  imageLoadPoolManager.maxNumRequests = {
-    [RequestTypes.Interaction]: appConfig?.maxNumRequests?.interaction || 10,
-    [RequestTypes.Thumbnail]: appConfig?.maxNumRequests?.thumbnail || 5,
-    [RequestTypes.Prefetch]: appConfig?.maxNumRequests?.prefetch || 5,
-    [RequestTypes.Compute]: appConfig?.maxNumRequests?.compute || 10,
-  };
-
-  initWADOImageLoader(userAuthenticationService, appConfig, extensionManager);
 
   // Keep VTK component count aligned with pixel buffer (OT / PALETTE / JPEG metadata mismatches).
   eventTarget.addEventListener(EVENTS.IMAGE_LOADED, (evt: CustomEvent) => {

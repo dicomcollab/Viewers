@@ -1,9 +1,12 @@
+import { utils } from '@ohif/core';
 import React, { useEffect, useState } from 'react';
 import { getEnabledElement, StackViewport, BaseVolumeViewport } from '@cornerstonejs/core';
 import { ToolGroupManager, segmentation, Enums } from '@cornerstonejs/tools';
 import { getEnabledElement as OHIFgetEnabledElement } from '../state';
 import { useSystem } from '@ohif/core/src';
 import { captureViewportImage } from './captureViewport';
+
+const { downloadUrl } = utils;
 
 const DEFAULT_SIZE = 512;
 const MAX_TEXTURE_SIZE = 10000;
@@ -64,7 +67,12 @@ const CornerstoneViewportDownloadForm = ({
     return () => {
       Object.keys(toolModeAndBindings).forEach(toolName => {
         const { mode, bindings } = toolModeAndBindings[toolName];
-        toolGroup.setToolMode(toolName, mode, { bindings });
+        try {
+          toolGroup.setToolMode(toolName, mode, { bindings });
+        } catch (error) {
+          // Handle errors when restoring tool mode during cleanup (e.g., when tool state is undefined)
+          console.debug('Error restoring tool mode during cleanup:', toolName, error);
+        }
       });
     };
   }, []);
@@ -110,29 +118,50 @@ const CornerstoneViewportDownloadForm = ({
     const downloadViewport = renderingEngine.getViewport(VIEWPORT_ID);
 
     try {
+      // Capture current viewport state
+      // - properties: VOI, colormap, interpolation, etc.
+      // - viewPresentation: flip/rotate/zoom presentation state added for
+      //   saving flip and rotation for capture
+      // - viewReference: image/volume reference
+      const properties = viewport.getProperties();
+      const viewPresentation = viewport.getViewPresentation?.();
+      const viewRef = viewport.getViewReference?.();
+
       if (downloadViewport instanceof StackViewport) {
         const imageId = viewport.getCurrentImageId();
-        const properties = viewport.getProperties();
-
         await downloadViewport.setStack([imageId]);
-        downloadViewport.setProperties(properties);
       } else if (downloadViewport instanceof BaseVolumeViewport) {
         const volumeIds = viewport.getAllVolumeIds();
-        downloadViewport.setVolumes([{ volumeId: volumeIds[0] }]);
+        await downloadViewport.setVolumes([{ volumeId: volumeIds[0] }]);
       }
 
-      if (segmentationRepresentations.length > 0) {
+      // Apply presentation state so captured image preserves flip/rotate
+      if (viewPresentation && downloadViewport.setViewPresentation) {
+        downloadViewport.setViewPresentation(viewPresentation);
+      }
+
+      // Apply viewport display properties
+      downloadViewport.setProperties(properties);
+
+      // Ensure correct image/volume reference
+      if (viewRef && downloadViewport.setViewReference) {
+        downloadViewport.setViewReference(viewRef);
+      }
+
+      downloadViewport.render();
+
+      // Re-apply segmentation overlays to the download viewport
+      if (segmentationRepresentations?.length) {
         segmentationRepresentations.forEach(segRepresentation => {
           const { segmentationId, colorLUTIndex, type } = segRepresentation;
+
           if (type === Enums.SegmentationRepresentations.Labelmap) {
             segmentation.addLabelmapRepresentationToViewportMap({
               [downloadViewport.id]: [
                 {
                   segmentationId,
                   type: Enums.SegmentationRepresentations.Labelmap,
-                  config: {
-                    colorLUTOrIndex: colorLUTIndex,
-                  },
+                  config: { colorLUTOrIndex: colorLUTIndex },
                 },
               ],
             });
@@ -144,9 +173,7 @@ const CornerstoneViewportDownloadForm = ({
                 {
                   segmentationId,
                   type: Enums.SegmentationRepresentations.Contour,
-                  config: {
-                    colorLUTOrIndex: colorLUTIndex,
-                  },
+                  config: { colorLUTOrIndex: colorLUTIndex },
                 },
               ],
             });
@@ -224,6 +251,33 @@ const CornerstoneViewportDownloadForm = ({
     link.click();
   };
 
+  const handleCopyToClipboard = async () => {
+    try {
+      const { blob } = await captureViewportImage({
+        activeViewportId: activeViewportIdProp,
+        cornerstoneViewportService,
+        showAnnotations,
+        width: viewportDimensions.width,
+        height: viewportDimensions.height,
+        fileType: 'png',
+        quality: 1,
+      });
+
+      if (!blob) {
+        throw new Error('Failed to create blob from capture');
+      }
+
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'image/png': blob,
+        }),
+      ]);
+    } catch (error) {
+      console.error('Failed to copy image to clipboard:', error);
+      throw error;
+    }
+  };
+
   const ViewportDownloadFormNew = customizationService.getCustomization(
     'ohif.captureViewportModal'
   );
@@ -241,6 +295,7 @@ const CornerstoneViewportDownloadForm = ({
       onEnableViewport={handleEnableViewport}
       onDisableViewport={handleDisableViewport}
       onDownload={handleDownload}
+      onCopyToClipboard={handleCopyToClipboard}
       warningState={warningState}
     />
   );

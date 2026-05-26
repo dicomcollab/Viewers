@@ -14,6 +14,9 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const SRC_DIR = path.join(__dirname, '../src');
 const DIST_DIR = path.join(__dirname, '../dist');
 const PUBLIC_DIR = path.join(__dirname, '../public');
+
+// Ignore node_modules except @cornerstonejs (symlinked local development).
+const WATCH_IGNORED = /node_modules[\\/](?!@cornerstonejs(?:[\\/]|$))/;
 // ~~ Env Vars
 const HTML_TEMPLATE = process.env.HTML_TEMPLATE || 'index.html';
 const PUBLIC_URL = process.env.PUBLIC_URL || '/';
@@ -31,6 +34,7 @@ const ENTRY_TARGET = process.env.ENTRY_TARGET || `${SRC_DIR}/index.js`;
 const Dotenv = require('dotenv-webpack');
 const writePluginImportFile = require('./writePluginImportsFile.js');
 // const MillionLint = require('@million/lint');
+const open = process.env.OHIF_OPEN !== 'false';
 
 const copyPluginFromExtensions = writePluginImportFile(SRC_DIR, DIST_DIR);
 
@@ -148,7 +152,7 @@ module.exports = (env, argv) => {
       // compress: true,
       // http2: true,
       // https: true,
-      open: true,
+      open,
       port: OHIF_PORT,
       client: {
         overlay: { errors: true, warnings: false },
@@ -215,7 +219,8 @@ module.exports = (env, argv) => {
   }
 
   mergedConfig.watchOptions = {
-    ignored: /node_modules\/@cornerstonejs/,
+    ignored: WATCH_IGNORED,
+    followSymlinks: true,
   };
 
   return mergedConfig;

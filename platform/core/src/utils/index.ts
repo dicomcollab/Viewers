@@ -34,6 +34,7 @@ import {
   sortStudy,
   sortStudySeries,
   sortStudyInstances,
+  sortDisplaySetsCopy,
   sortingCriteria,
   seriesSortCriteria,
   instancesSortCriteria,
@@ -62,6 +63,8 @@ import {
   resolveRisWorklistUrlFromConfig,
 } from './risEnvironmentDefaults';
 
+import { downloadBlob, downloadUrl, downloadCsv, downloadDicom } from './downloadBlob';
+
 // Commented out unused functionality.
 // Need to implement new mechanism for derived displaySets using the displaySetManager.
 
@@ -75,6 +78,7 @@ const utils = {
   sortStudy,
   sortStudySeries,
   sortStudyInstances,
+  sortDisplaySetsCopy,
   sortingCriteria,
   seriesSortCriteria,
   instancesSortCriteria,
@@ -125,6 +129,10 @@ const utils = {
   resolveRisPreferencesApiBaseUrl,
   resolveRisRootRedirectUrlFromConfig,
   resolveRisWorklistUrlFromConfig,
+  downloadBlob,
+  downloadUrl,
+  downloadCsv,
+  downloadDicom,
 };
 
 export {
@@ -175,6 +183,10 @@ export {
   resolveRisPreferencesApiBaseUrl,
   resolveRisRootRedirectUrlFromConfig,
   resolveRisWorklistUrlFromConfig,
+  downloadBlob,
+  downloadUrl,
+  downloadCsv,
+  downloadDicom,
 };
 
 export default utils;

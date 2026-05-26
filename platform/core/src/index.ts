@@ -175,5 +175,6 @@ export type {
   RisAppConfigSlice,
   RisViewDicomImgResult,
 } from './utils/risEnvironmentDefaults';
+export type { SortDisplaySetsCopyOptions } from './utils/sortStudy';
 
 export default OHIF;

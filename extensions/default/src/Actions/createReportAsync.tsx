@@ -1,5 +1,3 @@
-import { DicomMetadataStore } from '@ohif/core';
-
 /**
  *
  * @param {*} servicesManager
@@ -9,6 +7,7 @@ async function createReportAsync({
   getReport,
   reportType = 'measurement',
   dataSource,
+  successMessage,
 }: withAppTypes) {
   const { displaySetService, uiNotificationService, uiDialogService } = servicesManager.services;
 
@@ -34,7 +33,7 @@ async function createReportAsync({
 
     uiNotificationService.show({
       title: 'Create Report',
-      message: `${reportType} saved successfully`,
+      message: successMessage ?? `${reportType} saved successfully`,
       type: 'success',
     });
 

@@ -758,7 +758,7 @@ const toolbarButtons: Button[] = [
       commands: setToolActiveToolbar,
       evaluate: {
         name: 'evaluate.cornerstoneTool',
-        disabledText: 'Select a 3D viewport to enable this tool',
+        disabledText: i18n.t('Buttons:Select a 3D viewport to enable this tool'),
       },
     },
   },
@@ -829,15 +829,18 @@ const toolbarButtons: Button[] = [
       type: 'tool',
       icon: 'tool-crosshair',
       label: i18n.t('Buttons:Crosshairs'),
+      tooltip: i18n.t('Buttons:Click to toggle on or off'),
       commands: {
-        commandName: 'setToolActiveToolbar',
+        commandName: 'toggleActiveDisabledToolbar',
         commandOptions: {
           toolGroupIds: ['mpr'],
         },
       },
       evaluate: {
-        name: 'evaluate.cornerstoneTool',
-        disabledText: 'Select an MPR viewport to enable this tool',
+        name: 'evaluate.cornerstoneTool.toggleWithModifier',
+        disabledText: i18n.t('Buttons:Select an MPR viewport to enable this tool'),
+        toggledOnIcon: 'tool-crosshair-checked',
+        defaultIcon: 'tool-crosshair',
       },
     },
   },

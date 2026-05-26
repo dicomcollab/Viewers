@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { InputDialog } from '@ohif/ui-next';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ohif/ui-next';
 import { useSystem } from '@ohif/core';
@@ -11,28 +12,48 @@ type DataSource = {
 
 type ReportDialogProps = {
   dataSources: DataSource[];
+  modality?: string;
+  predecessorImageId?: string;
   hide: () => void;
-  onSave: (data: { reportName: string; dataSource: string | null; series: string | null }) => void;
+  onSave: (data: {
+    reportName: string;
+    dataSource: string | null;
+    series: string | null;
+    priorSeriesNumber: number;
+  }) => void;
   onCancel: () => void;
+  enableDownload?: boolean;
 };
 
-function ReportDialog({ dataSources, hide, onSave, onCancel }: ReportDialogProps) {
+function ReportDialog({
+  dataSources,
+  modality = 'SR',
+  predecessorImageId,
+  minSeriesNumber = 3000,
+  hide,
+  onSave,
+  onCancel,
+  enableDownload = false,
+}: ReportDialogProps) {
+  const { t } = useTranslation('Buttons');
   const { servicesManager } = useSystem();
+  const actionTakenRef = useRef(false);
   const [selectedDataSource, setSelectedDataSource] = useState<string | null>(
     dataSources?.[0]?.value ?? null
   );
-  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
-  const [reportName, setReportName] = useState('');
-
   const { displaySetService } = servicesManager.services;
+
+  const [selectedSeries, setSelectedSeries] = useState<string | null>(predecessorImageId || null);
+  const [reportName, setReportName] = useState('');
 
   const seriesOptions = useMemo(() => {
     const displaySetsMap = displaySetService.getDisplaySetCache();
     const displaySets = Array.from(displaySetsMap.values());
     const options = displaySets
-      .filter(ds => ds.Modality === 'SR')
+      .filter(ds => ds.Modality === modality)
       .map(ds => ({
-        value: ds.SeriesInstanceUID,
+        value: ds.predecessorImageId || ds.SeriesInstanceUID,
+        seriesNumber: isFinite(ds.SeriesNumber) ? ds.SeriesNumber : minSeriesNumber,
         description: ds.SeriesDescription,
         label: `${ds.SeriesDescription} ${ds.SeriesDate}/${ds.SeriesTime} ${ds.SeriesNumber}`,
       }));
@@ -41,11 +62,12 @@ function ReportDialog({ dataSources, hide, onSave, onCancel }: ReportDialogProps
       {
         value: null,
         description: null,
+        seriesNumber: minSeriesNumber,
         label: 'Create new series',
       },
       ...options,
     ];
-  }, [displaySetService]);
+  }, [displaySetService, modality]);
 
   useEffect(() => {
     const seriesOption = seriesOptions.find(s => s.value === selectedSeries);
@@ -55,20 +77,44 @@ function ReportDialog({ dataSources, hide, onSave, onCancel }: ReportDialogProps
   }, [selectedSeries, seriesOptions]);
 
   const handleSave = useCallback(() => {
+    actionTakenRef.current = true;
     onSave({
       reportName,
       dataSource: selectedDataSource,
+      priorSeriesNumber: Math.max(...seriesOptions.map(it => it.seriesNumber)),
       series: selectedSeries,
     });
     hide();
   }, [selectedDataSource, selectedSeries, reportName, hide, onSave]);
 
   const handleCancel = useCallback(() => {
+    actionTakenRef.current = true;
     onCancel();
     hide();
   }, [onCancel, hide]);
 
+  const handleDownload = useCallback(() => {
+    actionTakenRef.current = true;
+    onSave({
+      reportName,
+      dataSource: 'download',
+      priorSeriesNumber: Math.max(...seriesOptions.map(it => it.seriesNumber)),
+      series: selectedSeries,
+    });
+    hide();
+  }, [selectedDataSource, selectedSeries, reportName, hide, onSave]);
+
+  // Handles the close dialog button/external close as a cancel
+  useEffect(() => {
+    return () => {
+      if (!actionTakenRef.current) {
+        onCancel();
+      }
+    };
+  }, [onCancel]);
+
   const showDataSourceSelect = dataSources?.length > 1;
+  const showDownloadButton = enableDownload;
 
   return (
     <div className="text-foreground flex min-w-[400px] max-w-md flex-col">
@@ -163,9 +209,11 @@ function ReportDialog({ dataSources, hide, onSave, onCancel }: ReportDialogProps
         <div className="flex justify-end gap-2">
           <InputDialog>
             <InputDialog.Actions>
-              <InputDialog.ActionsSecondary onClick={handleCancel}>
-                Cancel
-              </InputDialog.ActionsSecondary>
+              {showDownloadButton && (
+                <InputDialog.ActionsSecondary onClick={handleDownload}>
+                  {t('Download')}
+                </InputDialog.ActionsSecondary>
+              )}
               <InputDialog.ActionsPrimary onClick={handleSave}>Save</InputDialog.ActionsPrimary>
             </InputDialog.Actions>
           </InputDialog>

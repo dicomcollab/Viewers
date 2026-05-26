@@ -243,7 +243,7 @@ function modeFactory({ modeConfiguration }) {
           return {
             id: ohif.layout,
             props: {
-              leftPanels: [ohif.leftPanel],
+              leftPanels: [ohif.thumbnailList],
               leftPanelResizable: true,
               rightPanels: [
                 cornerstone.labelMapSegmentationPanel,

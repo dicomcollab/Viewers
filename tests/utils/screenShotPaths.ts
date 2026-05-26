@@ -66,6 +66,18 @@ const screenShotPaths = {
   rectangle: {
     rectangleDisplayedCorrectly: 'rectangleDisplayedCorrectly.png',
   },
+  scoord3dProbe: {
+    scoord3dProbeDisplayedCorrectly: 'scoord3dProbeDisplayedCorrectly.png',
+    scoord3dProbePreHydration: 'scoord3dProbePreHydration.png',
+    scoord3dProbePostHydration: 'scoord3dProbePostHydration.png',
+    scoord3dProbeJumpToMeasurement: 'scoord3dProbeJumpToMeasurement.png',
+  },
+  scoordRectangle: {
+    scoordRectangleDisplayedCorrectly: 'scoordRectangleDisplayedCorrectly.png',
+    scoordRectanglePreHydration: 'scoordRectanglePreHydration.png',
+    scoordRectanglePostHydration: 'scoordRectanglePostHydration.png',
+    scoordRectangleJumpToMeasurement: 'scoordRectangleJumpToMeasurement.png',
+  },
   spline: {
     splineDisplayedCorrectly: 'splineDisplayedCorrectly.png',
   },
@@ -84,6 +96,9 @@ const screenShotPaths = {
   },
   reset: {
     resetDisplayedCorrectly: 'resetDisplayedCorrectly.png',
+  },
+  zoomIn: {
+    magnifyViewportDisplayedCorrectly: 'magnifyViewportDisplayedCorrectly.png',
   },
   rtDataOverlayForUnreferencedDisplaySetNoHydration: {
     overlayFirstImage: 'overlayFirstImage.png',
@@ -117,6 +132,10 @@ const screenShotPaths = {
     segPreHydration: 'segPreHydration.png',
     segJumpToSegment: 'segJumpToSegment.png',
   },
+  segHydrationDeleteAndReload: {
+    viewportAfterSecondHydration: 'viewportAfterSecondHydration.png',
+    viewportAfterSecondDelete: 'viewportAfterSecondDelete.png',
+  },
   segHydrationThenMPR: {
     segPostHydration: 'segPostHydration.png',
     segPostHydrationMPRAxialPrimary: 'segPostHydrationMPRAxialPrimary.png',
@@ -131,6 +150,10 @@ const screenShotPaths = {
     threeDFourUpBeforeSEG: 'threeDFourUpBeforeSEG.png',
     threeDFourUpAfterSEG: 'threeDFourUpAfterSEG.png',
     threeDFourUpAfterSegHydrated: 'threeDFourUpAfterSegHydrated.png',
+  },
+  segHydrationAfterLayoutSwitchTo3By2: {
+    afterSEGHydrated: 'afterSEGHydrated.png',
+    backTo3DFourUp: 'backTo3DFourUp.png',
   },
   segNoHydrationThenMPR: {
     segNoHydrationPreMPR: 'segNoHydrationPreMpr.png',
@@ -165,12 +188,11 @@ const screenShotPaths = {
     rtPostHydration: 'rtPostHydration.png',
     rtPreHydration: 'rtPreHydration.png',
   },
-  crosshairs: {
-    crosshairsRendered: 'crosshairsRendered.png',
-    crosshairsRotated: 'crosshairsRotated.png',
-    crosshairsSlabThickness: 'crosshairsSlabThickness.png',
-    crosshairsResetToolbar: 'crosshairsResetToolbar.png',
-    crosshairsNewDisplayset: 'crosshairsNewDisplayset.png',
+  rtHydrationDisableConfirmation: {
+    firstLoadPostHydration: 'firstLoadPostHydration.png',
+    viewportAfterFirstDelete: 'viewportAfterFirstDelete.png',
+    secondLoadPostHydration: 'secondLoadPostHydration.png',
+    viewportAfterSecondDelete: 'viewportAfterSecondDelete.png',
   },
   tmtvRendering: {
     tmtvDisplayedCorrectly: 'tmtvDisplayedCorrectly.png',

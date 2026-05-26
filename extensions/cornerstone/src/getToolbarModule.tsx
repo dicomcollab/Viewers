@@ -1,4 +1,5 @@
 import { Enums } from '@cornerstonejs/tools';
+import i18n from '@ohif/i18n';
 import { utils } from '@ohif/ui-next';
 import { ViewportDataOverlayMenuWrapper } from './components/ViewportDataOverlaySettingMenu/ViewportDataOverlayMenuWrapper';
 import { ViewportOrientationMenuWrapper } from './components/ViewportOrientationMenu/ViewportOrientationMenuWrapper';
@@ -24,7 +25,7 @@ declare global {
 
 const getDisabledState = (disabledText?: string) => ({
   disabled: true,
-  disabledText: disabledText ?? 'Not available on the current viewport',
+  disabledText: disabledText ?? i18n.t('Buttons:Not available on the current viewport'),
 });
 
 export default function getToolbarModule({ servicesManager, extensionManager }: withAppTypes) {
@@ -406,7 +407,9 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
           );
 
           if (!hasAnySupportedModality) {
-            return getDisabledState(disabledText || 'Tool not available for this modality');
+            return getDisabledState(
+              disabledText || i18n.t('Buttons:Tool not available for this modality')
+            );
           }
         }
       },
@@ -434,6 +437,40 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
           disabled: false,
           isActive: isPrimaryActive,
           className: utils.getToggledClassName(isPrimaryActive),
+        };
+      },
+    },
+    {
+      name: 'evaluate.cornerstoneTool.toggleWithModifier',
+      evaluate: ({ viewportId, button, disabledText, toggledOnIcon, defaultIcon }) => {
+        const toolGroup = toolGroupService.getToolGroupForViewport(viewportId);
+        if (!toolGroup) {
+          return;
+        }
+
+        const toolName = toolbarService.getToolNameForButton(button);
+        if (!toolGroup.hasTool(toolName)) {
+          return getDisabledState(disabledText);
+        }
+
+        const { mode } = toolGroup.getToolOptions(toolName) ?? {};
+        const isToggled =
+          mode === Enums.ToolModes.Passive ||
+          mode === Enums.ToolModes.Active ||
+          mode === Enums.ToolModes.Enabled;
+
+        const toolBindings = toolGroupService.getToolBindings(toolGroup.id, toolName);
+        const hasModifierKey =
+          toolBindings?.some(binding => binding.modifierKey != null) ?? false;
+
+        return {
+          disabled: false,
+          isActive: false,
+          isToggled,
+          icon:
+            isToggled && hasModifierKey && toggledOnIcon
+              ? toggledOnIcon
+              : defaultIcon ?? button.props.icon,
         };
       },
     },

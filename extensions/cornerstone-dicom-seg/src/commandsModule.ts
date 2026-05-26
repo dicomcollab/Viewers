@@ -1,14 +1,11 @@
 import dcmjs from 'dcmjs';
-import { classes, Types } from '@ohif/core';
+import { classes, Types, utils } from '@ohif/core';
 import { cache, metaData } from '@cornerstonejs/core';
 import { segmentation as cornerstoneToolsSegmentation } from '@cornerstonejs/tools';
-import { adaptersRT, helpers, adaptersSEG } from '@cornerstonejs/adapters';
+import { adaptersRT, adaptersSEG } from '@cornerstonejs/adapters';
 import { createReportDialogPrompt, useUIStateStore } from '@ohif/extension-default';
-import { DicomMetadataStore } from '@ohif/core';
 
 import PROMPT_RESPONSES from '../../default/src/utils/_shared/PROMPT_RESPONSES';
-
-const { datasetToBlob } = dcmjs.data;
 
 const getTargetViewport = ({ viewportId, viewportGridService }) => {
   const { viewports, activeViewportId } = viewportGridService.getState();
@@ -27,15 +24,15 @@ const {
 
 const {
   Cornerstone3D: {
-    RTSS: { generateRTSSFromSegmentations },
+    RTSS: { generateRTSSFromRepresentation },
   },
 } = adaptersRT;
 
-const { downloadDICOMData } = helpers;
 
 const commandsModule = ({
   servicesManager,
   extensionManager,
+  commandsManager,
 }: Types.Extensions.ExtensionParams): Types.Extensions.CommandsModule => {
   const { segmentationService, displaySetService, viewportGridService, uiNotificationService } =
     servicesManager.services as AppTypes.Services;
@@ -92,6 +89,7 @@ const commandsModule = ({
      */
     generateSegmentation: ({ segmentationId, options = {} }) => {
       const segmentation = cornerstoneToolsSegmentation.state.getSegmentation(segmentationId);
+      const predecessorImageId = options.predecessorImageId ?? segmentation.predecessorImageId;
 
       const { imageIds } = segmentation.representationData.Labelmap;
 
@@ -173,12 +171,10 @@ const commandsModule = ({
         labelmap3D.metadata[segmentIndex] = segmentMetadata;
       });
 
-      const generatedSegmentation = generateSegmentation(
-        referencedImages,
-        labelmap3D,
-        metaData,
-        options
-      );
+      const generatedSegmentation = generateSegmentation(referencedImages, labelmap3D, metaData, {
+        predecessorImageId,
+        ...options,
+      });
 
       return generatedSegmentation;
     },
@@ -197,8 +193,11 @@ const commandsModule = ({
       const generatedSegmentation = actions.generateSegmentation({
         segmentationId,
       });
-
-      downloadDICOMData(generatedSegmentation.dataset, `${segmentationInOHIF.label}`);
+      const storeFn = commandsManager.runCommand('createStoreFunction', {
+        dataSource: 'download',
+        defaultFileName: `${segmentationInOHIF.label}.dcm`,
+      });
+      storeFn(generatedSegmentation.dataset);
     },
     /**
      * Stores a segmentation based on the provided segmentationId into a specified data source.
@@ -212,73 +211,113 @@ const commandsModule = ({
      * @returns {Object|void} Returns the naturalized report if successfully stored,
      * otherwise throws an error.
      */
-    storeSegmentation: async ({ segmentationId, dataSource }) => {
+    storeSegmentation: async ({ segmentationId, dataSource, modality = 'SEG' }) => {
       const segmentation = segmentationService.getSegmentation(segmentationId);
 
       if (!segmentation) {
         throw new Error('No segmentation found');
       }
 
-      const { label } = segmentation;
-      const defaultDataSource = dataSource ?? extensionManager.getActiveDataSource()[0];
+      const { label, predecessorImageId } = segmentation;
 
       const {
         value: reportName,
-        dataSourceName: selectedDataSource,
+        dataSourceName,
+        series,
+        priorSeriesNumber,
         action,
       } = await createReportDialogPrompt({
         servicesManager,
         extensionManager,
+        predecessorImageId,
         title: 'Store Segmentation',
+        modality,
+        enableDownload: true,
       });
 
-      if (action === PROMPT_RESPONSES.CREATE_REPORT) {
-        try {
-          const selectedDataSourceConfig = selectedDataSource
-            ? extensionManager.getDataSources(selectedDataSource)[0]
-            : defaultDataSource;
+      if (action !== PROMPT_RESPONSES.CREATE_REPORT) {
+        return;
+      }
 
-          const generatedData = actions.generateSegmentation({
-            segmentationId,
-            options: {
-              SeriesDescription: reportName || label || 'Research Derived Series',
-            },
-          });
+      const defaultFileName =
+        modality === 'RTSTRUCT'
+          ? `rtss-${segmentationId}.dcm`
+          : `${label || 'segmentation'}.dcm`;
 
-          if (!generatedData || !generatedData.dataset) {
-            throw new Error('Error during segmentation generation');
-          }
+      const storeFn = commandsManager.runCommand('createStoreFunction', {
+        dataSource: dataSourceName,
+        defaultFileName,
+      });
 
-          const { dataset: naturalizedReport } = generatedData;
+      if (!storeFn) {
+        throw new Error(`No valid store for dataSource: ${dataSourceName}`);
+      }
 
-          // DCMJS assigns a dummy study id during creation, and this can cause problems, so clearing it out
-          if (naturalizedReport.StudyID === 'No Study ID') {
-            naturalizedReport.StudyID = '';
-          }
+      try {
+        const args = {
+          segmentationId,
+          options: {
+            SeriesDescription: series ? undefined : reportName || label || 'Contour Series',
+            SeriesNumber: series ? undefined : 1 + priorSeriesNumber,
+            predecessorImageId: series,
+          },
+        };
+        const generatedDataAsync =
+          (modality === 'SEG' && actions.generateSegmentation(args)) ||
+          (modality === 'RTSTRUCT' && actions.generateContour(args));
+        const generatedData = await generatedDataAsync;
 
-          await selectedDataSourceConfig.store.dicom(naturalizedReport);
-
-          // add the information for where we stored it to the instance as well
-          naturalizedReport.wadoRoot = selectedDataSourceConfig.getConfig().wadoRoot;
-
-          DicomMetadataStore.addInstances([naturalizedReport], true);
-
-          return naturalizedReport;
-        } catch (error) {
-          console.debug('Error storing segmentation:', error);
-          throw error;
+        if (!generatedData?.dataset) {
+          throw new Error('Error during segmentation generation');
         }
+
+        const { dataset: naturalizedReport } = generatedData;
+
+        // DCMJS assigns a dummy study id during creation, and this can cause problems, so clearing it out
+        if (naturalizedReport.StudyID === 'No Study ID') {
+          naturalizedReport.StudyID = '';
+        }
+
+        await storeFn(naturalizedReport, {});
+
+        return naturalizedReport;
+      } catch (error) {
+        console.debug('Error storing segmentation:', error);
+        throw error;
       }
     },
+    generateContour: async args => {
+      const { segmentationId, options } = args;
+      const segmentations = segmentationService.getSegmentation(segmentationId);
+
+      // inject colors to the segmentIndex
+      const firstRepresentation =
+        segmentationService.getRepresentationsForSegmentation(segmentationId)[0];
+      Object.entries(segmentations.segments).forEach(([segmentIndex, segment]) => {
+        if (!segment) {
+          return;
+        }
+
+        segment.color = segmentationService.getSegmentColor(
+          firstRepresentation.viewportId,
+          segmentationId,
+          Number(segmentIndex)
+        );
+      });
+      const predecessorImageId = options?.predecessorImageId ?? segmentations.predecessorImageId;
+      const dataset = await generateRTSSFromRepresentation(segmentations, {
+        predecessorImageId,
+        ...options,
+      });
+      return { dataset };
+    },
+
     /**
-     * Converts segmentations into RTSS for download.
-     * This sample function retrieves all segentations and passes to
-     * cornerstone tool adapter to convert to DICOM RTSS format. It then
-     * converts dataset to downloadable blob.
-     *
+     * Downloads an RTSS instance from a segmentation or contour
+     * representation.
      */
-    downloadRTSS: async ({ segmentationId }) => {
-      const segmentationInOHIF = segmentationService.getSegmentation(segmentationId);
+    downloadRTSS: async args => {
+      const { segmentationId } = args;
       const segmentationInTools = cornerstoneToolsSegmentation.state.getSegmentation(segmentationId);
 
       if (!segmentationInTools?.representationData?.Labelmap) {
@@ -292,44 +331,15 @@ const commandsModule = ({
         return;
       }
 
-      // inject colors to the segmentIndex
-      const firstRepresentation =
-        segmentationService.getRepresentationsForSegmentation(segmentationId)[0];
-      Object.entries(segmentationInOHIF.segments).forEach(([segmentIndex, segment]) => {
-        if (!segment) {
-          return;
-        }
-
-        segment.color = segmentationService.getSegmentColor(
-          firstRepresentation.viewportId,
-          segmentationId,
-          segmentIndex
-        );
+      const { dataset } = await actions.generateContour(args);
+      const { InstanceNumber: instanceNumber = 1, SeriesInstanceUID: seriesUID } = dataset;
+      const storeFn = commandsManager.runCommand('createStoreFunction', {
+        dataSource: 'download',
+        defaultFileName: `rtss-${seriesUID}-${instanceNumber}.dcm`,
       });
-
-      try {
-        const RTSS = await generateRTSSFromSegmentations(
-          segmentationInOHIF,
-          classes.MetadataProvider,
-          DicomMetadataStore
-        );
-
-        const reportBlob = datasetToBlob(RTSS);
-
-        //Create a URL for the binary.
-        const objectUrl = URL.createObjectURL(reportBlob);
-        window.location.assign(objectUrl);
-      } catch (e) {
-        console.warn(e);
-        uiNotificationService.show({
-          title: 'RTSS export failed',
-          message:
-            'Failed to generate RT Structure Set from the current segmentation. Check console logs for details.',
-          type: 'error',
-          duration: 5000,
-        });
-      }
+      await storeFn(dataset);
     },
+
     toggleActiveSegmentationUtility: ({ itemId: buttonId }) => {
       const { uiState, setUIState } = useUIStateStore.getState();
       const isButtonActive = uiState['activeSegmentationUtility'] === buttonId;
@@ -344,25 +354,12 @@ const commandsModule = ({
   };
 
   const definitions = {
-    loadSegmentationsForViewport: {
-      commandFn: actions.loadSegmentationsForViewport,
-    },
-
-    generateSegmentation: {
-      commandFn: actions.generateSegmentation,
-    },
-    downloadSegmentation: {
-      commandFn: actions.downloadSegmentation,
-    },
-    storeSegmentation: {
-      commandFn: actions.storeSegmentation,
-    },
-    downloadRTSS: {
-      commandFn: actions.downloadRTSS,
-    },
-    toggleActiveSegmentationUtility: {
-      commandFn: actions.toggleActiveSegmentationUtility,
-    },
+    loadSegmentationsForViewport: actions.loadSegmentationsForViewport,
+    generateSegmentation: actions.generateSegmentation,
+    downloadSegmentation: actions.downloadSegmentation,
+    storeSegmentation: actions.storeSegmentation,
+    downloadRTSS: actions.downloadRTSS,
+    toggleActiveSegmentationUtility: actions.toggleActiveSegmentationUtility,
   };
 
   return {

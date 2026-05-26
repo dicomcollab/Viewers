@@ -20,7 +20,7 @@ const callbacks = (toolName: string) => [
   },
 ];
 
-const toolbarButtons: Button[] = [
+export const toolbarButtons: Button[] = [
   {
     id: 'AdvancedRenderingControls',
     uiType: 'ohif.advancedRenderingControls',
@@ -488,13 +488,13 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolBoxButton',
     props: {
       icon: 'icon-tool-freehand-roi',
-      label: 'Freehand Segmentation',
-      tooltip: 'Freehand Segmentation',
+      label: i18n.t('Buttons:Freehand Segmentation'),
+      tooltip: i18n.t('Buttons:Freehand Segmentation'),
       evaluate: [
         {
           name: 'evaluate.cornerstone.segmentation',
           toolNames: ['PlanarFreehandContourSegmentationTool'],
-          disabledText: 'Create new segmentation to enable this tool.',
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
         },
         {
           name: 'evaluate.cornerstone.hasSegmentationOfType',
@@ -525,7 +525,7 @@ const toolbarButtons: Button[] = [
       ],
       options: [
         {
-          name: 'Interpolate Contours',
+          name: i18n.t('Buttons:Interpolate Contours'),
           type: 'switch',
           id: 'planarFreehandInterpolateContours',
           value: false,
@@ -541,13 +541,13 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolBoxButton',
     props: {
       icon: 'icon-tool-livewire',
-      label: 'Livewire Contour',
-      tooltip: 'Livewire Contour',
+      label: i18n.t('Buttons:Livewire Contour'),
+      tooltip: i18n.t('Buttons:Livewire Contour'),
       evaluate: [
         {
           name: 'evaluate.cornerstone.segmentation',
           toolNames: ['LivewireContourSegmentationTool'],
-          disabledText: 'Create new segmentation to enable this tool.',
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
         },
         {
           name: 'evaluate.cornerstone.hasSegmentationOfType',
@@ -578,7 +578,7 @@ const toolbarButtons: Button[] = [
       ],
       options: [
         {
-          name: 'Interpolate Contours',
+          name: i18n.t('Buttons:Interpolate Contours'),
           type: 'switch',
           id: 'livewireInterpolateContours',
           value: false,
@@ -594,13 +594,13 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolBoxButton',
     props: {
       icon: 'icon-tool-spline-roi',
-      label: 'Spline Contour Segmentation Tool',
-      tooltip: 'Spline Contour Segmentation Tool',
+      label: i18n.t('Buttons:Spline Contour Segmentation Tool'),
+      tooltip: i18n.t('Buttons:Spline Contour Segmentation Tool'),
       evaluate: [
         {
           name: 'evaluate.cornerstone.segmentation',
           toolNames: ['CatmullRomSplineROI', 'LinearSplineROI', 'BSplineROI'],
-          disabledText: 'Create new segmentation to enable this tool.',
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
         },
         {
           name: 'evaluate.cornerstone.hasSegmentationOfType',
@@ -617,7 +617,7 @@ const toolbarButtons: Button[] = [
       ],
       options: [
         {
-          name: 'Spline Type',
+          name: i18n.t('Buttons:Spline Type'),
           type: 'select',
           id: 'splineTypeSelect',
           value: 'CatmullRomSplineROI',
@@ -625,10 +625,10 @@ const toolbarButtons: Button[] = [
             {
               id: 'CatmullRomSplineROI',
               value: 'CatmullRomSplineROI',
-              label: 'Catmull Rom Spline',
+              label: i18n.t('Buttons:Catmull Rom Spline'),
             },
-            { id: 'LinearSplineROI', value: 'LinearSplineROI', label: 'Linear Spline' },
-            { id: 'BSplineROI', value: 'BSplineROI', label: 'B-Spline' },
+            { id: 'LinearSplineROI', value: 'LinearSplineROI', label: i18n.t('Buttons:Linear Spline') },
+            { id: 'BSplineROI', value: 'BSplineROI', label: i18n.t('Buttons:B-Spline') },
           ],
           commands: {
             commandName: 'setToolActiveToolbar',
@@ -646,7 +646,7 @@ const toolbarButtons: Button[] = [
           },
         },
         {
-          name: 'Simplified Spline',
+          name: i18n.t('Buttons:Simplified Spline'),
           type: 'switch',
           id: 'simplifiedSpline',
           value: true,
@@ -655,7 +655,7 @@ const toolbarButtons: Button[] = [
           },
         },
         {
-          name: 'Interpolate Contours',
+          name: i18n.t('Buttons:Interpolate Contours'),
           type: 'switch',
           id: 'splineInterpolateContours',
           value: false,
@@ -674,13 +674,13 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolBoxButton',
     props: {
       icon: 'icon-tool-sculptor',
-      label: 'Sculptor Tool',
-      tooltip: 'Sculptor Tool',
+      label: i18n.t('Buttons:Sculptor Tool'),
+      tooltip: i18n.t('Buttons:Sculptor Tool'),
       evaluate: [
         {
           name: 'evaluate.cornerstone.segmentation',
           toolNames: ['SculptorTool'],
-          disabledText: 'Create new segmentation to enable this tool.',
+          disabledText: i18n.t('Buttons:Create new segmentation to enable this tool.'),
         },
         {
           name: 'evaluate.cornerstone.hasSegmentationOfType',
@@ -698,7 +698,7 @@ const toolbarButtons: Button[] = [
       ],
       options: [
         {
-          name: 'Dynamic Cursor Size',
+          name: i18n.t('Buttons:Dynamic Cursor Size'),
           type: 'switch',
           id: 'dynamicCursorSize',
           value: true,
@@ -738,7 +738,7 @@ const toolbarButtons: Button[] = [
       },
       options: [
         {
-          name: 'Radius (mm)',
+          name: i18n.t('Buttons:Radius (mm)'),
           id: 'brush-radius',
           type: 'range',
           explicitRunOnly: true,
@@ -754,13 +754,13 @@ const toolbarButtons: Button[] = [
           ],
         },
         {
-          name: 'Shape',
+          name: i18n.t('Buttons:Shape'),
           type: 'radio',
           id: 'brush-mode',
           value: 'CircularBrush',
           values: [
-            { value: 'CircularBrush', label: 'Circle' },
-            { value: 'SphereBrush', label: 'Sphere' },
+            { value: 'CircularBrush', label: i18n.t('Buttons:Circle') },
+            { value: 'SphereBrush', label: i18n.t('Buttons:Sphere') },
           ],
           commands: ['setToolActiveToolbar'],
         },
@@ -928,13 +928,13 @@ const toolbarButtons: Button[] = [
       },
       options: [
         {
-          name: 'Marker Mode',
+          name: i18n.t('Buttons:Marker Mode'),
           type: 'radio',
           id: 'marker-mode',
           value: 'markerInclude',
           values: [
-            { value: 'markerInclude', label: 'Include' },
-            { value: 'markerExclude', label: 'Exclude' },
+            { value: 'markerInclude', label: i18n.t('Buttons:Include') },
+            { value: 'markerExclude', label: i18n.t('Buttons:Exclude') },
           ],
           commands: ({ commandsManager, options }) => {
             const markerModeOption = options.find(option => option.id === 'marker-mode');
@@ -950,7 +950,7 @@ const toolbarButtons: Button[] = [
           },
         },
         {
-          name: 'Clear Markers',
+          name: i18n.t('Buttons:Clear Markers'),
           type: 'button',
           id: 'clear-markers',
           commands: 'clearMarkersForMarkerLabelmap',
@@ -980,7 +980,7 @@ const toolbarButtons: Button[] = [
       ],
       options: [
         {
-          name: 'Radius (mm)',
+          name: i18n.t('Buttons:Radius (mm)'),
           id: 'eraser-radius',
           type: 'range',
           explicitRunOnly: true,
@@ -994,13 +994,13 @@ const toolbarButtons: Button[] = [
           },
         },
         {
-          name: 'Shape',
+          name: i18n.t('Buttons:Shape'),
           type: 'radio',
           id: 'eraser-mode',
           value: 'CircularEraser',
           values: [
-            { value: 'CircularEraser', label: 'Circle' },
-            { value: 'SphereEraser', label: 'Sphere' },
+            { value: 'CircularEraser', label: i18n.t('Buttons:Circle') },
+            { value: 'SphereEraser', label: i18n.t('Buttons:Sphere') },
           ],
           commands: 'setToolActiveToolbar',
         },
@@ -1018,7 +1018,7 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolBoxButton',
     props: {
       icon: 'icon-tool-threshold',
-      label: 'Threshold Tool',
+      label: i18n.t('Buttons:Threshold Tool'),
       evaluate: [
         {
           name: 'evaluate.cornerstone.segmentation',
@@ -1046,7 +1046,7 @@ const toolbarButtons: Button[] = [
       },
       options: [
         {
-          name: 'Radius (mm)',
+          name: i18n.t('Buttons:Radius (mm)'),
           id: 'threshold-radius',
           type: 'range',
           explicitRunOnly: true,
@@ -1067,13 +1067,13 @@ const toolbarButtons: Button[] = [
           },
         },
         {
-          name: 'Shape',
+          name: i18n.t('Buttons:Shape'),
           type: 'radio',
           id: 'threshold-shape',
           value: 'ThresholdCircularBrush',
           values: [
-            { value: 'ThresholdCircularBrush', label: 'Circle' },
-            { value: 'ThresholdSphereBrush', label: 'Sphere' },
+            { value: 'ThresholdCircularBrush', label: i18n.t('Buttons:Circle') },
+            { value: 'ThresholdSphereBrush', label: i18n.t('Buttons:Sphere') },
           ],
           commands: ({ value, commandsManager, options }) => {
             const optionsDynamic = options.find(option => option.id === 'dynamic-mode');
@@ -1093,13 +1093,13 @@ const toolbarButtons: Button[] = [
           },
         },
         {
-          name: 'Threshold',
+          name: i18n.t('Buttons:Threshold'),
           type: 'radio',
           id: 'dynamic-mode',
           value: 'ThresholdDynamic',
           values: [
-            { value: 'ThresholdDynamic', label: 'Dynamic' },
-            { value: 'ThresholdRange', label: 'Range' },
+            { value: 'ThresholdDynamic', label: i18n.t('Buttons:Dynamic') },
+            { value: 'ThresholdRange', label: i18n.t('Buttons:Range') },
           ],
           commands: ({ value, commandsManager, options }) => {
             const thresholdRangeOption = options.find(option => option.id === 'threshold-shape');
@@ -1172,14 +1172,14 @@ const toolbarButtons: Button[] = [
       },
       options: [
         {
-          name: 'Shape',
+          name: i18n.t('Buttons:Shape'),
           type: 'radio',
           value: 'CircleScissor',
           id: 'shape-mode',
           values: [
-            { value: 'CircleScissor', label: 'Circle' },
-            { value: 'SphereScissor', label: 'Sphere' },
-            { value: 'RectangleScissor', label: 'Rectangle' },
+            { value: 'CircleScissor', label: i18n.t('Buttons:Circle') },
+            { value: 'SphereScissor', label: i18n.t('Buttons:Sphere') },
+            { value: 'RectangleScissor', label: i18n.t('Buttons:Rectangle') },
           ],
           commands: 'setToolActiveToolbar',
         },
@@ -1239,8 +1239,8 @@ const toolbarButtons: Button[] = [
     uiType: 'ohif.toolBoxButton',
     props: {
       icon: 'tool-labelmap-edit-with-contour',
-      label: 'Labelmap Edit with Contour Tool',
-      tooltip: 'Labelmap Edit with Contour Tool',
+      label: i18n.t('Buttons:Labelmap Edit with Contour Tool'),
+      tooltip: i18n.t('Buttons:Labelmap Edit with Contour Tool'),
       commands: [
         'setToolActiveToolbar',
         {

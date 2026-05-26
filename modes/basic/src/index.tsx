@@ -15,18 +15,23 @@ const { structuredCloneWithFunctions } = utils;
  * This list used to include SM, for whole slide imaging, but this is now supported
  * by cornerstone.  Others of these may get added.
  */
-export const NON_IMAGE_MODALITIES = ['ECG', 'SEG', 'RTSTRUCT', 'RTPLAN', 'PR', 'SR', 'DOC'];
+export const NON_IMAGE_MODALITIES = ['SEG', 'RTSTRUCT', 'RTPLAN', 'PR', 'SR'];
 
 export const ohif = {
   layout: '@ohif/extension-default.layoutTemplateModule.viewerLayout',
   sopClassHandler: '@ohif/extension-default.sopClassHandlerModule.stack',
   thumbnailList: '@ohif/extension-default.panelModule.seriesList',
+  hangingProtocol: '@ohif/extension-default.hangingProtocolModule.default',
   wsiSopClassHandler:
     '@ohif/extension-cornerstone.sopClassHandlerModule.DicomMicroscopySopClassHandler',
 };
 
 export const cornerstone = {
   measurements: '@ohif/extension-cornerstone.panelModule.panelMeasurement',
+  labelMapSegmentationPanel:
+    '@ohif/extension-cornerstone.panelModule.panelSegmentationWithToolsLabelMap',
+  contourSegmentationPanel:
+    '@ohif/extension-cornerstone.panelModule.panelSegmentationWithToolsContour',
   segmentation: '@ohif/extension-cornerstone.panelModule.panelSegmentation',
   viewport: '@ohif/extension-cornerstone.viewportModule.cornerstone',
 };
@@ -44,6 +49,10 @@ export const dicomsr = {
 export const dicomvideo = {
   sopClassHandler: '@ohif/extension-dicom-video.sopClassHandlerModule.dicom-video',
   viewport: '@ohif/extension-dicom-video.viewportModule.dicom-video',
+};
+
+export const dicomecg = {
+  sopClassHandler: '@ohif/extension-cornerstone.sopClassHandlerModule.DicomEcgSopClassHandler',
 };
 
 export const dicompdf = {
@@ -66,6 +75,11 @@ export const dicomRT = {
   sopClassHandler: '@ohif/extension-cornerstone-dicom-rt.sopClassHandlerModule.dicom-rt',
 };
 
+export const segmentation = {
+  sopClassHandler: '@ohif/extension-cornerstone-dicom-seg.sopClassHandlerModule.dicom-seg',
+  viewport: '@ohif/extension-cornerstone-dicom-seg.viewportModule.dicom-seg',
+};
+
 export const extensionDependencies = {
   // Can derive the versions at least process.env.from npm_package_version
   '@ohif/extension-default': '^3.0.0',
@@ -81,6 +95,7 @@ export const extensionDependencies = {
 
 export const sopClassHandlers = [
   dicomvideo.sopClassHandler,
+  dicomecg.sopClassHandler,
   dicomSeg.sopClassHandler,
   dicomPmap.sopClassHandler,
   ohif.sopClassHandler,
@@ -416,6 +431,7 @@ export const basicLayout = {
           ohif.sopClassHandler,
           dicomvideo.sopClassHandler,
           ohif.wsiSopClassHandler,
+          dicomecg.sopClassHandler,
         ],
       },
       {
