@@ -15,6 +15,35 @@ const { sortStudyInstances, formatDate, createStudyBrowserTabs } = utils;
 
 const thumbnailNoImageModalities = ['SR', 'SEG', 'RTSTRUCT', 'RTPLAN', 'RTDOSE', 'DOC', 'PMAP'];
 
+function isStructuredReportDisplaySet(displaySet) {
+  if (!displaySet) {
+    return false;
+  }
+  if (displaySet.Modality === 'SR') {
+    return true;
+  }
+  const handlerId = displaySet.SOPClassHandlerId;
+  return typeof handlerId === 'string' && handlerId.includes('dicom-sr');
+}
+
+/** Non-image viewports (e.g. SR text) never get cornerstone element / isReady. */
+function viewportHasOnlyNonImageDisplaySets(viewport, displaySetService) {
+  const uids = viewport?.displaySetInstanceUIDs || [];
+  if (!uids.length) {
+    return false;
+  }
+  const sets = uids
+    .map(uid => displaySetService.getDisplaySetByUID(uid))
+    .filter(ds => ds && !ds.unsupported);
+  return (
+    sets.length > 0 &&
+    sets.every(
+      ds =>
+        thumbnailNoImageModalities.includes(ds.Modality) || isStructuredReportDisplaySet(ds)
+    )
+  );
+}
+
 /**
  * Study Browser component that displays and manages studies and their display sets
  */
@@ -598,6 +627,12 @@ function PanelStudyBrowser({
     // Initial study panel loading should track only the first display set.
     // Remaining instances/series continue in background without blocking the panel.
     const firstDisplaySet = activeDisplaySets[0];
+    if (
+      thumbnailNoImageModalities.includes(firstDisplaySet?.Modality) ||
+      isStructuredReportDisplaySet(firstDisplaySet)
+    ) {
+      return 100;
+    }
     const uid = firstDisplaySet?.displaySetInstanceUID;
     if (!uid) {
       return 100;
@@ -619,12 +654,18 @@ function PanelStudyBrowser({
       return false;
     }
     for (const viewport of viewports.values()) {
-      if (viewport?.displaySetInstanceUIDs?.length && viewport?.isReady === true) {
+      if (!viewport?.displaySetInstanceUIDs?.length) {
+        continue;
+      }
+      if (viewport.isReady === true) {
+        return true;
+      }
+      if (viewportHasOnlyNonImageDisplaySets(viewport, displaySetService)) {
         return true;
       }
     }
     return false;
-  }, [viewports]);
+  }, [viewports, displaySetService]);
 
   const [hasSeenFirstViewportReady, setHasSeenFirstViewportReady] = useState(false);
   useEffect(() => {

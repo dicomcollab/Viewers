@@ -251,6 +251,22 @@ function getPrimarySopUidFromDisplaySet(displaySet: any): string | null {
   return null;
 }
 
+/** SR viewports render text/measurements, not cornerstone stack images — no IMAGE_RENDERED. */
+function isStructuredReportDisplaySet(displaySet: any): boolean {
+  if (!displaySet) {
+    return false;
+  }
+  if (displaySet.Modality === 'SR') {
+    return true;
+  }
+  const handlerId = displaySet.SOPClassHandlerId;
+  return typeof handlerId === 'string' && handlerId.includes('dicom-sr');
+}
+
+function viewportHasOnlyStructuredReportDisplaySets(displaySets: any[]): boolean {
+  return displaySets.length > 0 && displaySets.every(isStructuredReportDisplaySet);
+}
+
 /** Match dicom-image-loader / Cornerstone imageId to the viewport showing that stack instance. */
 function findMatchingViewportIdsForImageId(
   imageId: string,
@@ -997,6 +1013,48 @@ function ViewerViewportGrid(props: withAppTypes) {
   const tryFinalizeFirstViewportOverlayRef = useRef<(viewportId: string) => void>(() => {});
   tryFinalizeFirstViewportOverlayRef.current = tryFinalizeFirstViewportOverlay;
 
+  // SR viewports never fire IMAGE_RENDERED / onFirstImageRendered — finalize loader state when assigned.
+  useEffect(() => {
+    if (!viewports?.size) {
+      return;
+    }
+
+    for (const vp of viewports.values()) {
+      const viewportId = vp?.viewportOptions?.viewportId;
+      if (!viewportId) {
+        continue;
+      }
+
+      const displaySetInstanceUIDs: string[] = vp?.displaySetInstanceUIDs || [];
+      const displaySets = displaySetInstanceUIDs
+        .map(uid => displaySetService.getDisplaySetByUID(uid) || {})
+        .filter(ds => !ds?.unsupported);
+
+      if (!viewportHasOnlyStructuredReportDisplaySets(displaySets)) {
+        continue;
+      }
+
+      if (viewportInitialFirstImageCompleteById[viewportId]) {
+        continue;
+      }
+
+      viewportGridService.setViewportIsReady(viewportId, true);
+      viewportFirstPaintedRef.current[viewportId] = true;
+      viewportFirstBytesCompleteRef.current[viewportId] = true;
+      setHasRenderedAnyViewport(true);
+      setViewportFirstImageRenderedById(prev =>
+        prev[viewportId] ? prev : { ...prev, [viewportId]: true }
+      );
+      tryFinalizeFirstViewportOverlay(viewportId);
+    }
+  }, [
+    viewports,
+    displaySetService,
+    viewportGridService,
+    viewportInitialFirstImageCompleteById,
+    tryFinalizeFirstViewportOverlay,
+  ]);
+
   const viewportFirstTargets = useMemo(() => {
     const targets: Record<
       string,
@@ -1103,22 +1161,6 @@ function ViewerViewportGrid(props: withAppTypes) {
       const firstTarget = viewportFirstTargets[viewportId];
       const initialComplete = Boolean(viewportInitialFirstImageCompleteById[viewportId]);
       const displaySetInstanceUIDsToUse = displaySetInstanceUIDs || [];
-      // Show skeleton only before the first successful image render in this study scope.
-      // After first render, suppress loader for all later layout switches (including advanced).
-      const suppressLoaderAfterInitialRender = Boolean(hasRenderedAnyViewport);
-      const firstImageRendered = Boolean(viewportFirstImageRenderedById[viewportId]);
-      const hasDisplaySetAssignment = Boolean(displaySetInstanceUIDsToUse.length);
-      const showViewportLoader =
-        hasDisplaySetAssignment &&
-        !suppressLoaderAfterInitialRender &&
-        !initialComplete &&
-        !firstImageRendered;
-
-      const showInstanceBytesSkeleton =
-        hasDisplaySetAssignment &&
-        Boolean(viewportInFlightById[viewportId]) &&
-        !viewportFirstInstanceDownloadSkeletonDoneById[viewportId];
-
       // This is causing the viewport components re-render when the activeViewportId changes
       const displaySets = displaySetInstanceUIDsToUse
         .map(displaySetInstanceUID => {
@@ -1127,6 +1169,25 @@ function ViewerViewportGrid(props: withAppTypes) {
         .filter(displaySet => {
           return !displaySet?.unsupported;
         });
+
+      const isStructuredReportViewport = viewportHasOnlyStructuredReportDisplaySets(displaySets);
+      // Show skeleton only before the first successful image render in this study scope.
+      // After first render, suppress loader for all later layout switches (including advanced).
+      const suppressLoaderAfterInitialRender = Boolean(hasRenderedAnyViewport);
+      const firstImageRendered = Boolean(viewportFirstImageRenderedById[viewportId]);
+      const hasDisplaySetAssignment = Boolean(displaySetInstanceUIDsToUse.length);
+      const showViewportLoader =
+        hasDisplaySetAssignment &&
+        !isStructuredReportViewport &&
+        !suppressLoaderAfterInitialRender &&
+        !initialComplete &&
+        !firstImageRendered;
+
+      const showInstanceBytesSkeleton =
+        hasDisplaySetAssignment &&
+        !isStructuredReportViewport &&
+        Boolean(viewportInFlightById[viewportId]) &&
+        !viewportFirstInstanceDownloadSkeletonDoneById[viewportId];
 
       const { component: ViewportComponent } = _getViewportComponent(
         displaySets,
