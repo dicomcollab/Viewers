@@ -99,7 +99,8 @@ function App({
         text.includes('request failed') ||
         text.includes('Cannot convert undefined or null to object') ||
         text.includes('loading aborted') ||
-        text.includes('request was aborted')
+        text.includes('request was aborted') ||
+        text.includes('HTTP 406: Not Acceptable')
       );
     };
 

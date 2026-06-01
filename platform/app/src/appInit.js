@@ -90,8 +90,20 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
   // and redirects to login if token expires
   const createEnhancedErrorHandler = (originalHandler) => {
     return (error) => {
+      const status = error?.status ?? error?.statusCode;
+
+      if (status === 406) {
+        if (typeof window !== 'undefined' && typeof window.handleDataSource406 === 'function') {
+          window.handleDataSource406({ source: 'http-error-handler' });
+        }
+        if (typeof originalHandler === 'function') {
+          originalHandler(error);
+        }
+        return;
+      }
+
       // Check if error is a 401 (Unauthorized) - token expired
-      if (error && (error.status === 401 || error.statusCode === 401)) {
+      if (error && status === 401) {
         // Get userAuthenticationService from stored servicesManager
         const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
 

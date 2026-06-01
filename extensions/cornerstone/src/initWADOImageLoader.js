@@ -6,6 +6,12 @@ import {
 import dicomImageLoader from '@cornerstonejs/dicom-image-loader';
 import { errorHandler, utils } from '@ohif/core';
 import { registerJPEGImageLoader } from './utils/jpegImageLoader';
+import {
+  handleDataSource406,
+  navigateTo406FallbackDataSource,
+  buildFallbackNavigationUrl,
+  get406ActiveDataSourceName,
+} from './utils/dataSource406Fallback.js';
 
 // Get image cache utilities from global window object
 const getImageCache = () => {
@@ -647,6 +653,13 @@ export default function initWADOImageLoader(
 
   // After dicomImageLoader.init — wrap dicomweb: so JPEG WADO-URI is not parsed as DICOM.
   registerJPEGImageLoader();
+
+  if (typeof window !== 'undefined') {
+    window.handleDataSource406 = handleDataSource406;
+    window.navigateTo406FallbackDataSource = navigateTo406FallbackDataSource;
+    window.build406FallbackNavigationUrl = buildFallbackNavigationUrl;
+    window.get406ActiveDataSourceName = get406ActiveDataSourceName;
+  }
 }
 
 export function destroy() {

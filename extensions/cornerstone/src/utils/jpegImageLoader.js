@@ -6,6 +6,7 @@ import {
 } from './risRedirectConfig.js';
 import { syncImageNumberOfComponents } from './syncImageNumberOfComponents.js';
 import { ensureImagePreScale } from './ensureImagePreScale.js';
+import { handleJpegLoader406 } from './dataSource406Fallback.js';
 
 export function isJpegWadoUriImageId(imageId) {
   if (!imageId || typeof imageId !== 'string') {
@@ -413,6 +414,10 @@ function loadJPEGImage(imageId) {
         try {
           if (xhr.status === 401) {
             handleJpegLoader401(xhr, reject);
+            return;
+          }
+          if (xhr.status === 406) {
+            handleJpegLoader406(xhr, reject);
             return;
           }
           if (xhr.status < 200 || xhr.status >= 300) {
