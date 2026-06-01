@@ -1,13 +1,14 @@
 /**
- * When PACS returns HTTP 406 (e.g. US studies rejecting JPEG WADO-URI), switch to a
- * configured fallback data source and navigate to that route so image IDs reload.
+ * When PACS returns HTTP 406 (e.g. US studies rejecting JPEG WADO-URI), offer a one-time
+ * switch to a fallback data source only after the user clicks "Restart now".
  *
- * Kept free of @ohif/core imports (same rationale as risRedirectConfig.js).
+ * Does not change global preferences or redirect on normal visits.
  */
 
 const SESSION_FLAG = 'ohif406FallbackInProgress';
-const ACTIVE_DS_KEY = 'ohif406ActiveDataSource';
+const SESSION_TARGET = 'ohif406FallbackTarget';
 const OVERLAY_ID = 'ohif-406-fallback-overlay';
+const OVERLAY_SHOWN_KEY = 'ohif406OverlayShown';
 
 function getAppConfig() {
   return (typeof window !== 'undefined' && window.config) || {};
@@ -31,7 +32,6 @@ export function getDataSourceFromUrl() {
 }
 
 /**
- * Build a full navigation URL that uses the fallback data source in the route path.
  * @param {string} fallbackSource
  * @param {string|null|undefined} currentSource
  */
@@ -76,43 +76,23 @@ export function buildFallbackNavigationUrl(fallbackSource, currentSource) {
   return `${path}${separator}${fallbackSource}${search}${hash}`;
 }
 
-function persist406FallbackState(fallbackSource) {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(ACTIVE_DS_KEY, fallbackSource);
-    localStorage.setItem('defaultDataSourceName', fallbackSource);
-  }
-
-  if (typeof window !== 'undefined') {
-    window.config = window.config || {};
-    window.config.defaultDataSourceName = fallbackSource;
-
-    if (typeof window.apply406DataSourcePreferenceOverride === 'function') {
-      window.apply406DataSourcePreferenceOverride(fallbackSource);
-    }
-
-    if (typeof window.savePreferences === 'function') {
-      window.savePreferences({ dataSourceFormat: fallbackSource }).catch(() => {});
-    }
-  }
-}
-
 /**
- * Hard navigation to the fallback data source route (not a soft reload).
- * @param {string} currentSource
- * @param {string} fallbackSource
+ * Navigate to the fallback route. Called only from the user "Restart now" action.
  */
 export function navigateTo406FallbackDataSource(currentSource, fallbackSource) {
   const targetUrl = buildFallbackNavigationUrl(fallbackSource, currentSource);
   if (!targetUrl) {
-    window.location.reload();
+    console.warn('[406 fallback] Could not build fallback URL');
     return;
   }
 
   if (typeof sessionStorage !== 'undefined') {
     sessionStorage.removeItem(SESSION_FLAG);
+    sessionStorage.removeItem(SESSION_TARGET);
+    sessionStorage.removeItem(OVERLAY_SHOWN_KEY);
   }
 
-  console.warn(`[406 fallback] Navigating to ${targetUrl}`);
+  console.warn(`[406 fallback] User restart — navigating to ${targetUrl}`);
   window.location.replace(targetUrl);
 }
 
@@ -156,7 +136,7 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
 
   const p2 = document.createElement('p');
   p2.style.margin = '0 0 16px';
-  p2.innerHTML = `The viewer will switch from <strong>${currentLabel}</strong> to <strong>${fallbackLabel}</strong>. Please restart to load images with the alternate format.`;
+  p2.innerHTML = `Click restart to load this study using <strong>${fallbackLabel}</strong> instead of <strong>${currentLabel}</strong>. Your default image format will not change for future studies.`;
 
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;gap:12px;justify-content:flex-end;';
@@ -179,50 +159,17 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
   document.body.appendChild(overlay);
 }
 
-/**
- * Early boot redirect when a reload lands before React (backup for bookmark/history reload).
- */
-export function apply406FallbackRouteRedirect() {
-  const cfg = get406FallbackConfig();
-  if (!cfg.enabled || typeof window === 'undefined') {
-    return;
+function isFallbackDataSourceName(sourceName) {
+  if (!sourceName) {
+    return false;
   }
-
-  const fallbackSource =
-    (typeof localStorage !== 'undefined' && localStorage.getItem(ACTIVE_DS_KEY)) ||
-    (typeof localStorage !== 'undefined' && localStorage.getItem('defaultDataSourceName'));
-
-  if (!fallbackSource) {
-    return;
-  }
-
-  const currentSource = getDataSourceFromUrl();
-  const pending =
-    typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SESSION_FLAG) === '1';
-
-  if (!pending && currentSource === fallbackSource) {
-    return;
-  }
-
-  if (!pending && !currentSource) {
-    return;
-  }
-
-  const targetUrl = buildFallbackNavigationUrl(fallbackSource, currentSource);
-  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-
-  if (typeof sessionStorage !== 'undefined') {
-    sessionStorage.removeItem(SESSION_FLAG);
-  }
-
-  if (targetUrl && targetUrl !== currentUrl) {
-    window.location.replace(targetUrl);
-  }
+  const fallbackMap = get406FallbackConfig().fallbackMap || {};
+  return Object.values(fallbackMap).includes(sourceName);
 }
 
 /**
  * @param {{ currentSource?: string, source?: string }} [options]
- * @returns {boolean} true when fallback was triggered
+ * @returns {boolean} true when fallback overlay was shown (or already pending)
  */
 export function handleDataSource406(options = {}) {
   const cfg = get406FallbackConfig();
@@ -230,16 +177,22 @@ export function handleDataSource406(options = {}) {
     return false;
   }
 
-  if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(SESSION_FLAG) === '1') {
-    return true;
-  }
-
-  const appConfig = getAppConfig();
   const currentSource =
     options.currentSource ||
     getDataSourceFromUrl() ||
-    appConfig.defaultDataSourceName ||
-    (typeof localStorage !== 'undefined' ? localStorage.getItem('defaultDataSourceName') : null);
+    getAppConfig().defaultDataSourceName ||
+    null;
+
+  // Already on a fallback route — do not loop or redirect globally.
+  if (isFallbackDataSourceName(currentSource)) {
+    return false;
+  }
+
+  if (typeof sessionStorage !== 'undefined') {
+    if (sessionStorage.getItem(OVERLAY_SHOWN_KEY) === '1') {
+      return true;
+    }
+  }
 
   const fallbackMap = cfg.fallbackMap || {};
   const fallbackSource = currentSource ? fallbackMap[currentSource] : null;
@@ -250,12 +203,12 @@ export function handleDataSource406(options = {}) {
 
   if (typeof sessionStorage !== 'undefined') {
     sessionStorage.setItem(SESSION_FLAG, '1');
+    sessionStorage.setItem(SESSION_TARGET, fallbackSource);
+    sessionStorage.setItem(OVERLAY_SHOWN_KEY, '1');
   }
 
-  persist406FallbackState(fallbackSource);
-
   console.warn(
-    `[406 fallback] PACS rejected format for "${currentSource}" — switching to "${fallbackSource}". Restart required.`
+    `[406 fallback] PACS rejected format for "${currentSource}". User may restart with "${fallbackSource}".`
   );
 
   show406ReloadOverlay(currentSource, fallbackSource);
@@ -272,7 +225,7 @@ export function handleJpegLoader406(_xhr, reject) {
   if (handled) {
     reject(
       new Error(
-        'HTTP 406: Not Acceptable — restart the page to load images with an alternate PACS format.'
+        'HTTP 406: Not Acceptable — click Restart to load images with an alternate PACS format.'
       )
     );
     return true;
@@ -280,9 +233,14 @@ export function handleJpegLoader406(_xhr, reject) {
   return false;
 }
 
-export function get406ActiveDataSourceName() {
-  if (typeof localStorage === 'undefined') {
-    return null;
+/** Remove legacy keys that caused permanent redirects (one-time cleanup). */
+export function clear406FallbackPersistence() {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('ohif406ActiveDataSource');
   }
-  return localStorage.getItem(ACTIVE_DS_KEY);
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem(SESSION_FLAG);
+    sessionStorage.removeItem(SESSION_TARGET);
+    sessionStorage.removeItem(OVERLAY_SHOWN_KEY);
+  }
 }

@@ -714,35 +714,7 @@ async function savePreferences(payload) {
   }
 }
 
-function apply406DataSourcePreferenceOverride(fallbackSource) {
-  if (!fallbackSource || typeof fallbackSource !== 'string') {
-    return;
-  }
-  try {
-    localStorage.setItem('ohif406ActiveDataSource', fallbackSource);
-    localStorage.setItem('defaultDataSourceName', fallbackSource);
-    document.cookie =
-      'userPreferences_dataSourceFormat=' +
-      encodeURIComponent(JSON.stringify(fallbackSource)) +
-      ';path=/;SameSite=Lax';
-    clearPreferencesCache();
-    _preferencesCache = { dataSourceFormat: fallbackSource };
-    if (window['config']) {
-      window['config'].defaultDataSourceName = fallbackSource;
-    }
-  } catch (e) {
-    console.warn('[406 fallback] failed to persist preference override', e);
-  }
-}
-
 function getDefaultDataSourceName() {
-  const active406Source = localStorage.getItem('ohif406ActiveDataSource');
-  if (active406Source) {
-    console.log(`Using 406-fallback active data source: ${active406Source}`);
-    localStorage.setItem('defaultDataSourceName', active406Source);
-    return active406Source;
-  }
-
   // Prefer cookie value first so initial route uses user preference immediately
   // (avoids stale localStorage selecting a different datasource like wadouri).
   const cookieDataSourceRaw = getCookie('userPreferences_dataSourceFormat');
@@ -1069,16 +1041,6 @@ function getClinicalDicomWebDataSources() {
 
 async function updateDefaultDataSourceName() {
   try {
-    const active406Source = localStorage.getItem('ohif406ActiveDataSource');
-    if (active406Source) {
-      console.log(`Keeping 406-fallback data source: ${active406Source}`);
-      localStorage.setItem('defaultDataSourceName', active406Source);
-      if (window['config']) {
-        window['config'].defaultDataSourceName = active406Source;
-      }
-      return active406Source;
-    }
-
     const preferences = await fetchPreferences();
     console.log('preferences', preferences.dataSourceFormat);
     if (preferences && preferences.dataSourceFormat) {
@@ -1497,68 +1459,12 @@ updateDefaultDataSourceName().catch(error => {
   console.error('Failed to update default data source name:', error);
 });
 
-// After a 406 fallback, rewrite /viewer/{oldSource} → /viewer/{fallbackSource} on reload.
-(function apply406FallbackRouteRedirectOnLoad() {
-  try {
-    var cfg = window.config && window.config.dataSource406Fallback;
-    if (!cfg || !cfg.enabled) {
-      return;
-    }
-    var targetDs =
-      localStorage.getItem('ohif406ActiveDataSource') ||
-      localStorage.getItem('defaultDataSourceName');
-    if (!targetDs) {
-      return;
-    }
-
-    var path = window.location.pathname || '';
-    var search = window.location.search || '';
-    var hash = window.location.hash || '';
-    var pending =
-      typeof sessionStorage !== 'undefined' &&
-      sessionStorage.getItem('ohif406FallbackInProgress') === '1';
-    var urlMatch = path.match(/(?:^|\/)viewer\/([^/]+)/i);
-    var currentDs = urlMatch ? decodeURIComponent(urlMatch[1]) : null;
-
-    if (!pending && currentDs === targetDs) {
-      return;
-    }
-    if (!pending && !currentDs) {
-      return;
-    }
-
-    var fallbackMap = cfg.fallbackMap || {};
-    var newPath = path;
-    var replaced = false;
-    for (var fromDs in fallbackMap) {
-      if (
-        Object.prototype.hasOwnProperty.call(fallbackMap, fromDs) &&
-        path.indexOf('/' + fromDs) !== -1
-      ) {
-        newPath = path.replace('/' + fromDs, '/' + targetDs);
-        replaced = true;
-        break;
-      }
-    }
-    if (!replaced && /\/external\/viewer\/?$/i.test(path)) {
-      newPath = path.replace(/\/?$/, '') + '/' + targetDs;
-      replaced = true;
-    } else if (!replaced && /\/viewer\/?$/i.test(path)) {
-      newPath = path.replace(/\/?$/, '') + '/' + targetDs;
-      replaced = true;
-    }
-
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem('ohif406FallbackInProgress');
-    }
-
-    if (replaced && newPath !== path) {
-      window.location.replace(newPath + search + hash);
-    }
-  } catch (e) {
-    console.warn('[406 fallback] route redirect failed', e);
+// One-time cleanup: older builds stored ohif406ActiveDataSource and redirected every visit.
+try {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('ohif406ActiveDataSource');
   }
-})();
+} catch (_) {}
 
 // Expose preferences API for Settings UI (single shared fetch; response cached for app)
 if (typeof window !== 'undefined') {
@@ -1566,5 +1472,4 @@ if (typeof window !== 'undefined') {
   window.savePreferences = savePreferences;
   window.clearPreferencesCache = clearPreferencesCache;
   window.getPreferencesFromCookies = getPreferencesFromCookies;
-  window.apply406DataSourcePreferenceOverride = apply406DataSourcePreferenceOverride;
 }

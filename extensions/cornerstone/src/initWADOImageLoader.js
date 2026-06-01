@@ -10,7 +10,7 @@ import {
   handleDataSource406,
   navigateTo406FallbackDataSource,
   buildFallbackNavigationUrl,
-  get406ActiveDataSourceName,
+  clear406FallbackPersistence,
 } from './utils/dataSource406Fallback.js';
 
 // Get image cache utilities from global window object
@@ -655,10 +655,11 @@ export default function initWADOImageLoader(
   registerJPEGImageLoader();
 
   if (typeof window !== 'undefined') {
+    clear406FallbackPersistence();
     window.handleDataSource406 = handleDataSource406;
     window.navigateTo406FallbackDataSource = navigateTo406FallbackDataSource;
     window.build406FallbackNavigationUrl = buildFallbackNavigationUrl;
-    window.get406ActiveDataSourceName = get406ActiveDataSourceName;
+    window.clear406FallbackPersistence = clear406FallbackPersistence;
   }
 }
 

@@ -79,31 +79,6 @@ export default function ModeRoute({
   }
 
   useLayoutEffect(() => {
-    const active406Source =
-      typeof window !== 'undefined' ? localStorage.getItem('ohif406ActiveDataSource') : null;
-    if (active406Source && mode?.routeName && dataSourceName !== active406Source) {
-      const isExternal = location.pathname.includes('/external/viewer');
-      const prefix = isExternal ? 'external/' : '';
-      navigate(
-        {
-          pathname: `/${prefix}${mode.routeName}/${active406Source}`,
-          search: location.search,
-          hash: location.hash,
-        },
-        { replace: true }
-      );
-      return;
-    }
-  }, [
-    dataSourceName,
-    mode?.routeName,
-    location.pathname,
-    location.search,
-    location.hash,
-    navigate,
-  ]);
-
-  useLayoutEffect(() => {
     if (dataSourceName !== 'demo' || !mode?.routeName) {
       return;
     }
@@ -127,13 +102,9 @@ export default function ModeRoute({
     );
   }, [dataSourceName, mode?.routeName, location.search, location.hash, navigate, query]);
 
-  const active406DataSourceName =
-    typeof window !== 'undefined' ? localStorage.getItem('ohif406ActiveDataSource') : null;
-  const resolvedDataSourceName = active406DataSourceName || dataSourceName;
-
   // An undefined dataSourceName implies that the active data source that is already set in the ExtensionManager should be used.
-  if (resolvedDataSourceName !== undefined) {
-    extensionManager.setActiveDataSource(resolvedDataSourceName);
+  if (dataSourceName !== undefined) {
+    extensionManager.setActiveDataSource(dataSourceName);
   }
 
   const dataSource = extensionManager.getActiveDataSourceOrNull();
