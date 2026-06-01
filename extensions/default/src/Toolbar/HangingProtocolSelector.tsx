@@ -110,7 +110,7 @@ function HangingProtocolSelectorWithServices({
   }, [hangingProtocolService, servicesManager]);
 
   const handleProtocolChange = useCallback(
-    (option: typeof protocolOptions[0]) => {
+    (option: (typeof protocolOptions)[0]) => {
       setCurrentProtocol(option.label);
       setCurrentProtocolId(option.protocolId);
 
@@ -126,8 +126,12 @@ function HangingProtocolSelectorWithServices({
   );
 
   return (
-    <div className="flex items-center gap-2 mr-4" id="HangingProtocol" data-cy="HangingProtocol">
-      <span className="text-white text-sm whitespace-nowrap">Hanging Protocol:</span>
+    <div
+      className="mr-4 flex items-center gap-2"
+      id="HangingProtocol"
+      data-cy="HangingProtocol"
+    >
+      <span className="whitespace-nowrap text-sm text-white">HP</span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -138,14 +142,17 @@ function HangingProtocolSelectorWithServices({
             <span className="ml-2 text-xs">▼</span>
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="bg-popover min-w-[120px]">
+        <DropdownMenuContent
+          align="start"
+          className="bg-popover min-w-[120px]"
+        >
           {protocolOptions.map(option => {
             const isActive = currentProtocolId === option.protocolId;
             return (
               <DropdownMenuItem
                 key={option.id}
-                className={`text-white cursor-pointer ${
-                  isActive ? 'font-bold bg-gray-700' : 'hover:bg-gray-700'
+                className={`cursor-pointer text-white ${
+                  isActive ? 'bg-gray-700 font-bold' : 'hover:bg-gray-700'
                 }`}
                 onClick={() => handleProtocolChange(option)}
                 data-cy={`hanging-protocol-option-${option.id}`}
