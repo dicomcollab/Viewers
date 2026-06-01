@@ -96,13 +96,6 @@ export function navigateTo406FallbackDataSource(currentSource, fallbackSource) {
   window.location.replace(targetUrl);
 }
 
-function getFriendlyDataSourceLabel(sourceName) {
-  const cfg = getAppConfig();
-  const sources = cfg.dataSources || [];
-  const found = sources.find(ds => ds.sourceName === sourceName);
-  return found?.configuration?.friendlyName || sourceName;
-}
-
 function show406ReloadOverlay(currentSource, fallbackSource) {
   if (typeof document === 'undefined') {
     return;
@@ -110,9 +103,6 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
   if (document.getElementById(OVERLAY_ID)) {
     return;
   }
-
-  const currentLabel = getFriendlyDataSourceLabel(currentSource);
-  const fallbackLabel = getFriendlyDataSourceLabel(fallbackSource);
 
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
@@ -126,24 +116,20 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
     'background:#111827;color:#f9fafb;padding:24px;border-radius:10px;max-width:520px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,0.45);font-family:system-ui,-apple-system,sans-serif;line-height:1.5;';
 
   const title = document.createElement('h2');
-  title.textContent = 'Image format not supported';
+  title.textContent = 'Cannot display images';
   title.style.cssText = 'margin:0 0 12px;font-size:20px;font-weight:600;';
 
-  const p1 = document.createElement('p');
-  p1.style.margin = '0 0 12px';
-  p1.textContent =
-    'The PACS rejected the current image request (HTTP 406 Not Acceptable). Some studies — for example ultrasound — only support WADO or raw DICOM, not JPEG thumbnails.';
-
-  const p2 = document.createElement('p');
-  p2.style.margin = '0 0 16px';
-  p2.innerHTML = `Click restart to load this study using <strong>${fallbackLabel}</strong> instead of <strong>${currentLabel}</strong>. Your default image format will not change for future studies.`;
+  const message = document.createElement('p');
+  message.style.margin = '0 0 20px';
+  message.textContent =
+    'These images cannot be displayed in the current format. Tap Restart to change the image source and view this study.';
 
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;gap:12px;justify-content:flex-end;';
 
   const reloadBtn = document.createElement('button');
   reloadBtn.type = 'button';
-  reloadBtn.textContent = 'Restart now';
+  reloadBtn.textContent = 'Restart';
   reloadBtn.style.cssText =
     'padding:10px 18px;border:none;border-radius:6px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer;';
   reloadBtn.onclick = () => {
@@ -152,8 +138,7 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
 
   actions.appendChild(reloadBtn);
   box.appendChild(title);
-  box.appendChild(p1);
-  box.appendChild(p2);
+  box.appendChild(message);
   box.appendChild(actions);
   overlay.appendChild(box);
   document.body.appendChild(overlay);
