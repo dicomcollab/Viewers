@@ -1112,8 +1112,8 @@ window.config = {
   // createReportAppBaseUrl: 'http://localhost:5173',
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: false,
-  redirectToRisOn401: false,
+  redirectRootToRis: true,
+  redirectToRisOn401: true,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1531,7 +1531,10 @@ updateDefaultDataSourceName().catch(error => {
     var newPath = path;
     var replaced = false;
     for (var fromDs in fallbackMap) {
-      if (Object.prototype.hasOwnProperty.call(fallbackMap, fromDs) && path.indexOf('/' + fromDs) !== -1) {
+      if (
+        Object.prototype.hasOwnProperty.call(fallbackMap, fromDs) &&
+        path.indexOf('/' + fromDs) !== -1
+      ) {
         newPath = path.replace('/' + fromDs, '/' + targetDs);
         replaced = true;
         break;
