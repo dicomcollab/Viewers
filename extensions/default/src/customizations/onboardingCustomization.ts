@@ -188,6 +188,18 @@ export default {
               },
               secondary: true,
             },
+            {
+              text: 'Next',
+              action() {
+                const currentStep = this.getCurrentStep();
+                const stepIndex = this.steps.indexOf(currentStep);
+                if (stepIndex === this.steps.length - 1) {
+                  this.complete();
+                } else {
+                  this.next();
+                }
+              },
+            },
           ],
         },
       },

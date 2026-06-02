@@ -48,6 +48,15 @@ const defaultShowHandler = (Shepherd: ShepherdBase) => {
 
     const footer = currentStep?.getElement()?.querySelector('.shepherd-footer');
     footer?.appendChild(progress);
+
+    const primaryButton = footer?.querySelector(
+      '.shepherd-button:not(.shepherd-button-secondary)'
+    );
+    if (primaryButton && Shepherd.activeTour) {
+      const stepIndex = Shepherd.activeTour.steps.indexOf(currentStep);
+      const isLastStep = stepIndex === Shepherd.activeTour.steps.length - 1;
+      primaryButton.textContent = isLastStep ? 'Done' : 'Next';
+    }
   }
 };
 
