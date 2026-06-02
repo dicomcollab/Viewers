@@ -788,6 +788,7 @@ const toolbarButtons: Button[] = [
       commands: 'addKeyImage',
       evaluate: [
         'evaluate.action',
+        'evaluate.addKeyImage',
         {
           name: 'evaluate.viewport.supported',
           unsupportedViewportTypes: ['video', 'wholeSlide'],

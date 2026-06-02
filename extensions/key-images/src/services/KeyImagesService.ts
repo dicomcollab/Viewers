@@ -17,6 +17,7 @@ export type KeyImageItem = {
 
 const EVENTS = {
   KEY_IMAGES_CHANGED: 'event::keyimages:changed',
+  KEY_IMAGES_ADDING_CHANGED: 'event::keyimages:addingChanged',
 };
 
 export default class KeyImagesService extends PubSubService {
@@ -28,6 +29,7 @@ export default class KeyImagesService extends PubSubService {
   };
 
   private _keyImages: KeyImageItem[] = [];
+  private _isAddingKeyImage = false;
 
   constructor() {
     super(EVENTS);
@@ -46,6 +48,51 @@ export default class KeyImagesService extends PubSubService {
     return this._keyImages.filter(item => item.studyInstanceUID === studyInstanceUID);
   }
 
+  public isAddingKeyImage(): boolean {
+    return this._isAddingKeyImage;
+  }
+
+  public setAddingKeyImage(isAdding: boolean): void {
+    if (this._isAddingKeyImage === isAdding) {
+      return;
+    }
+
+    this._isAddingKeyImage = isAdding;
+    this._broadcastEvent(EVENTS.KEY_IMAGES_ADDING_CHANGED, { isAdding });
+  }
+
+  public findKeyImageForInstance({
+    studyInstanceUID,
+    imageId,
+    sopInstanceUID,
+    frameNumber,
+  }: {
+    studyInstanceUID?: string;
+    imageId?: string;
+    sopInstanceUID?: string;
+    frameNumber?: number | null;
+  }): KeyImageItem | undefined {
+    const candidates = studyInstanceUID
+      ? this.getKeyImagesForStudy(studyInstanceUID)
+      : this._keyImages;
+
+    return candidates.find(item => {
+      if (imageId && item.imageId === imageId) {
+        return true;
+      }
+
+      if (sopInstanceUID && item.sopInstanceUID === sopInstanceUID) {
+        if (frameNumber != null && item.frameNumber != null) {
+          return item.frameNumber === frameNumber;
+        }
+
+        return true;
+      }
+
+      return false;
+    });
+  }
+
   public addKeyImage(keyImage: KeyImageItem): void {
     this._keyImages = [keyImage, ...this._keyImages];
     this._persistToStorage();
@@ -62,6 +109,16 @@ export default class KeyImagesService extends PubSubService {
     this._keyImages = [];
     this._persistToStorage();
     this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: [] });
+  }
+
+  public clearKeyImagesForStudy(studyInstanceUID: string): void {
+    if (!studyInstanceUID) {
+      return;
+    }
+
+    this._keyImages = this._keyImages.filter(item => item.studyInstanceUID !== studyInstanceUID);
+    this._persistToStorage();
+    this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
   }
 
   private _persistToStorage(): void {

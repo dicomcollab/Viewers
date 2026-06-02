@@ -10,8 +10,9 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
   const { keyImagesService, hangingProtocolService } = servicesManager.services as AppTypes.Services & {
     keyImagesService: {
       getKeyImagesForStudy: (studyInstanceUID?: string | null) => any[];
+      isAddingKeyImage: () => boolean;
       subscribe: (eventName: string, cb: (evt: any) => void) => { unsubscribe: () => void };
-      EVENTS: { KEY_IMAGES_CHANGED: string };
+      EVENTS: { KEY_IMAGES_CHANGED: string; KEY_IMAGES_ADDING_CHANGED: string };
     };
   };
 
@@ -34,6 +35,7 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
     keyImagesService.getKeyImagesForStudy(resolveActiveStudyUID())
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [isAdding, setIsAdding] = useState(() => keyImagesService.isAddingKeyImage());
 
   useEffect(() => {
     refreshKeyImages();
@@ -44,6 +46,9 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
 
     const subscriptions = [
       keyImagesService.subscribe(keyImagesService.EVENTS.KEY_IMAGES_CHANGED, refresh),
+      keyImagesService.subscribe(keyImagesService.EVENTS.KEY_IMAGES_ADDING_CHANGED, ({ isAdding }) =>
+        setIsAdding(Boolean(isAdding))
+      ),
     ];
 
     if (hangingProtocolService?.subscribe && hangingProtocolService?.EVENTS?.PROTOCOL_CHANGED) {
@@ -80,7 +85,11 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
         </button>
       </div>
 
-      {keyImages.length === 0 && (
+      {isAdding && (
+        <div className="text-muted-foreground text-xs italic">Adding key image...</div>
+      )}
+
+      {keyImages.length === 0 && !isAdding && (
         <div className="text-muted-foreground text-xs">
           {activeStudyUID
             ? 'No key images for this study. Use the Add Key Image toolbar button.'

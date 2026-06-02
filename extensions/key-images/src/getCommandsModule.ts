@@ -3,6 +3,14 @@ import { captureViewportImage } from '@ohif/extension-cornerstone';
 import { getActiveStudyInstanceUID } from './utils/getActiveStudyInstanceUID';
 import { getKeyImagesAuthHeader } from './utils/getKeyImagesAuthHeader';
 
+function refreshAddKeyImageToolbar(servicesManager, viewportId?: string) {
+  const { toolbarService } = servicesManager.services;
+  toolbarService?.refreshToolbarState?.({
+    viewportId,
+    itemId: 'AddKeyImage',
+  });
+}
+
 function getCommandsModule({ servicesManager, commandsManager }) {
   const {
     viewportGridService,
@@ -18,6 +26,18 @@ function getCommandsModule({ servicesManager, commandsManager }) {
     addKeyImage: async () => {
       const { activeViewportId } = viewportGridService.getState();
       if (!activeViewportId) {
+        return;
+      }
+
+      if (keyImagesService.isAddingKeyImage()) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: 'Adding key image, please wait...',
+          type: 'info',
+          id: 'key-images-add-in-progress',
+          allowDuplicates: false,
+          deduplicationInterval: 2000,
+        });
         return;
       }
 
@@ -45,39 +65,78 @@ function getCommandsModule({ servicesManager, commandsManager }) {
         }
       }
 
-      const { dataUrl, blob } = await captureViewportImage({
-        activeViewportId,
-        cornerstoneViewportService,
-        showAnnotations: true,
-        fileType: 'png',
-      });
-
-      const measurements = measurementService.getMeasurements(
-        m =>
-          (imageId && m.referencedImageId === imageId) ||
-          (instance?.SOPInstanceUID && m.SOPInstanceUID === instance.SOPInstanceUID)
-      );
-
-      keyImagesService.addKeyImage({
-        id: `key-image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      const studyInstanceUID = instance?.StudyInstanceUID;
+      const existingKeyImage = keyImagesService.findKeyImageForInstance({
+        studyInstanceUID,
         imageId,
-        imageIndex: imageIndex >= 0 ? imageIndex : undefined,
-        viewportId: activeViewportId,
-        studyInstanceUID: instance?.StudyInstanceUID,
-        seriesInstanceUID: instance?.SeriesInstanceUID,
         sopInstanceUID: instance?.SOPInstanceUID,
         frameNumber: instance?.frameNumber ?? null,
-        createdAt: Date.now(),
-        dataUrl,
-        blob,
-        measurements,
       });
 
-      uiNotificationService.show({
-        title: 'Key Images',
-        message: 'Current image added to Key Images.',
-        type: 'success',
-      });
+      if (existingKeyImage) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: 'This image is already in Key Images.',
+          type: 'warning',
+          id: 'key-images-duplicate',
+          allowDuplicates: false,
+          deduplicationInterval: 3000,
+        });
+        return;
+      }
+
+      keyImagesService.setAddingKeyImage(true);
+      refreshAddKeyImageToolbar(servicesManager, activeViewportId);
+
+      const addPromise = (async () => {
+        const { dataUrl, blob } = await captureViewportImage({
+          activeViewportId,
+          cornerstoneViewportService,
+          showAnnotations: true,
+          fileType: 'png',
+        });
+
+        const measurements = measurementService.getMeasurements(
+          m =>
+            (imageId && m.referencedImageId === imageId) ||
+            (instance?.SOPInstanceUID && m.SOPInstanceUID === instance.SOPInstanceUID)
+        );
+
+        keyImagesService.addKeyImage({
+          id: `key-image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          imageId,
+          imageIndex: imageIndex >= 0 ? imageIndex : undefined,
+          viewportId: activeViewportId,
+          studyInstanceUID: instance?.StudyInstanceUID,
+          seriesInstanceUID: instance?.SeriesInstanceUID,
+          sopInstanceUID: instance?.SOPInstanceUID,
+          frameNumber: instance?.frameNumber ?? null,
+          createdAt: Date.now(),
+          dataUrl,
+          blob,
+          measurements,
+        });
+      })();
+
+      try {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: 'Adding key image...',
+          promise: addPromise,
+          promiseMessages: {
+            loading: 'Adding key image...',
+            success: 'Current image added to Key Images.',
+            error: 'Failed to add key image.',
+          },
+          id: 'key-images-add',
+          allowDuplicates: false,
+        });
+
+        await addPromise;
+      } finally {
+        keyImagesService.setAddingKeyImage(false);
+        refreshAddKeyImageToolbar(servicesManager, activeViewportId);
+      }
     },
 
     removeKeyImage: ({ keyImageId }) => {
@@ -211,6 +270,8 @@ function getCommandsModule({ servicesManager, commandsManager }) {
           `Upload failed with status ${response.status}${detail ? `: ${detail}` : ''}`
         );
       }
+
+      keyImagesService.clearKeyImagesForStudy(activeStudyUID);
 
       uiNotificationService.show({
         title: 'Key Images',
