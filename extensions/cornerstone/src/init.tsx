@@ -1,4 +1,4 @@
-import OHIF, { errorHandler } from '@ohif/core';
+import OHIF, { errorHandler, isMissingInstanceLoadError } from '@ohif/core';
 import React from 'react';
 
 import * as cornerstone from '@cornerstonejs/core';
@@ -283,6 +283,9 @@ export default async function init({
    * @param event
    */
   const imageLoadFailedHandler = ({ detail }) => {
+    if (isMissingInstanceLoadError(detail?.error)) {
+      return;
+    }
     const handler = errorHandler.getHTTPErrorHandler();
     handler(detail.error);
   };
@@ -326,6 +329,14 @@ export default async function init({
   eventTarget.addEventListenerDebounced(
     EVENTS.ERROR_EVENT,
     ({ detail }) => {
+      if (
+        isMissingInstanceLoadError(detail) ||
+        isMissingInstanceLoadError(detail?.error) ||
+        isMissingInstanceLoadError({ message: detail?.message })
+      ) {
+        return;
+      }
+
       // Create a stable ID for deduplication based on error type and message
       const errorId = `cornerstone-error-${detail.type}-${detail.message.substring(0, 50)}`;
 

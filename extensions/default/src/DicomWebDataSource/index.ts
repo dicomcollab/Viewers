@@ -17,7 +17,7 @@ import StaticWadoClient from './utils/StaticWadoClient';
 import getDirectURL from '../utils/getDirectURL';
 import { fixBulkDataURI } from './utils/fixBulkDataURI';
 import { cleanDenaturalizedDataset } from './utils/cleanDenaturalizedDataset';
-import {HeadersInterface} from '@ohif/core/src/types/RequestHeaders';
+import { HeadersInterface } from '@ohif/core/src/types/RequestHeaders';
 import { getCachedStudiesSearch } from './utils/studiesQueryCache.js';
 
 const { DicomMetaDictionary, DicomDict } = dcmjs.data;
@@ -173,10 +173,13 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         // /external/viewer: embedded link with fixed Basic auth (no cookie/session)
         const externalViewerBasic =
           typeof window !== 'undefined' &&
-          (window as unknown as { getExternalViewerBasicToken?: () => string | null }).getExternalViewerBasicToken &&
-          typeof (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken ===
-            'function'
-            ? (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken()
+          (window as unknown as { getExternalViewerBasicToken?: () => string | null })
+            .getExternalViewerBasicToken &&
+          typeof (window as unknown as { getExternalViewerBasicToken: () => string | null })
+            .getExternalViewerBasicToken === 'function'
+            ? (
+                window as unknown as { getExternalViewerBasicToken: () => string | null }
+              ).getExternalViewerBasicToken()
             : null;
         if (externalViewerBasic) {
           xhrRequestHeaders.Authorization = `Basic ${externalViewerBasic}`;
@@ -190,7 +193,9 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             ?.azurePacsPreferCookieAuth === true;
         const azureTokenFromConfig = dicomWebConfig.azureToken;
         const azureTokenFromWindow =
-          typeof window !== 'undefined' ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN : null;
+          typeof window !== 'undefined'
+            ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN
+            : null;
         const azureToken = azureTokenFromConfig || azureTokenFromWindow || null;
         const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
 
@@ -201,9 +206,19 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
 
         // Check if we're on a demo route and use demo token
         // @ts-expect-error - Accessing custom property on window
-        const isDemo = typeof window !== 'undefined' && window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
+        const isDemo =
+          typeof window !== 'undefined' &&
+          window.isDemoRoute &&
+          typeof window.isDemoRoute === 'function'
+            ? window.isDemoRoute()
+            : false;
         // @ts-expect-error - Accessing custom property on window
-        const demoToken = typeof window !== 'undefined' && window.getDemoToken && typeof window.getDemoToken === 'function' ? window.getDemoToken() : null;
+        const demoToken =
+          typeof window !== 'undefined' &&
+          window.getDemoToken &&
+          typeof window.getDemoToken === 'function'
+            ? window.getDemoToken()
+            : null;
 
         if (isDemo && demoToken) {
           // Use Basic auth for demo token
@@ -213,7 +228,12 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
 
         // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
         // @ts-expect-error - Share link helpers from app config
-        const shareLinkToken = typeof window !== 'undefined' && window.getShareLinkBasicToken && typeof window.getShareLinkBasicToken === 'function' ? window.getShareLinkBasicToken() : null;
+        const shareLinkToken =
+          typeof window !== 'undefined' &&
+          window.getShareLinkBasicToken &&
+          typeof window.getShareLinkBasicToken === 'function'
+            ? window.getShareLinkBasicToken()
+            : null;
         if (shareLinkToken) {
           xhrRequestHeaders.Authorization = `Basic ${shareLinkToken}`;
           return xhrRequestHeaders;
@@ -237,9 +257,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           let acceptHeaderValue = '*/*';
           const ah = dicomWebConfig.acceptHeader;
           const hasAccept =
-            ah !== undefined &&
-            ah !== null &&
-            !(Array.isArray(ah) && ah.length === 0);
+            ah !== undefined && ah !== null && !(Array.isArray(ah) && ah.length === 0);
           if (hasAccept) {
             if (typeof ah === 'string') {
               acceptHeaderValue = ah;
@@ -252,7 +270,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             Accept: acceptHeaderValue,
           };
         }
-        if (options?.includeTransferSyntax!==false) {
+        if (options?.includeTransferSyntax !== false) {
           //Generate accept header depending on config params
           const formattedAcceptHeader = utils.generateAcceptHeader(
             dicomWebConfig.acceptHeader,
@@ -269,15 +287,17 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           // which the server expects Accept: application/dicom+json will still include that in the
           // header.
           return {
-            ...authorizationHeader
+            ...authorizationHeader,
           };
         }
       };
 
       // Normalize api | dicomservice | v2 base from config; also update dicomWebConfig so WADO image IDs,
       // bulkDataURI, and instance.wadoRoot use the same prefix as the DICOMweb client (not raw .../v2).
-      const qidoBaseUrl = resolvePacsRouteBaseUrl(dicomWebConfig.qidoRoot) || dicomWebConfig.qidoRoot;
-      const wadoBaseUrl = resolvePacsRouteBaseUrl(dicomWebConfig.wadoRoot) || dicomWebConfig.wadoRoot;
+      const qidoBaseUrl =
+        resolvePacsRouteBaseUrl(dicomWebConfig.qidoRoot) || dicomWebConfig.qidoRoot;
+      const wadoBaseUrl =
+        resolvePacsRouteBaseUrl(dicomWebConfig.wadoRoot) || dicomWebConfig.wadoRoot;
       dicomWebConfig.qidoRoot = qidoBaseUrl;
       dicomWebConfig.wadoRoot = wadoBaseUrl;
 
@@ -348,17 +368,18 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
                 supportsWildcard: dicomWebConfig.supportsWildcard,
               }) || {};
 
-            const results = await qidoSearch(qidoDicomWebClient, undefined, undefined, mappedParams);
+            const results = await qidoSearch(
+              qidoDicomWebClient,
+              undefined,
+              undefined,
+              mappedParams
+            );
 
             return processResults(results);
           };
 
           // Use cached studies search if available
-          return getCachedStudiesSearch(
-            fetchStudies,
-            dicomWebConfig.name || 'default',
-            origParams
-          );
+          return getCachedStudiesSearch(fetchStudies, dicomWebConfig.name || 'default', origParams);
         },
         processResults: processResults.bind(),
       },
@@ -378,9 +399,10 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           };
 
           // Create a query key for series search (different from studies search)
-          const queryClient = typeof window !== 'undefined' && window.__OHIF_QUERY_CLIENT__
-            ? window.__OHIF_QUERY_CLIENT__
-            : null;
+          const queryClient =
+            typeof window !== 'undefined' && window.__OHIF_QUERY_CLIENT__
+              ? window.__OHIF_QUERY_CLIENT__
+              : null;
 
           if (queryClient) {
             const queryKey = ['seriesSearch', dicomWebConfig.name || 'default', studyInstanceUid];
@@ -388,18 +410,26 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             try {
               const cachedData = queryClient.getQueryData(queryKey);
               if (cachedData) {
-                console.log(`[Series Search Cache] ✅ CACHE HIT - Study: ${studyInstanceUid.substring(0, 20)}...`);
+                console.log(
+                  `[Series Search Cache] ✅ CACHE HIT - Study: ${studyInstanceUid.substring(0, 20)}...`
+                );
                 return cachedData;
               }
 
-              console.log(`[Series Search Cache] ❌ CACHE MISS - Fetching series for study: ${studyInstanceUid.substring(0, 20)}...`);
+              console.log(
+                `[Series Search Cache] ❌ CACHE MISS - Fetching series for study: ${studyInstanceUid.substring(0, 20)}...`
+              );
 
               const data = await queryClient.fetchQuery({
                 queryKey,
                 queryFn: async () => {
-                  console.log(`[Series Search Cache] 🔄 Fetching series from API: ${studyInstanceUid.substring(0, 20)}...`);
+                  console.log(
+                    `[Series Search Cache] 🔄 Fetching series from API: ${studyInstanceUid.substring(0, 20)}...`
+                  );
                   const result = await fetchSeries();
-                  console.log(`[Series Search Cache] ✅ Cached series (${result?.length || 0} series)`);
+                  console.log(
+                    `[Series Search Cache] ✅ Cached series (${result?.length || 0} series)`
+                  );
                   return result;
                 },
                 staleTime: 1000, // 1 hour

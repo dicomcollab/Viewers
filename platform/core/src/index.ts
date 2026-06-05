@@ -25,6 +25,10 @@ import {
   resolveRisRootRedirectUrlFromConfig,
   resolveRisWorklistUrlFromConfig,
 } from './utils/risEnvironmentDefaults';
+import {
+  isMissingInstanceLoadError,
+  shouldSuppressBenignViewerError,
+} from './utils/isMissingInstanceLoadError';
 import defaults from './defaults';
 import * as Types from './types';
 import * as Enums from './enums';
@@ -120,6 +124,8 @@ export {
   resolveRisPreferencesApiBaseUrl,
   resolveRisRootRedirectUrlFromConfig,
   resolveRisWorklistUrlFromConfig,
+  isMissingInstanceLoadError,
+  shouldSuppressBenignViewerError,
   MODULE_TYPES,
   //
   CommandsManager,

@@ -1,4 +1,4 @@
-import { Types } from '@ohif/core';
+import { Types, isMissingInstanceLoadError } from '@ohif/core';
 import { cache as cs3DCache, Enums, volumeLoader } from '@cornerstonejs/core';
 
 import getCornerstoneViewportType from '../../utils/getCornerstoneViewportType';
@@ -166,12 +166,16 @@ class CornerstoneCacheService {
         try {
           await overlayDisplaySet.load({ headers });
         } catch (e) {
-          uiNotificationService.show({
-            title: 'Error loading displaySet',
-            message: e.message,
-            type: 'error',
-          });
-          console.error(e);
+          if (isMissingInstanceLoadError(e)) {
+            console.warn('Instance unavailable (suppressed in viewer):', e?.message);
+          } else {
+            uiNotificationService.show({
+              title: 'Error loading displaySet',
+              message: e.message,
+              type: 'error',
+            });
+            console.error(e);
+          }
         }
       }
     }
@@ -187,12 +191,16 @@ class CornerstoneCacheService {
         try {
           await displaySet.load({ headers });
         } catch (e) {
-          uiNotificationService.show({
-            title: 'Error loading displaySet',
-            message: e.message,
-            type: 'error',
-          });
-          console.error(e);
+          if (isMissingInstanceLoadError(e)) {
+            console.warn('Instance unavailable (suppressed in viewer):', e?.message);
+          } else {
+            uiNotificationService.show({
+              title: 'Error loading displaySet',
+              message: e.message,
+              type: 'error',
+            });
+            console.error(e);
+          }
         }
       }
 
@@ -247,13 +255,17 @@ class CornerstoneCacheService {
         try {
           await displaySet.load({ headers });
         } catch (e) {
-          const { uiNotificationService } = this.servicesManager.services;
-          uiNotificationService.show({
-            title: 'Error loading displaySet',
-            message: e.message,
-            type: 'error',
-          });
-          console.error(e);
+          if (isMissingInstanceLoadError(e)) {
+            console.warn('Instance unavailable (suppressed in viewer):', e?.message);
+          } else {
+            const { uiNotificationService } = this.servicesManager.services;
+            uiNotificationService.show({
+              title: 'Error loading displaySet',
+              message: e.message,
+              type: 'error',
+            });
+            console.error(e);
+          }
         }
 
         // Parametric maps have a `load` method but it should not be loaded in the

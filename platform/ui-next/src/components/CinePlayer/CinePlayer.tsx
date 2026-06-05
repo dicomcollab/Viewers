@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
-import debounce from 'lodash.debounce';
 
 import { Icons } from '@ohif/ui-next';
 import { Popover, PopoverContent, PopoverTrigger } from '../Popover/Popover';
@@ -8,13 +7,20 @@ import { Button } from '../Button/Button';
 import { Numeric } from '../Numeric/Numeric';
 
 export type CinePlayerProps = {
-  className: string;
+  className?: string;
+  portaled?: boolean;
+  placement?: 'bottom-center' | 'top-center';
+  compact?: boolean;
   isPlaying: boolean;
   minFrameRate?: number;
   maxFrameRate?: number;
   stepFrameRate?: number;
   frameRate?: number;
+  cinePlayMode?: 'fps' | 'step';
+  frameStep?: number;
   onFrameRateChange: (value: number) => void;
+  onCinePlayModeChange?: (mode: 'fps' | 'step') => void;
+  onFrameStepChange?: (step: number) => void;
   onPlayPauseChange: (value: boolean) => void;
   onClose: () => void;
   updateDynamicInfo?: (info: any) => void;
@@ -23,39 +29,108 @@ export type CinePlayerProps = {
     numDimensionGroups: number;
     label?: string;
   };
+  stackCineInfo?: {
+    currentFrame: number;
+    numFrames: number;
+  };
+  /** Hide current/total frame label when multiple viewports run in parallel with different lengths. */
+  showStackFrameCounter?: boolean;
+  updateStackCineInfo?: (info: { currentFrame?: number }) => void;
+};
+
+const placementClassMap = {
+  'bottom-center': 'bottom-2 left-1/2 -translate-x-1/2',
+  'top-center': 'top-2 left-1/2 -translate-x-1/2',
 };
 
 const CinePlayer: React.FC<CinePlayerProps> = ({
-  className,
+  className = '',
+  portaled = false,
+  placement = 'bottom-center',
+  compact = false,
   isPlaying = false,
   minFrameRate = 1,
   maxFrameRate = 90,
   stepFrameRate = 1,
   frameRate: defaultFrameRate = 24,
+  cinePlayMode = 'step',
+  frameStep: defaultFrameStep = 4,
   onFrameRateChange = () => {},
+  onCinePlayModeChange = () => {},
+  onFrameStepChange = () => {},
   onPlayPauseChange = () => {},
   onClose = () => {},
   dynamicInfo = {},
   updateDynamicInfo,
+  stackCineInfo,
+  showStackFrameCounter = true,
+  updateStackCineInfo,
 }) => {
   const isDynamic = !!dynamicInfo?.numDimensionGroups;
+  const isStackCine = !!stackCineInfo?.numFrames && stackCineInfo.numFrames > 1;
+  const showFrameCounter = isStackCine && showStackFrameCounter;
   const [frameRate, setFrameRate] = useState(defaultFrameRate);
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const debouncedSetFrameRate = useCallback(debounce(onFrameRateChange, 100), [onFrameRateChange]);
+  const [playMode, setPlayMode] = useState<'fps' | 'step'>(cinePlayMode);
+  const [frameStep, setFrameStep] = useState(defaultFrameStep);
+  const [scrubPopoverOpen, setScrubPopoverOpen] = useState(false);
+  const [fpsPopoverOpen, setFpsPopoverOpen] = useState(false);
+  const [stepPopoverOpen, setStepPopoverOpen] = useState(false);
+  const frameRateRef = useRef(defaultFrameRate);
+  const frameStepRef = useRef(defaultFrameStep);
+  const playModeRef = useRef<'fps' | 'step'>(cinePlayMode);
 
   const getPlayPauseIconName = () => (isPlaying ? 'icon-pause' : 'icon-play');
 
-  const handleSetFrameRate = (frameRate: number) => {
-    if (frameRate < minFrameRate || frameRate > maxFrameRate) {
+  const flushCineSettings = useCallback(() => {
+    onCinePlayModeChange(playModeRef.current);
+    onFrameRateChange(frameRateRef.current);
+    onFrameStepChange(frameStepRef.current);
+  }, [onCinePlayModeChange, onFrameRateChange, onFrameStepChange]);
+
+  const handleSetFrameRate = (nextFrameRate: number) => {
+    if (nextFrameRate < minFrameRate || nextFrameRate > maxFrameRate) {
       return;
     }
-    setFrameRate(frameRate);
-    debouncedSetFrameRate(frameRate);
+    frameRateRef.current = nextFrameRate;
+    playModeRef.current = 'fps';
+    setFrameRate(nextFrameRate);
+    setPlayMode('fps');
+    onCinePlayModeChange('fps');
+    onFrameRateChange(nextFrameRate);
+  };
+
+  const handleSetFrameStep = (nextFrameStep: number) => {
+    const clamped = Math.max(1, Math.min(99, Math.round(nextFrameStep)));
+    frameStepRef.current = clamped;
+    playModeRef.current = 'step';
+    setFrameStep(clamped);
+    setPlayMode('step');
+    onCinePlayModeChange('step');
+    onFrameStepChange(clamped);
+  };
+
+  const handlePlayPauseClick = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    flushCineSettings();
+    onPlayPauseChange(!isPlaying);
   };
 
   useEffect(() => {
+    frameRateRef.current = defaultFrameRate;
     setFrameRate(defaultFrameRate);
   }, [defaultFrameRate]);
+
+  useEffect(() => {
+    playModeRef.current = cinePlayMode;
+    setPlayMode(cinePlayMode);
+  }, [cinePlayMode]);
+
+  useEffect(() => {
+    frameStepRef.current = defaultFrameStep;
+    setFrameStep(defaultFrameStep);
+  }, [defaultFrameStep]);
 
   const handleDimensionGroupNumberChange = useCallback(
     (newGroupNumber: number) => {
@@ -69,43 +144,115 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
     [isDynamic, dynamicInfo, updateDynamicInfo]
   );
 
-  return (
-    <div
-      className={`pointer-events-none absolute top-10 left-1/2 z-50 -translate-x-1/2 ${className}`}
-    >
-      <div
-        className={
-          'bg-muted pointer-events-auto inline-flex select-none items-center gap-1 rounded-md px-1 py-1'
-        }
-      >
+  const handleStackCurrentFrameChange = useCallback(
+    (nextFrame: number) => {
+      if (!isStackCine) {
+        return;
+      }
+
+      updateStackCineInfo?.({ currentFrame: nextFrame });
+    },
+    [isStackCine, updateStackCineInfo]
+  );
+
+  const barClassName = compact
+    ? 'bg-background/90 pointer-events-auto inline-flex h-7 select-none items-center gap-0 rounded border border-white/10 px-0.5 shadow-sm backdrop-blur-sm'
+    : 'bg-muted pointer-events-auto inline-flex select-none items-center gap-1 rounded-md px-1 py-1';
+
+  const iconButtonClass = compact ? 'h-6 w-6 shrink-0' : undefined;
+  const modeChipClass = (active: boolean) =>
+    `h-6 rounded px-1.5 text-[11px] leading-none ${
+      active ? 'bg-primary/20 text-foreground' : 'text-muted-foreground hover:text-foreground'
+    }`;
+
+  const controls = (
+    <>
+      <div className={barClassName}>
         <Button
           variant="ghost"
-          size="icon"
-          onClick={() => onPlayPauseChange(!isPlaying)}
+          size={compact ? 'sm' : 'icon'}
+          className={iconButtonClass}
+          onClick={handlePlayPauseClick}
           data-cy={'cine-player-play-pause'}
         >
           <Icons.ByName name={getPlayPauseIconName()} />
         </Button>
 
         {isDynamic && dynamicInfo && (
-          <div className="min-w-12 max-w-32 text-foreground flex flex-col">
-            <div className="text-xs leading-tight">
-              <span className="text-foreground w-2">{dynamicInfo.dimensionGroupNumber}</span>{' '}
-              <span className="text-muted-foreground">{`/${dynamicInfo.numDimensionGroups}`}</span>
-            </div>
-            <div className="text-muted-foreground text-xs leading-tight">{dynamicInfo.label}</div>
-          </div>
+          <span className="text-foreground px-1 text-[11px] leading-none whitespace-nowrap">
+            {dynamicInfo.dimensionGroupNumber}/{dynamicInfo.numDimensionGroups}
+          </span>
         )}
 
-        <div>
+        {showFrameCounter && stackCineInfo && (
           <Popover
-            open={popoverOpen}
-            onOpenChange={setPopoverOpen}
+            open={scrubPopoverOpen}
+            onOpenChange={setScrubPopoverOpen}
           >
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
-                className="h-full border-none bg-transparent p-0 hover:bg-transparent"
+                size="sm"
+                className="text-foreground h-6 px-1.5 text-[11px] leading-none"
+                data-cy="cine-player-frames-trigger"
+              >
+                {stackCineInfo.currentFrame}/{stackCineInfo.numFrames}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="bottom"
+              align="center"
+              className="z-50 w-48 p-2"
+              sideOffset={6}
+            >
+              <Numeric.Container
+                mode="singleRange"
+                min={1}
+                max={stackCineInfo.numFrames}
+                step={1}
+                value={stackCineInfo.currentFrame}
+                onChange={val => handleStackCurrentFrameChange(val as number)}
+                className="w-full"
+              >
+                <Numeric.SingleRange
+                  showNumberInput={false}
+                  sliderClassName="w-full cursor-pointer"
+                  sliderVariant="white"
+                />
+              </Numeric.Container>
+            </PopoverContent>
+          </Popover>
+        )}
+
+        {isStackCine ? (
+          <>
+            <Popover
+              open={fpsPopoverOpen}
+              onOpenChange={open => {
+                if (!open) {
+                  if (document.activeElement instanceof HTMLElement) {
+                    document.activeElement.blur();
+                  }
+                  flushCineSettings();
+                }
+                setFpsPopoverOpen(open);
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={modeChipClass(playMode === 'fps')}
+                  data-cy="cine-player-fps-trigger"
+                >
+                  {frameRate} FPS
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="center"
+                className="z-50 w-auto p-2"
+                sideOffset={6}
               >
                 <Numeric.Container
                   mode="stepper"
@@ -118,48 +265,108 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
                 >
                   <Numeric.NumberStepper
                     direction="horizontal"
-                    inputWidth="w-7 max-w-7"
+                    inputWidth="min-w-10 w-10"
                     buttonColor="white"
                   >
-                    <div className="flex items-center justify-center gap-0.5">
-                      <div className="text-foreground flex-shrink-0 text-center text-xs leading-tight">
-                        <span className="text-muted-foreground whitespace-nowrap text-xs">
-                          {' FPS'}
-                        </span>
-                      </div>
-                    </div>
+                    <span className="text-muted-foreground text-[10px]">FPS</span>
                   </Numeric.NumberStepper>
                 </Numeric.Container>
+              </PopoverContent>
+            </Popover>
+            <Popover
+              open={stepPopoverOpen}
+              onOpenChange={open => {
+                if (!open) {
+                  if (document.activeElement instanceof HTMLElement) {
+                    document.activeElement.blur();
+                  }
+                  flushCineSettings();
+                }
+                setStepPopoverOpen(open);
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={modeChipClass(playMode === 'step')}
+                  data-cy="cine-player-step-trigger"
+                >
+                  {frameStep} fr
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="bottom"
+                align="center"
+                className="z-50 w-auto p-2"
+                sideOffset={6}
+              >
+                <Numeric.Container
+                  mode="stepper"
+                  min={1}
+                  max={99}
+                  step={1}
+                  value={frameStep}
+                  onChange={val => handleSetFrameStep(val as number)}
+                  className="border-0 bg-transparent"
+                >
+                  <Numeric.NumberStepper
+                    direction="horizontal"
+                    inputWidth="min-w-10 w-10"
+                    buttonColor="white"
+                  >
+                    <span className="text-muted-foreground text-[10px]">Frames/step</span>
+                  </Numeric.NumberStepper>
+                </Numeric.Container>
+              </PopoverContent>
+            </Popover>
+          </>
+        ) : (
+          <Popover
+            open={fpsPopoverOpen}
+            onOpenChange={setFpsPopoverOpen}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-foreground h-6 px-1 text-[11px] leading-none"
+                data-cy="cine-player-fps-trigger"
+              >
+                {frameRate} FPS
               </Button>
             </PopoverTrigger>
             <PopoverContent
               side="bottom"
               align="center"
-              className="cine-fps-range-popover z-50 w-auto p-1"
-              sideOffset={8}
+              className="cine-fps-range-popover z-50 w-auto p-2"
+              sideOffset={6}
             >
               <Numeric.Container
-                mode="singleRange"
+                mode="stepper"
                 min={minFrameRate}
                 max={maxFrameRate}
                 step={stepFrameRate}
                 value={frameRate}
                 onChange={val => handleSetFrameRate(val as number)}
-                className="h-5 px-1"
+                className="border-0 bg-transparent"
               >
-                <Numeric.SingleRange
-                  showNumberInput={false}
-                  sliderClassName="w-32 cursor-pointer"
-                  sliderVariant="white"
-                />
+                <Numeric.NumberStepper
+                  direction="horizontal"
+                  inputWidth="min-w-10 w-10"
+                  buttonColor="white"
+                >
+                  <span className="text-muted-foreground text-[10px]">FPS</span>
+                </Numeric.NumberStepper>
               </Numeric.Container>
             </PopoverContent>
           </Popover>
-        </div>
+        )}
 
         <Button
           variant="ghost"
-          size="icon"
+          size={compact ? 'sm' : 'icon'}
+          className={iconButtonClass}
           onClick={onClose}
           data-cy={'cine-player-close'}
         >
@@ -167,7 +374,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
         </Button>
       </div>
 
-      {isDynamic && dynamicInfo && (
+      {isDynamic && dynamicInfo && !compact && (
         <Numeric.Container
           mode="singleRange"
           min={1}
@@ -177,27 +384,38 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
           onChange={val => handleDimensionGroupNumberChange(val as number)}
           className="pointer-events-auto mt-1 w-full"
         >
-          <Numeric.SingleRange showNumberInput={false} sliderClassName="cursor-pointer" sliderVariant="white" />
+          <Numeric.SingleRange
+            showNumberInput={false}
+            sliderClassName="cursor-pointer"
+            sliderVariant="white"
+          />
         </Numeric.Container>
       )}
+    </>
+  );
+
+  if (portaled) {
+    return <div className="pointer-events-none flex flex-col items-center">{controls}</div>;
+  }
+
+  return (
+    <div
+      className={`pointer-events-none absolute z-50 ${placementClassMap[placement]} ${className}`}
+    >
+      {controls}
     </div>
   );
 };
 
 CinePlayer.propTypes = {
-  /** Minimum value for range slider */
   minFrameRate: PropTypes.number,
-  /** Maximum value for range slider */
   maxFrameRate: PropTypes.number,
-  /** Increment range slider can "step" in either direction */
   stepFrameRate: PropTypes.number,
   frameRate: PropTypes.number,
-  /** 'true' if playing, 'false' if paused */
   isPlaying: PropTypes.bool.isRequired,
   onPlayPauseChange: PropTypes.func,
   onFrameRateChange: PropTypes.func,
   onClose: PropTypes.func,
-  isDynamic: PropTypes.bool,
   dynamicInfo: PropTypes.shape({
     dimensionGroupNumber: PropTypes.number,
     numDimensionGroups: PropTypes.number,

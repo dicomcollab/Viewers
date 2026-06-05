@@ -17,7 +17,12 @@ const DEFAULT_STATE = {
   },
 };
 
-const DEFAULT_CINE = { isPlaying: false, frameRate: 24 };
+const DEFAULT_CINE = {
+  isPlaying: false,
+  frameRate: 24,
+  cinePlayMode: 'step' as 'fps' | 'step',
+  frameStep: 4,
+};
 
 export const CineContext = createContext(null);
 
@@ -29,7 +34,10 @@ function safeGetSyncedViewports(service, viewportId) {
 
     return service.getSyncedViewports(viewportId) ?? [];
   } catch (error) {
-    if (typeof window !== 'undefined' && (window as Window & { OHIF_DEBUG_CINE?: boolean }).OHIF_DEBUG_CINE) {
+    if (
+      typeof window !== 'undefined' &&
+      (window as Window & { OHIF_DEBUG_CINE?: boolean }).OHIF_DEBUG_CINE
+    ) {
       console.warn('[OHIF Cine][CineProvider] getSyncedViewports failed', { viewportId, error });
     }
 
@@ -41,18 +49,35 @@ export default function CineProvider({ children, service }) {
   const reducer = (state, action) => {
     switch (action.type) {
       case 'SET_CINE': {
-        const { id, frameRate, isPlaying = undefined } = action.payload;
+        const {
+          id,
+          frameRate,
+          isPlaying = undefined,
+          cinePlayMode = undefined,
+          frameStep = undefined,
+        } = action.payload;
         const cines = { ...state.cines };
 
-        const syncedCineIds = safeGetSyncedViewports(service, id).map(({ viewportId }) => viewportId);
+        const syncedCineIds = safeGetSyncedViewports(service, id).map(
+          ({ viewportId }) => viewportId
+        );
         const cineIdsToUpdate = [id, ...syncedCineIds].filter(curId => {
           const currentCine = cines[curId] ?? {};
           const nextFrameRate = frameRate ?? currentCine.frameRate;
           const nextIsPlaying = isPlaying ?? currentCine.isPlaying;
+          const nextCinePlayMode = cinePlayMode ?? currentCine.cinePlayMode;
+          const nextFrameStep = frameStep ?? currentCine.frameStep;
           const shouldUpdateFrameRate = currentCine.frameRate !== nextFrameRate;
           const shouldUpdateIsPlaying = currentCine.isPlaying !== nextIsPlaying;
+          const shouldUpdatePlayMode = currentCine.cinePlayMode !== nextCinePlayMode;
+          const shouldUpdateFrameStep = currentCine.frameStep !== nextFrameStep;
 
-          return shouldUpdateFrameRate || shouldUpdateIsPlaying;
+          return (
+            shouldUpdateFrameRate ||
+            shouldUpdateIsPlaying ||
+            shouldUpdatePlayMode ||
+            shouldUpdateFrameStep
+          );
         });
 
         if (
@@ -79,6 +104,8 @@ export default function CineProvider({ children, service }) {
             ...currentCine,
             frameRate: frameRate ?? currentCine.frameRate,
             isPlaying: isPlaying ?? currentCine.isPlaying,
+            cinePlayMode: cinePlayMode ?? currentCine.cinePlayMode,
+            frameStep: frameStep ?? currentCine.frameStep,
           };
         });
 
@@ -111,13 +138,15 @@ export default function CineProvider({ children, service }) {
   );
 
   const setCine = useCallback(
-    ({ id, frameRate, isPlaying }) =>
+    ({ id, frameRate, isPlaying, cinePlayMode, frameStep }) =>
       dispatch({
         type: 'SET_CINE',
         payload: {
           id,
           frameRate,
           isPlaying,
+          cinePlayMode,
+          frameStep,
         },
       }),
     [dispatch]

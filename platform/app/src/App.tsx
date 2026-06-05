@@ -17,6 +17,7 @@ import {
   ViewportRefsProvider,
   isRedirectToRisOn401Enabled,
   resolveRis401RedirectUrlFromConfig,
+  shouldSuppressBenignViewerError,
 } from '@ohif/core';
 import {
   ThemeWrapper as ThemeWrapperNext,
@@ -87,23 +88,6 @@ function App({
   // Suppress known transient VTK shader crash during rapid advanced layout switches
   // (MPR/axial-primary/3D). This prevents the React runtime overlay from interrupting workflow.
   useEffect(() => {
-    const shouldSuppressBenignViewerError = (value: unknown) => {
-      const text = String(value ?? '');
-      if (!text || text === '[object Object]') {
-        return false;
-      }
-      return (
-        text.includes('isAttributeUsed') ||
-        text.includes('pixel data is missing') ||
-        text.includes('The pixel data is missing') ||
-        text.includes('request failed') ||
-        text.includes('Cannot convert undefined or null to object') ||
-        text.includes('loading aborted') ||
-        text.includes('request was aborted') ||
-        text.includes('HTTP 406: Not Acceptable')
-      );
-    };
-
     const onWindowError = (event: ErrorEvent) => {
       const message = event?.message ?? '';
       const stack = event?.error?.stack ?? '';
@@ -120,7 +104,10 @@ function App({
       const reasonText =
         reasonMessage ||
         (reason && typeof reason === 'object' ? JSON.stringify(reason) : String(reason ?? ''));
-      if (shouldSuppressBenignViewerError(reasonText) || shouldSuppressBenignViewerError(reasonStack)) {
+      if (
+        shouldSuppressBenignViewerError(reasonText) ||
+        shouldSuppressBenignViewerError(reasonStack)
+      ) {
         event.preventDefault();
         event.stopImmediatePropagation?.();
       }
@@ -253,10 +240,13 @@ function App({
       // /external/viewer: fixed Basic auth for PACS (no cookie token)
       const externalViewerBasic =
         typeof window !== 'undefined' &&
-        (window as unknown as { getExternalViewerBasicToken?: () => string | null }).getExternalViewerBasicToken &&
-        typeof (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken ===
-          'function'
-          ? (window as unknown as { getExternalViewerBasicToken: () => string | null }).getExternalViewerBasicToken()
+        (window as unknown as { getExternalViewerBasicToken?: () => string | null })
+          .getExternalViewerBasicToken &&
+        typeof (window as unknown as { getExternalViewerBasicToken: () => string | null })
+          .getExternalViewerBasicToken === 'function'
+          ? (
+              window as unknown as { getExternalViewerBasicToken: () => string | null }
+            ).getExternalViewerBasicToken()
           : null;
       if (externalViewerBasic) {
         return {
@@ -264,15 +254,15 @@ function App({
         };
       }
 
-      const appCfg = typeof window !== 'undefined'
-        ? (window as unknown as {
-            config?: { pacsIntegration?: string; azurePacsPreferCookieAuth?: boolean };
-          }).config
-        : undefined;
-      if (
-        appCfg?.pacsIntegration === 'azurepacs' &&
-        !appCfg?.azurePacsPreferCookieAuth
-      ) {
+      const appCfg =
+        typeof window !== 'undefined'
+          ? (
+              window as unknown as {
+                config?: { pacsIntegration?: string; azurePacsPreferCookieAuth?: boolean };
+              }
+            ).config
+          : undefined;
+      if (appCfg?.pacsIntegration === 'azurepacs' && !appCfg?.azurePacsPreferCookieAuth) {
         // @ts-ignore - set in config/default.js when pacsIntegration is azurepacs
         const azureToken = typeof window !== 'undefined' && window.AZURE_PACS_TOKEN;
         const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
@@ -285,9 +275,15 @@ function App({
 
       // Check if we're on a demo route and use demo token
       // @ts-ignore - Accessing custom property on window
-      const isDemo = window.isDemoRoute && typeof window.isDemoRoute === 'function' ? window.isDemoRoute() : false;
+      const isDemo =
+        window.isDemoRoute && typeof window.isDemoRoute === 'function'
+          ? window.isDemoRoute()
+          : false;
       // @ts-ignore - Accessing custom property on window
-      const demoToken = window.getDemoToken && typeof window.getDemoToken === 'function' ? window.getDemoToken() : null;
+      const demoToken =
+        window.getDemoToken && typeof window.getDemoToken === 'function'
+          ? window.getDemoToken()
+          : null;
 
       if (isDemo && demoToken) {
         // Use Basic auth for demo token
@@ -298,9 +294,15 @@ function App({
 
       // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
       // @ts-ignore - Share link helpers from app config
-      const isShareLink = window.isShareLinkMode && typeof window.isShareLinkMode === 'function' ? window.isShareLinkMode() : false;
+      const isShareLink =
+        window.isShareLinkMode && typeof window.isShareLinkMode === 'function'
+          ? window.isShareLinkMode()
+          : false;
       // @ts-ignore
-      const shareLinkToken = window.getShareLinkBasicToken && typeof window.getShareLinkBasicToken === 'function' ? window.getShareLinkBasicToken() : null;
+      const shareLinkToken =
+        window.getShareLinkBasicToken && typeof window.getShareLinkBasicToken === 'function'
+          ? window.getShareLinkBasicToken()
+          : null;
       if (isShareLink && shareLinkToken) {
         return {
           Authorization: `Basic ${shareLinkToken}`,
@@ -315,7 +317,12 @@ function App({
 
       // Fallback to common cookie names if configured names not found
       if (!token) {
-        token = getCookie('token') || getCookie('patientToken') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt');
+        token =
+          getCookie('token') ||
+          getCookie('patientToken') ||
+          getCookie('accessToken') ||
+          getCookie('authToken') ||
+          getCookie('jwt');
       }
 
       if (token) {
@@ -334,7 +341,9 @@ function App({
       }
       const appConfig = window.config || {};
       if (!isRedirectToRisOn401Enabled(appConfig)) {
-        console.warn('Authentication failed (401) - RIS redirect disabled (redirectToRisOn401: false).');
+        console.warn(
+          'Authentication failed (401) - RIS redirect disabled (redirectToRisOn401: false).'
+        );
         return;
       }
       const target = resolveRis401RedirectUrlFromConfig(appConfig);
@@ -386,10 +395,7 @@ function App({
 }
 
 App.propTypes = {
-  config: PropTypes.oneOfType([
-    PropTypes.object,
-    PropTypes.func,
-  ]).isRequired,
+  config: PropTypes.oneOfType([PropTypes.object, PropTypes.func]).isRequired,
   /* Extensions that are "bundled" or "baked-in" to the application.
    * These would be provided at build time as part of they entry point. */
   defaultExtensions: PropTypes.array,

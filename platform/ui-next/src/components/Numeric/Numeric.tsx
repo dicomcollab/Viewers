@@ -318,6 +318,10 @@ interface NumberStepperProps {
   buttonColor?: 'primary' | 'white';
 }
 
+function formatStepperValue(value: number, decimalPlaces: number): string {
+  return decimalPlaces > 0 ? value.toFixed(decimalPlaces) : value.toString();
+}
+
 // Modified NumberStepper component to properly position left/right controls
 function NumberStepper({ className, children, direction, inputWidth, buttonColor = 'primary' }: NumberStepperProps) {
   const ctx = useContext(NumericMetaContext);
@@ -330,35 +334,70 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
     return null;
   }
 
-  // Calculate decimal places based on step
   const decimalPlaces = getDecimalPlaces(step);
+  const formattedValue = formatStepperValue(singleValue, decimalPlaces);
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [inputValue, setInputValue] = React.useState(formattedValue);
 
-  // Format displayed value with proper decimal places
-  const displayValue = React.useMemo(() => {
-    return decimalPlaces > 0 ? singleValue.toFixed(decimalPlaces) : singleValue.toString();
-  }, [singleValue, decimalPlaces]);
+  React.useEffect(() => {
+    if (!isEditing) {
+      setInputValue(formattedValue);
+    }
+  }, [formattedValue, isEditing]);
+
+  const commitInputValue = React.useCallback(
+    (rawValue: string) => {
+      if (rawValue === '' || rawValue === '-' || rawValue === '.') {
+        const boundedValue = Math.max(min, Math.min(singleValue, max));
+        setSingleValue(boundedValue);
+        setInputValue(formatStepperValue(boundedValue, decimalPlaces));
+        return;
+      }
+
+      const numValue = Number(rawValue);
+      if (isNaN(numValue)) {
+        setInputValue(formattedValue);
+        return;
+      }
+
+      const boundedValue = Math.max(min, Math.min(numValue, max));
+      setSingleValue(boundedValue);
+      setInputValue(formatStepperValue(boundedValue, decimalPlaces));
+    },
+    [decimalPlaces, formattedValue, max, min, setSingleValue, singleValue]
+  );
 
   const handleInputChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
     const val = evt.target.value;
+    setInputValue(val);
 
-    // Allow empty string, minus sign, or decimal point for flexibility
     if (val === '' || val === '-' || val === '.') {
       return;
     }
 
     const numValue = Number(val);
-    if (!isNaN(numValue)) {
-      setSingleValue(Math.max(min, Math.min(numValue, max)));
+    if (!isNaN(numValue) && numValue >= min && numValue <= max) {
+      setSingleValue(numValue);
     }
   };
 
-  const handleBlur = () => {
-    // Ensure value is within constraints when input loses focus
-    const boundedValue = Math.max(min, Math.min(singleValue, max));
-    if (boundedValue !== singleValue) {
-      setSingleValue(boundedValue);
-    }
+  const handleFocus = () => {
+    setIsEditing(true);
   };
+
+  const handleBlur = () => {
+    setIsEditing(false);
+    commitInputValue(inputValue);
+  };
+
+  const setValueFromControl = React.useCallback(
+    (newVal: number) => {
+      setIsEditing(false);
+      setSingleValue(newVal);
+      setInputValue(formatStepperValue(newVal, decimalPlaces));
+    },
+    [decimalPlaces, setSingleValue]
+  );
 
   // Check if children is HorizontalControls component
   const hasHorizontalControls = direction === 'horizontal';
@@ -376,13 +415,15 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
           min={min}
           step={step}
           value={singleValue}
-          setValue={setSingleValue}
+          setValue={setValueFromControl}
           buttonColor={buttonColor}
         />
         <Input
           type="text"
-          value={displayValue}
+          inputMode="numeric"
+          value={inputValue}
           onChange={handleInputChange}
+          onFocus={handleFocus}
           onBlur={handleBlur}
           className={cn(
             'h-6 appearance-none border-none p-0 text-center shadow-none focus:border-none focus:outline-none',
@@ -394,7 +435,7 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
           max={max}
           step={step}
           value={singleValue}
-          setValue={setSingleValue}
+          setValue={setValueFromControl}
           buttonColor={buttonColor}
         />
       </div>
@@ -410,8 +451,10 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
     >
       <Input
         type="text"
-        value={displayValue}
+        inputMode="numeric"
+        value={inputValue}
         onChange={handleInputChange}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         className={cn(
           'h-6 appearance-none border-none p-0 text-center shadow-none focus:border-none focus:outline-none',
@@ -422,7 +465,7 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setSingleValue(singleValue + step)}
+          onClick={() => setValueFromControl(Math.min(singleValue + step, max))}
           disabled={singleValue >= max}
           className="text-primary h-3 w-5"
         >
@@ -431,7 +474,7 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setSingleValue(singleValue - step)}
+          onClick={() => setValueFromControl(Math.max(singleValue - step, min))}
           disabled={singleValue <= min}
           className="text-primary h-3 w-5"
         >

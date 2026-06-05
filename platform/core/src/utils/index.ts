@@ -61,6 +61,10 @@ import {
   resolveRisRootRedirectUrlFromConfig,
   resolveRisWorklistUrlFromConfig,
 } from './risEnvironmentDefaults';
+import {
+  isMissingInstanceLoadError,
+  shouldSuppressBenignViewerError,
+} from './isMissingInstanceLoadError';
 
 // Commented out unused functionality.
 // Need to implement new mechanism for derived displaySets using the displaySetManager.
@@ -175,6 +179,8 @@ export {
   resolveRisPreferencesApiBaseUrl,
   resolveRisRootRedirectUrlFromConfig,
   resolveRisWorklistUrlFromConfig,
+  isMissingInstanceLoadError,
+  shouldSuppressBenignViewerError,
 };
 
 export default utils;

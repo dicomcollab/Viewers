@@ -37,6 +37,7 @@ import toggleImageSliceSync from './utils/imageSliceSync/toggleImageSliceSync';
 import { getFirstAnnotationSelected } from './utils/measurementServiceMappings/utils/selection';
 import { getViewportEnabledElement } from './utils/getViewportEnabledElement';
 import getActiveViewportEnabledElement from './utils/getActiveViewportEnabledElement';
+import { getCineControlViewportId, shouldUseUnifiedCineControl } from './utils/cineSyncUtils';
 import toggleVOISliceSync from './utils/toggleVOISliceSync';
 import {
   usePositionPresentationStore,
@@ -832,9 +833,28 @@ function commandsModule({
     },
 
     toggleCine: () => {
-      const { viewports } = viewportGridService.getState();
-      const { isCineEnabled } = cineService.getState();
-      cineService.setIsCineEnabled(!isCineEnabled);
+      const { viewports, activeViewportId } = viewportGridService.getState();
+      const { isCineEnabled, cines } = cineService.getState();
+
+      if (!isCineEnabled) {
+        cineService.setIsCineEnabled(true);
+        return;
+      }
+
+      const controlViewportId =
+        getCineControlViewportId(servicesManager) || activeViewportId;
+      const isUnified = shouldUseUnifiedCineControl(servicesManager);
+
+      if (isUnified && controlViewportId) {
+        const isPlaying = cines?.[controlViewportId]?.isPlaying ?? false;
+        cineService.setCine({
+          id: controlViewportId,
+          isPlaying: !isPlaying,
+        });
+        return;
+      }
+
+      cineService.setIsCineEnabled(false);
       viewports.forEach(({ viewportId }) =>
         cineService.setCine({ id: viewportId, isPlaying: false })
       );

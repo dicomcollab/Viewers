@@ -29,6 +29,12 @@ function HangingProtocolSelectorWithServices({
     { id: 'allModality1x1', label: 'ALL | 1×1', protocolId: 'allModality1x1', stageId: '1x1' },
     { id: 'allModality1x2', label: 'ALL | 1×2', protocolId: 'allModality1x2', stageId: '1x2' },
     { id: 'allModality1x4', label: 'ALL | 1×4', protocolId: 'allModality1x4', stageId: '1x4' },
+    {
+      id: 'allModalityCompare2x1',
+      label: 'ALL | Compare 2×1',
+      protocolId: 'allModalityCompare2x1',
+      stageId: 'compare2x1',
+    },
   ];
 
   // Update current protocol based on hanging protocol service state
@@ -62,6 +68,9 @@ function HangingProtocolSelectorWithServices({
               } else if (numRows === 2 && numCols === 2) {
                 setCurrentProtocol('ALL | 1×4');
                 setCurrentProtocolId('allModality1x4');
+              } else if (numRows === 2 && numCols === 1) {
+                setCurrentProtocol('ALL | Compare 2×1');
+                setCurrentProtocolId('allModalityCompare2x1');
               } else {
                 // Default to 1×1 if layout doesn't match
                 setCurrentProtocol('ALL | 1×1');
@@ -131,7 +140,7 @@ function HangingProtocolSelectorWithServices({
       id="HangingProtocol"
       data-cy="HangingProtocol"
     >
-      <span className="whitespace-nowrap text-sm text-white">HP</span>
+      <span className="whitespace-nowrap text-sm text-white">Hanging Protocol</span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button

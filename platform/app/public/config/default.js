@@ -1401,6 +1401,14 @@ window.config = {
     const xhr = error?.request;
     const url =
       (xhr && (xhr.responseURL || xhr._url || xhr.url)) || '(see Network tab for failing URL)';
+    if (status === 404) {
+      console.warn('[DICOMweb] Instance not found (suppressed in viewer)', {
+        status,
+        url,
+        message: error?.message,
+      });
+      return;
+    }
     console.error('[DICOMweb] request failed', {
       status,
       url,
@@ -1409,10 +1417,6 @@ window.config = {
     if (status === 401 || status === 403) {
       console.warn(
         '[DICOMweb] Auth rejected — check cookie token / Basic auth for your PACS (and ShortCode share link if used).'
-      );
-    } else if (status === 404) {
-      console.warn(
-        '[DICOMweb] Not found — study/series/instance may be missing or wrong data source.'
       );
     } else if (status === 0 || status == null) {
       console.warn(

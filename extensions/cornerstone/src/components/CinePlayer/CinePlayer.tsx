@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useCine } from '@ohif/ui-next';
 import { Enums, eventTarget, cache, metaData, getEnabledElement } from '@cornerstonejs/core';
 import { useAppConfig } from '@state';
 import { cineDebug, cineDebugWarn } from '../../utils/cineDebug';
+import { getCineControlViewportId, shouldUseUnifiedCineControl } from '../../utils/cineSyncUtils';
+import {
+  buildUsStackCineInfo,
+  getUsCineFrameRate,
+  DEFAULT_US_FRAME_STEP,
+} from '../../utils/usStackCineUtils';
 
 function getPetFrameReferenceTimeFromImageId(imageId: string) {
   if (!imageId) {
@@ -67,11 +74,16 @@ function WrappedCinePlayer({
   enabledVPElement: HTMLElement;
   viewportId: string;
 }>) {
-  const { customizationService, displaySetService, viewportGridService, cornerstoneViewportService } =
-    servicesManager.services;
+  const {
+    customizationService,
+    displaySetService,
+    viewportGridService,
+    cornerstoneViewportService,
+  } = servicesManager.services;
   const [{ isCineEnabled, cines }, cineService] = useCine();
   const [newStackFrameRate, setNewStackFrameRate] = useState(24);
   const [dynamicInfo, setDynamicInfo] = useState(null);
+  const [stackCineInfo, setStackCineInfo] = useState(null);
   const [appConfig] = useAppConfig();
 
   const isMountedRef = useRef(false);
@@ -79,7 +91,12 @@ function WrappedCinePlayer({
   const isCineEnabledRef = useRef(isCineEnabled);
   const cineServiceRef = useRef(cineService);
   const enabledVPElementRef = useRef(enabledVPElement);
-  const lastPlaybackRef = useRef<{ isPlaying: boolean; frameRate: number } | null>(null);
+  const lastPlaybackRef = useRef<{
+    isPlaying: boolean;
+    frameRate: number;
+    cinePlayMode?: 'fps' | 'step';
+    frameStep?: number;
+  } | null>(null);
 
   cinesRef.current = cines;
   isCineEnabledRef.current = isCineEnabled;
@@ -88,6 +105,8 @@ function WrappedCinePlayer({
 
   const isPlaying = cines?.[viewportId]?.isPlaying ?? false;
   const frameRate = cines?.[viewportId]?.frameRate ?? 24;
+  const cinePlayMode = cines?.[viewportId]?.cinePlayMode ?? 'step';
+  const frameStep = cines?.[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
 
   const applyPlayback = useCallback(
     (playing: boolean, fps: number) => {
@@ -108,7 +127,12 @@ function WrappedCinePlayer({
       const validFrameRate = Math.max(fps, 1);
       const last = lastPlaybackRef.current;
 
-      if (last?.isPlaying === playing && last?.frameRate === validFrameRate) {
+      if (
+        last?.isPlaying === playing &&
+        last?.frameRate === validFrameRate &&
+        last?.cinePlayMode === cinePlayMode &&
+        last?.frameStep === frameStep
+      ) {
         cineDebug('CinePlayer', 'applyPlayback skipped — unchanged', {
           viewportId,
           playing,
@@ -117,12 +141,17 @@ function WrappedCinePlayer({
         return;
       }
 
-      lastPlaybackRef.current = { isPlaying: playing, frameRate: validFrameRate };
+      lastPlaybackRef.current = {
+        isPlaying: playing,
+        frameRate: validFrameRate,
+        cinePlayMode,
+        frameStep,
+      };
 
       const enabledElement = getEnabledElement(element);
       const viewport = enabledElement?.viewport;
       const imageIdCount =
-        typeof viewport?.getImageIds === 'function' ? viewport.getImageIds()?.length ?? 0 : 0;
+        typeof viewport?.getImageIds === 'function' ? (viewport.getImageIds()?.length ?? 0) : 0;
       const currentIndex =
         typeof viewport?.getCurrentImageIdIndex === 'function'
           ? viewport.getCurrentImageIdIndex()
@@ -139,7 +168,9 @@ function WrappedCinePlayer({
         });
 
         if (!enabledElement) {
-          cineDebugWarn('CinePlayer', 'Cannot play — viewport element not enabled yet', { viewportId });
+          cineDebugWarn('CinePlayer', 'Cannot play — viewport element not enabled yet', {
+            viewportId,
+          });
           return;
         }
 
@@ -151,7 +182,12 @@ function WrappedCinePlayer({
           return;
         }
 
-        service.playClip(element, { framesPerSecond: validFrameRate, viewportId });
+        service.playClip(element, {
+          framesPerSecond: validFrameRate,
+          viewportId,
+          cinePlayMode,
+          frameStep,
+        });
       } else {
         cineDebug('CinePlayer', 'applyPlayback → stopClip', {
           viewportId,
@@ -161,7 +197,7 @@ function WrappedCinePlayer({
         service.stopClip(element, { viewportId });
       }
     },
-    [viewportId]
+    [cinePlayMode, frameStep, viewportId]
   );
 
   const newDisplaySetHandler = useCallback(() => {
@@ -180,14 +216,12 @@ function WrappedCinePlayer({
     const { displaySetInstanceUIDs } = viewportState;
     let nextFrameRate = 24;
     let nextIsPlaying = cinesRef.current[viewportId]?.isPlaying || false;
+    let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'step';
+    let nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
+    let nextStackCineInfo = null;
 
     displaySetInstanceUIDs.forEach(displaySetInstanceUID => {
       const displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
-
-      if (displaySet.FrameRate) {
-        nextFrameRate = Math.round(1000 / displaySet.FrameRate);
-        nextIsPlaying ||= !!appConfig.autoPlayCine;
-      }
 
       if (displaySet.isDynamicVolume) {
         const { dynamicVolumeInfo } = displaySet;
@@ -197,6 +231,7 @@ function WrappedCinePlayer({
           numDimensionGroups: dynamicVolumeInfo.timePoints.length,
           label: dynamicVolumeInfo.splittingTag,
         });
+        setStackCineInfo(null);
       } else if (displaySet.Modality === 'PT') {
         setDynamicInfo(
           buildPetCineDynamicInfo({
@@ -206,8 +241,26 @@ function WrappedCinePlayer({
             viewportGridService,
           })
         );
+        setStackCineInfo(null);
+      } else if (displaySet.Modality === 'US' && (displaySet.numImageFrames ?? 0) > 1) {
+        setDynamicInfo(null);
+        nextStackCineInfo = buildUsStackCineInfo({
+          cornerstoneViewportService,
+          viewportId,
+          displaySetService,
+          viewportGridService,
+        });
+        setStackCineInfo(nextStackCineInfo);
+        nextFrameRate = getUsCineFrameRate(displaySet);
+        nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'step';
+        nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
+        nextIsPlaying ||= !!appConfig.autoPlayCine;
+      } else if (displaySet.FrameRate) {
+        nextFrameRate = Math.round(1000 / displaySet.FrameRate);
+        nextIsPlaying ||= !!appConfig.autoPlayCine;
       } else {
         setDynamicInfo(null);
+        setStackCineInfo(null);
       }
     });
 
@@ -223,11 +276,19 @@ function WrappedCinePlayer({
 
     const currentCine = cinesRef.current[viewportId];
 
-    if (currentCine?.frameRate !== nextFrameRate || currentCine?.isPlaying !== nextIsPlaying) {
+    const shouldUpdateCine =
+      currentCine?.frameRate !== nextFrameRate ||
+      currentCine?.isPlaying !== nextIsPlaying ||
+      currentCine?.cinePlayMode !== nextCinePlayMode ||
+      currentCine?.frameStep !== nextFrameStep;
+
+    if (shouldUpdateCine) {
       cineServiceRef.current.setCine({
         id: viewportId,
         isPlaying: nextIsPlaying,
         frameRate: nextFrameRate,
+        cinePlayMode: nextCinePlayMode,
+        frameStep: nextFrameStep,
       });
     }
 
@@ -281,7 +342,7 @@ function WrappedCinePlayer({
     }
 
     applyPlayback(isPlaying, frameRate);
-  }, [isCineEnabled, isPlaying, frameRate, applyPlayback]);
+  }, [isCineEnabled, isPlaying, frameRate, cinePlayMode, frameStep, applyPlayback]);
 
   useEffect(() => {
     if (!enabledVPElement) {
@@ -301,6 +362,15 @@ function WrappedCinePlayer({
           viewportGridService,
         });
       });
+
+      setStackCineInfo(
+        buildUsStackCineInfo({
+          cornerstoneViewportService,
+          viewportId,
+          displaySetService,
+          viewportGridService,
+        })
+      );
     };
 
     enabledVPElement.addEventListener(Enums.Events.STACK_NEW_IMAGE, onStackNewImage);
@@ -308,7 +378,13 @@ function WrappedCinePlayer({
     return () => {
       enabledVPElement.removeEventListener(Enums.Events.STACK_NEW_IMAGE, onStackNewImage);
     };
-  }, [cornerstoneViewportService, displaySetService, enabledVPElement, viewportGridService, viewportId]);
+  }, [
+    cornerstoneViewportService,
+    displaySetService,
+    enabledVPElement,
+    viewportGridService,
+    viewportId,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -326,35 +402,72 @@ function WrappedCinePlayer({
     return null;
   }
 
+  const cineControlViewportId = getCineControlViewportId(servicesManager);
+  const showCineUI = cineControlViewportId === viewportId;
+
+  if (!showCineUI) {
+    return null;
+  }
+
+  const useUnifiedCineControl = shouldUseUnifiedCineControl(servicesManager);
+
   return (
     <RenderCinePlayer
       viewportId={viewportId}
       cineService={cineService}
-      newStackFrameRate={newStackFrameRate}
+      frameRate={frameRate}
       isPlaying={isPlaying}
+      cinePlayMode={cinePlayMode}
+      frameStep={frameStep}
       dynamicInfo={dynamicInfo}
+      stackCineInfo={stackCineInfo}
       customizationService={customizationService}
       cornerstoneViewportService={cornerstoneViewportService}
+      useUnifiedCineControl={useUnifiedCineControl}
     />
   );
 }
 
+const VIEWPORT_GRID_CONTAINER_SELECTOR = '[data-cy="viewport-grid-container"]';
+
 function RenderCinePlayer({
   viewportId,
   cineService,
-  newStackFrameRate,
+  frameRate: cineFrameRate,
   isPlaying,
+  cinePlayMode,
+  frameStep,
   dynamicInfo: dynamicInfoProp,
+  stackCineInfo: stackCineInfoProp,
   customizationService,
   cornerstoneViewportService,
+  useUnifiedCineControl = false,
 }) {
   const CinePlayerComponent = customizationService.getCustomization('cinePlayer');
 
   const [dynamicInfo, setDynamicInfo] = useState(dynamicInfoProp);
+  const [stackCineInfo, setStackCineInfo] = useState(stackCineInfoProp);
+  const [gridContainer, setGridContainer] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!useUnifiedCineControl) {
+      setGridContainer(null);
+      return;
+    }
+
+    const resolveGridContainer = () =>
+      document.querySelector(VIEWPORT_GRID_CONTAINER_SELECTOR) as HTMLElement | null;
+
+    setGridContainer(resolveGridContainer());
+  }, [useUnifiedCineControl]);
 
   useEffect(() => {
     setDynamicInfo(dynamicInfoProp);
   }, [dynamicInfoProp]);
+
+  useEffect(() => {
+    setStackCineInfo(stackCineInfoProp);
+  }, [stackCineInfoProp]);
 
   useEffect(() => {
     if (!dynamicInfo?.volumeId) {
@@ -423,10 +536,42 @@ function RenderCinePlayer({
     [cornerstoneViewportService, cineService]
   );
 
-  return (
+  const updateStackCineInfo = useCallback(
+    props => {
+      const { currentFrame } = props;
+
+      if (currentFrame == null) {
+        return;
+      }
+
+      const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+      const { isCineEnabled } = cineService.getState();
+
+      if (isCineEnabled) {
+        cineService.setCine({ id: viewportId, isPlaying: false });
+      }
+
+      viewport?.setImageIdIndex?.(currentFrame - 1);
+      setStackCineInfo(prev =>
+        prev
+          ? {
+              ...prev,
+              currentFrame,
+            }
+          : prev
+      );
+    },
+    [cornerstoneViewportService, cineService, viewportId]
+  );
+
+  const cinePlayer = (
     <CinePlayerComponent
-      className="absolute left-1/2 bottom-3 -translate-x-1/2"
-      frameRate={newStackFrameRate}
+      portaled={useUnifiedCineControl}
+      placement={useUnifiedCineControl ? 'top-center' : 'bottom-center'}
+      compact={useUnifiedCineControl || !!stackCineInfo}
+      frameRate={cineFrameRate}
+      cinePlayMode={cinePlayMode}
+      frameStep={frameStep}
       isPlaying={isPlaying}
       onClose={() => {
         cineDebug('CinePlayer', 'onClose', { viewportId });
@@ -439,9 +584,14 @@ function RenderCinePlayer({
       }}
       onPlayPauseChange={playing => {
         cineDebug('CinePlayer', 'onPlayPauseChange', { viewportId, playing });
+        const { cines } = cineService.getState();
+        const current = cines?.[viewportId] ?? {};
         cineService.setCine({
           id: viewportId,
           isPlaying: playing,
+          frameRate: current.frameRate,
+          cinePlayMode: current.cinePlayMode,
+          frameStep: current.frameStep,
         });
       }}
       onFrameRateChange={nextFrameRate => {
@@ -449,12 +599,43 @@ function RenderCinePlayer({
         cineService.setCine({
           id: viewportId,
           frameRate: nextFrameRate,
+          cinePlayMode: 'fps',
+        });
+      }}
+      onCinePlayModeChange={mode => {
+        cineService.setCine({
+          id: viewportId,
+          cinePlayMode: mode,
+        });
+      }}
+      onFrameStepChange={nextFrameStep => {
+        cineService.setCine({
+          id: viewportId,
+          frameStep: nextFrameStep,
+          cinePlayMode: 'step',
         });
       }}
       dynamicInfo={dynamicInfo}
       updateDynamicInfo={updateDynamicInfo}
+      stackCineInfo={stackCineInfo}
+      showStackFrameCounter={!useUnifiedCineControl}
+      updateStackCineInfo={updateStackCineInfo}
     />
   );
+
+  if (useUnifiedCineControl && gridContainer) {
+    return createPortal(
+      <div
+        className="pointer-events-none absolute top-2 left-1/2 z-50 -translate-x-1/2"
+        data-cy="unified-cine-player"
+      >
+        {cinePlayer}
+      </div>,
+      gridContainer
+    );
+  }
+
+  return cinePlayer;
 }
 
 export default WrappedCinePlayer;

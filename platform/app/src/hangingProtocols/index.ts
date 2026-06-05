@@ -2,6 +2,8 @@ import {
   allModality1x1Protocol,
   allModality1x2Protocol,
   allModality1x4Protocol,
+  allModalityCompare2x1Protocol,
+  usModality1x4Protocol,
 } from './allModalityProtocols';
 
 /**
@@ -23,7 +25,21 @@ export default function getHangingProtocolModule() {
       name: allModality1x4Protocol.id,
       protocol: allModality1x4Protocol,
     },
+    {
+      name: allModalityCompare2x1Protocol.id,
+      protocol: allModalityCompare2x1Protocol,
+    },
+    {
+      name: usModality1x4Protocol.id,
+      protocol: usModality1x4Protocol,
+    },
   ];
 }
 
-export { allModality1x1Protocol, allModality1x2Protocol, allModality1x4Protocol };
+export {
+  allModality1x1Protocol,
+  allModality1x2Protocol,
+  allModality1x4Protocol,
+  allModalityCompare2x1Protocol,
+  usModality1x4Protocol,
+};

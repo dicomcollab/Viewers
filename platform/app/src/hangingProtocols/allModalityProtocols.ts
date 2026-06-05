@@ -185,6 +185,14 @@ const allModality1x4Protocol: Types.HangingProtocol.Protocol = {
   description: 'Hanging protocol for all modalities with 2×2 grid layout',
   protocolMatchingRules: [
     {
+      id: 'FourOrMoreSeries',
+      weight: 200,
+      attribute: 'numberOfDisplaySetsWithImages',
+      constraint: {
+        greaterThan: { value: 3 },
+      },
+    },
+    {
       id: 'OneOrMoreSeries',
       weight: 25,
       attribute: 'numberOfDisplaySetsWithImages',
@@ -256,4 +264,189 @@ const allModality1x4Protocol: Types.HangingProtocol.Protocol = {
   numberOfPriorsReferenced: -1,
 };
 
-export { allModality1x1Protocol, allModality1x2Protocol, allModality1x4Protocol };
+const currentStudyDisplaySetSelector = {
+  studyMatchingRules: [
+    {
+      attribute: 'studyInstanceUIDsIndex',
+      from: 'options',
+      required: true,
+      constraint: {
+        equals: { value: 0 },
+      },
+    },
+  ],
+  seriesMatchingRules: allModalityDisplaySetSelector.seriesMatchingRules,
+};
+
+const priorStudyDisplaySetSelector = {
+  studyMatchingRules: [
+    {
+      attribute: 'studyInstanceUIDsIndex',
+      from: 'options',
+      required: true,
+      constraint: {
+        equals: { value: 1 },
+      },
+    },
+  ],
+  seriesMatchingRules: allModalityDisplaySetSelector.seriesMatchingRules,
+};
+
+/**
+ * Cross-sectional comparison layout: current study on top, prior/comparison study on bottom.
+ * Preferred over side-by-side (1×3 / 1×2 horizontal) when a prior study is available.
+ */
+const allModalityCompare2x1Protocol: Types.HangingProtocol.Protocol = {
+  id: 'allModalityCompare2x1',
+  name: 'ALL | Compare 2×1',
+  description: 'Current study on top, comparison study on bottom (cross-sectional)',
+  numberOfPriorsReferenced: 1,
+  protocolMatchingRules: [
+    {
+      id: 'HasPriorStudy',
+      weight: 1000,
+      attribute: 'StudyInstanceUID',
+      from: 'prior',
+      required: true,
+      constraint: {
+        notNull: true,
+      },
+    },
+    {
+      id: 'CrossSectionalModality',
+      weight: 500,
+      attribute: 'ModalitiesInStudy',
+      constraint: {
+        contains: ['CT', 'MR'],
+      },
+    },
+    {
+      id: 'OneOrMoreSeries',
+      weight: 25,
+      attribute: 'numberOfDisplaySetsWithImages',
+      constraint: {
+        greaterThan: 0,
+      },
+    },
+  ],
+  toolGroupIds: ['default'],
+  displaySetSelectors: {
+    currentStudyDisplaySet: currentStudyDisplaySetSelector,
+    priorStudyDisplaySet: priorStudyDisplaySetSelector,
+  },
+  defaultViewport,
+  stages: [
+    {
+      id: 'compare2x1',
+      name: 'Compare 2×1',
+      stageActivation: {
+        enabled: {
+          minViewportsMatched: 2,
+        },
+      },
+      viewportStructure: {
+        layoutType: 'grid',
+        properties: {
+          rows: 2,
+          columns: 1,
+        },
+      },
+      viewports: [
+        {
+          viewportOptions,
+          displaySets: [
+            {
+              id: 'currentStudyDisplaySet',
+            },
+          ],
+        },
+        {
+          viewportOptions,
+          displaySets: [
+            {
+              id: 'priorStudyDisplaySet',
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * Ultrasound-only 2×2 layout (up to 4 instances side by side).
+ * Other modalities fall through to ALL | 1×1.
+ */
+const usModality1x4Protocol: Types.HangingProtocol.Protocol = {
+  id: 'usModality1x4',
+  name: 'US | 1×4',
+  description: 'Ultrasound 2×2 grid for multiframe cine comparison',
+  protocolMatchingRules: [
+    {
+      id: 'UltrasoundModality',
+      weight: 1000,
+      attribute: 'ModalitiesInStudy',
+      constraint: {
+        contains: ['US'],
+      },
+    },
+    {
+      id: 'OneOrMoreSeries',
+      weight: 25,
+      attribute: 'numberOfDisplaySetsWithImages',
+      constraint: {
+        greaterThan: 0,
+      },
+    },
+  ],
+  toolGroupIds: ['default'],
+  displaySetSelectors: {
+    allModalityDisplaySet: allModalityDisplaySetSelector,
+  },
+  defaultViewport,
+  stages: [
+    {
+      id: '1x4',
+      name: '2×2 Grid',
+      stageActivation: {
+        enabled: {
+          minViewportsMatched: 1,
+        },
+      },
+      viewportStructure: {
+        layoutType: 'grid',
+        properties: {
+          rows: 2,
+          columns: 2,
+        },
+      },
+      viewports: [
+        {
+          viewportOptions,
+          displaySets: [{ id: 'allModalityDisplaySet' }],
+        },
+        {
+          viewportOptions,
+          displaySets: [{ id: 'allModalityDisplaySet', matchedDisplaySetsIndex: 1 }],
+        },
+        {
+          viewportOptions,
+          displaySets: [{ id: 'allModalityDisplaySet', matchedDisplaySetsIndex: 2 }],
+        },
+        {
+          viewportOptions,
+          displaySets: [{ id: 'allModalityDisplaySet', matchedDisplaySetsIndex: 3 }],
+        },
+      ],
+    },
+  ],
+  numberOfPriorsReferenced: -1,
+};
+
+export {
+  allModality1x1Protocol,
+  allModality1x2Protocol,
+  allModality1x4Protocol,
+  allModalityCompare2x1Protocol,
+  usModality1x4Protocol,
+};

@@ -10,7 +10,7 @@ function _getVolumeFromViewport(viewport: Types.IBaseVolumeViewport) {
   return dynamicVolume ?? volumes[0];
 }
 
-function _viewportSupportsCine(displaySetService, viewportState) {
+export function viewportSupportsCine(displaySetService, viewportState) {
   const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs || [];
 
   return displaySetInstanceUIDs.some(uid => {
@@ -22,6 +22,47 @@ function _viewportSupportsCine(displaySetService, viewportState) {
 
     return displaySet.isDynamicVolume || (displaySet.numImageFrames ?? 0) > 1;
   });
+}
+
+const _viewportSupportsCine = viewportSupportsCine;
+
+/**
+ * Viewport ids that can play cine (multi-frame stacks or dynamic volumes).
+ */
+export function getCineCapableViewportIds(servicesManager: AppTypes.ServicesManager): string[] {
+  const { viewportGridService, displaySetService } = servicesManager.services;
+  const { viewports } = viewportGridService.getState();
+
+  return Array.from(viewports.entries())
+    .filter(([, viewportState]) => viewportSupportsCine(displaySetService, viewportState))
+    .map(([viewportId]) => viewportId);
+}
+
+/**
+ * When multiple viewports share synced cine, only one viewport shows the cine UI.
+ */
+export function getCineControlViewportId(servicesManager: AppTypes.ServicesManager): string | null {
+  const capableViewportIds = getCineCapableViewportIds(servicesManager);
+
+  if (!capableViewportIds.length) {
+    return null;
+  }
+
+  if (capableViewportIds.length === 1) {
+    return capableViewportIds[0];
+  }
+
+  const { activeViewportId } = servicesManager.services.viewportGridService.getState();
+
+  if (activeViewportId && capableViewportIds.includes(activeViewportId)) {
+    return activeViewportId;
+  }
+
+  return capableViewportIds[0];
+}
+
+export function shouldUseUnifiedCineControl(servicesManager: AppTypes.ServicesManager): boolean {
+  return getCineCapableViewportIds(servicesManager).length > 1;
 }
 
 function _getSharedSyncGroupIds(viewportState) {

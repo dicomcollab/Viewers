@@ -2010,7 +2010,10 @@ function ViewerViewportGrid(props: withAppTypes) {
   }
 
   return (
-    <div className="border-input relative h-[calc(100%-0.25rem)] w-full border">
+    <div
+      className="border-input relative h-[calc(100%-0.25rem)] w-full border"
+      data-cy="viewport-grid-container"
+    >
       <ViewportGrid
         numRows={numRows}
         numCols={numCols}

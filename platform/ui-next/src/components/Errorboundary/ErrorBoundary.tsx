@@ -5,22 +5,9 @@ import { Dialog, DialogContent, DialogTitle } from '../Dialog/Dialog';
 import { ScrollArea } from '../ScrollArea/ScrollArea';
 import { Button } from '../Button/Button';
 import { useNotification } from '../../contextProviders';
+import { shouldSuppressBenignViewerError } from '@ohif/core';
 
 const isProduction = process.env.NODE_ENV === 'production';
-
-const shouldSuppressBenignViewerError = (value: unknown) => {
-  const text = String(value ?? '');
-  if (!text) {
-    return false;
-  }
-  return (
-    text.includes('isAttributeUsed') ||
-    text.includes('pixel data is missing') ||
-    text.includes('The pixel data is missing') ||
-    text.includes('request failed') ||
-    text.includes('Cannot convert undefined or null to object')
-  );
-};
 
 const normalizeToError = (value: unknown): ErrorBoundaryError => {
   if (value instanceof Error) {

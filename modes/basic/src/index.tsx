@@ -478,9 +478,8 @@ export const modeInstance = {
   isValidMode,
   routes: [basicRoute],
   extensions: extensionDependencies,
-  // Default protocol - using allModality1x1 for 1×1 layout
-  // Change to 'allModality1x4' for 2×2 layout (1×4 option)
-  hangingProtocol: 'allModality1x1',
+  // US → 2×2 grid; CT/MR compare → 2×1 when prior exists; all others → 1×1
+  hangingProtocol: ['allModalityCompare2x1', 'usModality1x4', 'allModality1x1'],
   // Order is important in sop class handlers when two handlers both use
   // the same sop class under different situations.  In that case, the more
   // general handler needs to come last.  For this case, the dicomvideo must

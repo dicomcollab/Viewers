@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { Enums } from '@cornerstonejs/core';
+import { isMissingInstanceLoadError } from '@ohif/core';
 
 function ViewportImageSliceLoadingIndicator({ viewportData, element }) {
   const [loading, setLoading] = useState(false);
@@ -27,7 +28,12 @@ function ViewportImageSliceLoadingIndicator({ viewportData, element }) {
     clearTimeout(loadIndicatorRef.current);
 
     if (imageIdToBeLoaded.current === evt.detail.imageId) {
-      setError(evt.detail.error);
+      if (isMissingInstanceLoadError(evt.detail.error)) {
+        setLoading(false);
+        setError(false);
+      } else {
+        setError(evt.detail.error);
+      }
       imageIdToBeLoaded.current = null;
     }
   };
