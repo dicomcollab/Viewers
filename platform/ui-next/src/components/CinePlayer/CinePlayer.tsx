@@ -32,10 +32,17 @@ export type CinePlayerProps = {
   stackCineInfo?: {
     currentFrame: number;
     numFrames: number;
+    batchSize?: number;
+    batchStart?: number;
+    batchEnd?: number;
+    hasNextBatch?: boolean;
+    hasPrevBatch?: boolean;
   };
   /** Hide current/total frame label when multiple viewports run in parallel with different lengths. */
   showStackFrameCounter?: boolean;
   updateStackCineInfo?: (info: { currentFrame?: number }) => void;
+  onAdvanceUsBatch?: () => void;
+  onRetreatUsBatch?: () => void;
 };
 
 const placementClassMap = {
@@ -65,6 +72,8 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
   stackCineInfo,
   showStackFrameCounter = true,
   updateStackCineInfo,
+  onAdvanceUsBatch,
+  onRetreatUsBatch,
 }) => {
   const isDynamic = !!dynamicInfo?.numDimensionGroups;
   const isStackCine = !!stackCineInfo?.numFrames && stackCineInfo.numFrames > 1;
@@ -155,11 +164,42 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
     [isStackCine, updateStackCineInfo]
   );
 
+  const handleAdvanceUsBatchClick = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    flushCineSettings();
+    onAdvanceUsBatch?.();
+  };
+
+  const handleRetreatUsBatchClick = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    flushCineSettings();
+    onRetreatUsBatch?.();
+  };
+
+  const showBatchNavButtons =
+    isStackCine && !!onAdvanceUsBatch && !!onRetreatUsBatch;
+  const batchLabel =
+    stackCineInfo?.batchStart != null &&
+    stackCineInfo?.batchEnd != null &&
+    (stackCineInfo.batchSize ?? 1) > 1
+      ? `${stackCineInfo.batchStart}-${stackCineInfo.batchEnd}/${stackCineInfo.numFrames}`
+      : null;
+
   const barClassName = compact
     ? 'bg-background/90 pointer-events-auto inline-flex h-7 select-none items-center gap-0 rounded border border-white/10 px-0.5 shadow-sm backdrop-blur-sm'
     : 'bg-muted pointer-events-auto inline-flex select-none items-center gap-1 rounded-md px-1 py-1';
 
   const iconButtonClass = compact ? 'h-6 w-6 shrink-0' : undefined;
+  const closeButtonClass = compact
+    ? 'h-7 w-7 shrink-0 [&_svg]:h-4 [&_svg]:w-4'
+    : 'h-8 w-8 shrink-0 [&_svg]:h-5 [&_svg]:w-5';
+  const batchNavButtonClass = compact
+    ? 'h-6 w-6 shrink-0 p-0 [&_svg]:h-3.5 [&_svg]:w-3.5'
+    : 'h-7 w-7 shrink-0 p-0 [&_svg]:h-4 [&_svg]:w-4';
   const modeChipClass = (active: boolean) =>
     `h-6 rounded px-1.5 text-[11px] leading-none ${
       active ? 'bg-primary/20 text-foreground' : 'text-muted-foreground hover:text-foreground'
@@ -320,6 +360,38 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
                 </Numeric.Container>
               </PopoverContent>
             </Popover>
+            {batchLabel && (
+              <span
+                className="text-muted-foreground px-1 text-[10px] leading-none whitespace-nowrap"
+                data-cy="cine-player-batch-label"
+              >
+                {batchLabel}
+              </span>
+            )}
+            {showBatchNavButtons && (
+              <>
+                <Button
+                  variant="ghost"
+                  size={compact ? 'sm' : 'icon'}
+                  className={batchNavButtonClass}
+                  onClick={handleRetreatUsBatchClick}
+                  data-cy="cine-player-prev-batch"
+                  title="Previous batch"
+                >
+                  <Icons.ChevronLeft />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size={compact ? 'sm' : 'icon'}
+                  className={batchNavButtonClass}
+                  onClick={handleAdvanceUsBatchClick}
+                  data-cy="cine-player-next-batch"
+                  title="Next batch"
+                >
+                  <Icons.ChevronRight />
+                </Button>
+              </>
+            )}
           </>
         ) : (
           <Popover
@@ -366,7 +438,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
         <Button
           variant="ghost"
           size={compact ? 'sm' : 'icon'}
-          className={iconButtonClass}
+          className={closeButtonClass}
           onClick={onClose}
           data-cy={'cine-player-close'}
         >

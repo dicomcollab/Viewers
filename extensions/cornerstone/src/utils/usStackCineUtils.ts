@@ -1,7 +1,14 @@
+import { buildUsBatchNavigationInfo } from './usBatchNavigationUtils';
+
 type UsStackCineInfo = {
   viewportId: string;
   currentFrame: number;
   numFrames: number;
+  batchSize?: number;
+  batchStart?: number;
+  batchEnd?: number;
+  hasNextBatch?: boolean;
+  hasPrevBatch?: boolean;
 };
 
 const US_CINE_DEFAULT_FPS = 15;
@@ -16,6 +23,7 @@ function buildUsStackCineInfo({
   viewportId,
   displaySetService,
   viewportGridService,
+  servicesManager,
 }): UsStackCineInfo | null {
   const { viewports } = viewportGridService.getState();
   const { displaySetInstanceUIDs = [] } = viewports.get(viewportId) || {};
@@ -31,10 +39,17 @@ function buildUsStackCineInfo({
   const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
   const currentIndex = viewport?.getCurrentImageIdIndex?.() ?? 0;
 
+  const batchInfo = servicesManager ? buildUsBatchNavigationInfo(servicesManager) : null;
+
   return {
     viewportId,
     currentFrame: clampFrame(currentIndex + 1, 1, numFrames),
-    numFrames,
+    numFrames: batchInfo?.totalCount ?? numFrames,
+    batchSize: batchInfo?.batchSize,
+    batchStart: batchInfo ? batchInfo.batchStart + 1 : undefined,
+    batchEnd: batchInfo?.batchEnd,
+    hasNextBatch: batchInfo?.hasNextBatch,
+    hasPrevBatch: batchInfo?.hasPrevBatch,
   };
 }
 

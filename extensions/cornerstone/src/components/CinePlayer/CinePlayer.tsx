@@ -5,6 +5,7 @@ import { Enums, eventTarget, cache, metaData, getEnabledElement } from '@corners
 import { useAppConfig } from '@state';
 import { cineDebug, cineDebugWarn } from '../../utils/cineDebug';
 import { getCineControlViewportId, shouldUseUnifiedCineControl } from '../../utils/cineSyncUtils';
+import { advanceUsBatch } from '../../utils/usBatchNavigationUtils';
 import {
   buildUsStackCineInfo,
   getUsCineFrameRate,
@@ -249,6 +250,7 @@ function WrappedCinePlayer({
           viewportId,
           displaySetService,
           viewportGridService,
+          servicesManager,
         });
         setStackCineInfo(nextStackCineInfo);
         nextFrameRate = getUsCineFrameRate(displaySet);
@@ -297,6 +299,7 @@ function WrappedCinePlayer({
     appConfig.autoPlayCine,
     cornerstoneViewportService,
     displaySetService,
+    servicesManager,
     viewportGridService,
     viewportId,
   ]);
@@ -369,6 +372,7 @@ function WrappedCinePlayer({
           viewportId,
           displaySetService,
           viewportGridService,
+          servicesManager,
         })
       );
     };
@@ -382,6 +386,7 @@ function WrappedCinePlayer({
     cornerstoneViewportService,
     displaySetService,
     enabledVPElement,
+    servicesManager,
     viewportGridService,
     viewportId,
   ]);
@@ -423,6 +428,7 @@ function WrappedCinePlayer({
       stackCineInfo={stackCineInfo}
       customizationService={customizationService}
       cornerstoneViewportService={cornerstoneViewportService}
+      servicesManager={servicesManager}
       useUnifiedCineControl={useUnifiedCineControl}
     />
   );
@@ -441,6 +447,7 @@ function RenderCinePlayer({
   stackCineInfo: stackCineInfoProp,
   customizationService,
   cornerstoneViewportService,
+  servicesManager,
   useUnifiedCineControl = false,
 }) {
   const CinePlayerComponent = customizationService.getCustomization('cinePlayer');
@@ -564,6 +571,32 @@ function RenderCinePlayer({
     [cornerstoneViewportService, cineService, viewportId]
   );
 
+  const refreshStackCineInfo = useCallback(() => {
+    setStackCineInfo(
+      buildUsStackCineInfo({
+        cornerstoneViewportService,
+        viewportId,
+        displaySetService: servicesManager.services.displaySetService,
+        viewportGridService: servicesManager.services.viewportGridService,
+        servicesManager,
+      })
+    );
+  }, [cornerstoneViewportService, servicesManager, viewportId]);
+
+  const handleAdvanceUsBatch = useCallback(() => {
+    cineDebug('CinePlayer', 'advanceUsBatch', { viewportId });
+    advanceUsBatch(servicesManager, 1);
+    refreshStackCineInfo();
+    window.setTimeout(refreshStackCineInfo, 400);
+  }, [refreshStackCineInfo, servicesManager, viewportId]);
+
+  const handleRetreatUsBatch = useCallback(() => {
+    cineDebug('CinePlayer', 'retreatUsBatch', { viewportId });
+    advanceUsBatch(servicesManager, -1);
+    refreshStackCineInfo();
+    window.setTimeout(refreshStackCineInfo, 400);
+  }, [refreshStackCineInfo, servicesManager, viewportId]);
+
   const cinePlayer = (
     <CinePlayerComponent
       portaled={useUnifiedCineControl}
@@ -620,6 +653,8 @@ function RenderCinePlayer({
       stackCineInfo={stackCineInfo}
       showStackFrameCounter={!useUnifiedCineControl}
       updateStackCineInfo={updateStackCineInfo}
+      onAdvanceUsBatch={handleAdvanceUsBatch}
+      onRetreatUsBatch={handleRetreatUsBatch}
     />
   );
 

@@ -38,6 +38,7 @@ import { getFirstAnnotationSelected } from './utils/measurementServiceMappings/u
 import { getViewportEnabledElement } from './utils/getViewportEnabledElement';
 import getActiveViewportEnabledElement from './utils/getActiveViewportEnabledElement';
 import { getCineControlViewportId, shouldUseUnifiedCineControl } from './utils/cineSyncUtils';
+import { advanceUsBatch as advanceUsBatchNavigation } from './utils/usBatchNavigationUtils';
 import toggleVOISliceSync from './utils/toggleVOISliceSync';
 import {
   usePositionPresentationStore,
@@ -858,6 +859,10 @@ function commandsModule({
       viewports.forEach(({ viewportId }) =>
         cineService.setCine({ id: viewportId, isPlaying: false })
       );
+    },
+
+    advanceUsBatch: ({ direction = 1 } = {}) => {
+      advanceUsBatchNavigation(servicesManager, direction === -1 ? -1 : 1);
     },
 
     setViewportWindowLevel({
@@ -2820,6 +2825,9 @@ function commandsModule({
     },
     toggleCine: {
       commandFn: actions.toggleCine,
+    },
+    advanceUsBatch: {
+      commandFn: actions.advanceUsBatch,
     },
     arrowTextCallback: {
       commandFn: actions.arrowTextCallback,
