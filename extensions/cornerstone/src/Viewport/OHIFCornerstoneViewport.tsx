@@ -302,7 +302,13 @@ const OHIFCornerstoneViewport = React.memo(
 
       setImageScrollBarHeight();
 
+      // Embed hosts often assign iframe height after first paint; retry resize so canvas is not stuck black.
+      const resizeTimers = [0, 100, 400].map(ms =>
+        window.setTimeout(() => cornerstoneViewportService.resize(), ms)
+      );
+
       return () => {
+        resizeTimers.forEach(clearTimeout);
         if (imageRenderedCleanupRef.current) {
           imageRenderedCleanupRef.current();
           imageRenderedCleanupRef.current = null;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
 
 import { HangingProtocolService, CommandsManager } from '@ohif/core';
@@ -137,7 +137,7 @@ function ViewerLayout({
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isIframeMode) {
       return;
     }
@@ -151,20 +151,38 @@ function ViewerLayout({
     };
   }, [isIframeMode]);
 
+  /**
+   * Iframe: Cornerstone ignores resize at 0×0. Production embeds often settle layout after
+   * first paint, and ViewportGrid mounts only after hanging protocol assigns rows/cols — so
+   * we poll for the grid, listen for layout/viewport-ready events, and retry resize.
+   */
   useEffect(() => {
     if (!isIframeMode) {
       return;
     }
 
-    const { cornerstoneViewportService, hangingProtocolService: hpService } =
-      servicesManager.services;
+    const {
+      cornerstoneViewportService,
+      hangingProtocolService: hpService,
+      viewportGridService,
+    } = servicesManager.services;
 
     if (!cornerstoneViewportService?.resize) {
       return;
     }
 
+    let disposed = false;
+    let gridObserver: ResizeObserver | null = null;
+    let gridPollId: ReturnType<typeof setInterval> | null = null;
+
     const scheduleResize = () => {
+      if (disposed) {
+        return;
+      }
       requestAnimationFrame(() => {
+        if (disposed) {
+          return;
+        }
         try {
           cornerstoneViewportService.resize();
         } catch (e) {
@@ -173,24 +191,77 @@ function ViewerLayout({
       });
     };
 
+    const attachGridObserver = () => {
+      if (gridObserver) {
+        return true;
+      }
+      const gridEl = document.querySelector('[data-cy="viewport-grid-container"]');
+      if (!gridEl) {
+        return false;
+      }
+      gridObserver = new ResizeObserver(scheduleResize);
+      gridObserver.observe(gridEl);
+      scheduleResize();
+      return true;
+    };
+
     scheduleResize();
-    const timers = [50, 150, 400, 800].map(ms => window.setTimeout(scheduleResize, ms));
-
-    const gridEl = document.querySelector('[data-cy="viewport-grid-container"]');
-    const resizeObserver = gridEl ? new ResizeObserver(scheduleResize) : null;
-    resizeObserver?.observe(gridEl);
-
-    const { unsubscribe: hpUnsub } = hpService.subscribe(
-      HangingProtocolService.EVENTS.PROTOCOL_CHANGED,
-      scheduleResize
+    const timers = [50, 150, 400, 800, 1500, 3000, 5000].map(ms =>
+      window.setTimeout(scheduleResize, ms)
     );
 
+    if (!attachGridObserver()) {
+      gridPollId = setInterval(() => {
+        if (attachGridObserver() && gridPollId) {
+          clearInterval(gridPollId);
+          gridPollId = null;
+        }
+      }, 200);
+    }
+
+    const onWindowResize = () => scheduleResize();
+    window.addEventListener('resize', onWindowResize);
+
+    const subscriptions = [
+      hpService.subscribe(HangingProtocolService.EVENTS.PROTOCOL_CHANGED, scheduleResize),
+      viewportGridService?.subscribe?.(viewportGridService.EVENTS.VIEWPORTS_READY, scheduleResize),
+      viewportGridService?.subscribe?.(viewportGridService.EVENTS.LAYOUT_CHANGED, scheduleResize),
+      viewportGridService?.subscribe?.(viewportGridService.EVENTS.GRID_SIZE_CHANGED, scheduleResize),
+    ].filter(Boolean);
+
     return () => {
+      disposed = true;
       timers.forEach(clearTimeout);
-      resizeObserver?.disconnect();
-      hpUnsub();
+      if (gridPollId) {
+        clearInterval(gridPollId);
+      }
+      gridObserver?.disconnect();
+      window.removeEventListener('resize', onWindowResize);
+      subscriptions.forEach(sub => sub?.unsubscribe?.());
     };
   }, [isIframeMode, servicesManager]);
+
+  /** Hide startup overlay when viewports are ready (PROTOCOL_CHANGED alone can miss in slow prod loads). */
+  useEffect(() => {
+    if (!showLoadingIndicator) {
+      return;
+    }
+
+    const { viewportGridService } = servicesManager.services;
+    const hide = () => setShowLoadingIndicator(false);
+
+    const subscriptions = [
+      hangingProtocolService.subscribe(HangingProtocolService.EVENTS.PROTOCOL_CHANGED, hide),
+      viewportGridService?.subscribe?.(viewportGridService.EVENTS.VIEWPORTS_READY, hide),
+    ].filter(Boolean);
+
+    const safetyTimer = window.setTimeout(hide, 15000);
+
+    return () => {
+      clearTimeout(safetyTimer);
+      subscriptions.forEach(sub => sub?.unsubscribe?.());
+    };
+  }, [showLoadingIndicator, hangingProtocolService, servicesManager]);
 
   const getComponent = id => {
     const entry = extensionManager.getModuleEntry(id);
@@ -203,23 +274,6 @@ function ViewerLayout({
 
     return { entry };
   };
-
-  useEffect(() => {
-    const { unsubscribe } = hangingProtocolService.subscribe(
-      HangingProtocolService.EVENTS.PROTOCOL_CHANGED,
-
-      // Todo: right now to set the loading indicator to false, we need to wait for the
-      // hangingProtocolService to finish applying the viewport matching to each viewport,
-      // however, this might not be the only approach to set the loading indicator to false. we need to explore this further.
-      () => {
-        setShowLoadingIndicator(false);
-      }
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, [hangingProtocolService]);
 
   const getViewportComponentData = viewportComponent => {
     const { entry } = getComponent(viewportComponent.namespace);
@@ -258,7 +312,7 @@ function ViewerLayout({
   return (
     <div
       className={`ohif-viewer-layout-root flex w-full flex-col ${
-        isIframeMode ? 'h-full min-h-0' : 'h-screen'
+        isIframeMode ? 'ohif-iframe-fixed-root min-h-0' : 'h-screen'
       }`}
     >
       <ViewerHeader
@@ -274,7 +328,10 @@ function ViewerLayout({
       >
         <React.Fragment>
           {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-black" />}
-          <ResizablePanelGroup {...resizablePanelGroupProps}>
+          <ResizablePanelGroup
+            {...resizablePanelGroupProps}
+            className="h-full min-h-0"
+          >
             {/* LEFT SIDEPANELS */}
             {hasLeftPanels ? (
               <>

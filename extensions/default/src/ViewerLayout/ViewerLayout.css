@@ -1,14 +1,35 @@
-/* Fill iframe height — 100vh is the parent page, not the embed */
+/*
+ * Iframe embed sizing: percentage heights fail when the parent page does not set an
+ * explicit iframe height (common in production RIS/report hosts). position:fixed fills
+ * the iframe's own layout viewport without relying on the parent height chain.
+ */
 html.ohif-iframe-embed,
-html.ohif-iframe-embed body,
-html.ohif-iframe-embed #root {
-  height: 100%;
+html.ohif-iframe-embed body {
+  position: fixed;
+  inset: 0;
   width: 100%;
+  height: 100%;
   margin: 0;
   overflow: hidden;
 }
 
+html.ohif-iframe-embed #root {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 html.ohif-iframe-embed #root > * {
+  height: 100%;
+  min-height: 0;
+}
+
+.ohif-iframe-fixed-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
   height: 100%;
   min-height: 0;
 }
