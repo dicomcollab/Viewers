@@ -312,15 +312,17 @@ export const toolbarSections = {
   ],
 };
 
-// Iframe-specific toolbar sections - minimal primary toolbar
+// Iframe toolbar — hanging protocol & layout need the primary bar (custom components, not MoreTools menu items)
 export const iframeToolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
+    'HangingProtocol',
     'ZoomTools',
     'MeasurementTools',
     'WindowLevelTools',
     'Pan',
     'RotateTools',
     'Layout',
+    'Cine',
     'MoreTools',
   ],
 
@@ -375,11 +377,9 @@ export const iframeToolbarSections = {
     'LivewireContour',
   ],
 
-  // All other tools moved to MoreTools in iframe mode
+  // Secondary tools — custom selectors (HangingProtocol, Layout) stay on the primary bar
   MoreTools: [
-    'HangingProtocol',
     'StackScroll',
-    'Cine',
     'Crosshairs',
     'TrackballRotate',
     'Capture',

@@ -137,6 +137,61 @@ function ViewerLayout({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isIframeMode) {
+      return;
+    }
+
+    document.documentElement.classList.add('ohif-iframe-embed');
+    document.body.classList.add('ohif-iframe-embed');
+
+    return () => {
+      document.documentElement.classList.remove('ohif-iframe-embed');
+      document.body.classList.remove('ohif-iframe-embed');
+    };
+  }, [isIframeMode]);
+
+  useEffect(() => {
+    if (!isIframeMode) {
+      return;
+    }
+
+    const { cornerstoneViewportService, hangingProtocolService: hpService } =
+      servicesManager.services;
+
+    if (!cornerstoneViewportService?.resize) {
+      return;
+    }
+
+    const scheduleResize = () => {
+      requestAnimationFrame(() => {
+        try {
+          cornerstoneViewportService.resize();
+        } catch (e) {
+          console.warn('[ViewerLayout] iframe cornerstone resize failed:', e);
+        }
+      });
+    };
+
+    scheduleResize();
+    const timers = [50, 150, 400, 800].map(ms => window.setTimeout(scheduleResize, ms));
+
+    const gridEl = document.querySelector('[data-cy="viewport-grid-container"]');
+    const resizeObserver = gridEl ? new ResizeObserver(scheduleResize) : null;
+    resizeObserver?.observe(gridEl);
+
+    const { unsubscribe: hpUnsub } = hpService.subscribe(
+      HangingProtocolService.EVENTS.PROTOCOL_CHANGED,
+      scheduleResize
+    );
+
+    return () => {
+      timers.forEach(clearTimeout);
+      resizeObserver?.disconnect();
+      hpUnsub();
+    };
+  }, [isIframeMode, servicesManager]);
+
   const getComponent = id => {
     const entry = extensionManager.getModuleEntry(id);
 
@@ -198,8 +253,14 @@ function ViewerLayout({
 
   const viewportComponents = viewports.map(getViewportComponentData);
 
+  const headerHeight = isIframeMode ? 44 : 48;
+
   return (
-    <div>
+    <div
+      className={`ohif-viewer-layout-root flex w-full flex-col ${
+        isIframeMode ? 'h-full min-h-0' : 'h-screen'
+      }`}
+    >
       <ViewerHeader
         hotkeysManager={hotkeysManager}
         extensionManager={extensionManager}
@@ -208,8 +269,8 @@ function ViewerLayout({
         isIframeMode={isIframeMode}
       />
       <div
-        className="relative flex w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
-        style={{ height: 'calc(100vh - 52px' }}
+        className="ohif-viewer-layout-main relative flex min-h-0 w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
+        style={isIframeMode ? undefined : { height: `calc(100vh - ${headerHeight}px)` }}
       >
         <React.Fragment>
           {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-black" />}

@@ -12,11 +12,21 @@ import { useTranslation } from 'react-i18next';
 interface HangingProtocolSelectorProps {
   commandsManager: CommandsManager;
   servicesManager: any;
+  isCompact?: boolean;
 }
+
+const isEmbeddedInIframe = () => {
+  try {
+    return typeof window !== 'undefined' && window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
 
 function HangingProtocolSelectorWithServices({
   commandsManager,
   servicesManager,
+  isCompact = isEmbeddedInIframe(),
 }: HangingProtocolSelectorProps) {
   const { hangingProtocolService } = servicesManager.services;
   const { t } = useTranslation('HangingProtocolSelector');
@@ -29,6 +39,7 @@ function HangingProtocolSelectorWithServices({
     { id: 'allModality1x1', label: 'ALL | 1×1', protocolId: 'allModality1x1', stageId: '1x1' },
     { id: 'allModality1x2', label: 'ALL | 1×2', protocolId: 'allModality1x2', stageId: '1x2' },
     { id: 'allModality1x4', label: 'ALL | 1×4', protocolId: 'allModality1x4', stageId: '1x4' },
+    { id: 'usModality1x4', label: 'US | 1×4', protocolId: 'usModality1x4', stageId: '1x4' },
     {
       id: 'allModalityCompare2x1',
       label: 'ALL | Compare 2×1',
@@ -66,8 +77,15 @@ function HangingProtocolSelectorWithServices({
                 setCurrentProtocol('ALL | 1×2');
                 setCurrentProtocolId('allModality1x2');
               } else if (numRows === 2 && numCols === 2) {
-                setCurrentProtocol('ALL | 1×4');
-                setCurrentProtocolId('allModality1x4');
+                const hpState = hangingProtocolService.getState();
+                const activeProtocolId = hpState?.protocolId;
+                if (activeProtocolId === 'usModality1x4') {
+                  setCurrentProtocol('US | 1×4');
+                  setCurrentProtocolId('usModality1x4');
+                } else {
+                  setCurrentProtocol('ALL | 1×4');
+                  setCurrentProtocolId('allModality1x4');
+                }
               } else if (numRows === 2 && numCols === 1) {
                 setCurrentProtocol('ALL | Compare 2×1');
                 setCurrentProtocolId('allModalityCompare2x1');
@@ -136,15 +154,19 @@ function HangingProtocolSelectorWithServices({
 
   return (
     <div
-      className="mr-4 flex items-center gap-2"
+      className={`flex items-center gap-2 ${isCompact ? 'iframe-hanging-protocol mr-1' : 'mr-4'}`}
       id="HangingProtocol"
       data-cy="HangingProtocol"
     >
-      <span className="whitespace-nowrap text-sm text-white">Hanging Protocol</span>
+      {!isCompact && (
+        <span className="whitespace-nowrap text-sm text-white">Hanging Protocol</span>
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="border-inputfield-main focus:border-inputfield-main flex h-[26px] min-w-[120px] items-center justify-between rounded border bg-black px-2 text-sm text-white hover:bg-gray-800"
+            className={`border-inputfield-main focus:border-inputfield-main flex items-center justify-between rounded border bg-black px-2 text-white hover:bg-gray-800 ${
+              isCompact ? 'h-[26px] min-w-[88px] text-xs' : 'h-[26px] min-w-[120px] text-sm'
+            }`}
             data-cy="hanging-protocol-dropdown-trigger"
           >
             <span className="truncate">{currentProtocol}</span>

@@ -1,66 +1,51 @@
-/* Iframe toolbar: match ui-next (~34px hit area, ~30px icon) */
-.iframe-toolbar-compact button,
-.iframe-toolbar-compact [data-tool] button {
-  width: 2.125rem !important;
-  height: 2.125rem !important;
-  min-width: 2.125rem !important;
-  min-height: 2.125rem !important;
-  padding: 0.125rem !important;
+/* Fill iframe height — 100vh is the parent page, not the embed */
+html.ohif-iframe-embed,
+html.ohif-iframe-embed body,
+html.ohif-iframe-embed #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
 }
 
-.iframe-toolbar-compact svg,
-.iframe-toolbar-compact [data-tool] svg,
-.iframe-toolbar-compact [data-tool] button svg,
-.iframe-toolbar-compact button svg {
-  width: 1.875rem !important;
-  height: 1.875rem !important;
-  min-width: 1.875rem !important;
-  min-height: 1.875rem !important;
+html.ohif-iframe-embed #root > * {
+  height: 100%;
+  min-height: 0;
 }
 
-.iframe-toolbar-compact .gap-\\[4px\\] {
-  gap: 0.125rem !important;
+.ohif-viewer-layout-root {
+  min-height: 0;
 }
 
-/* Compact spacing for toolbar items */
-.iframe-toolbar-compact > * {
-  margin: 0 0.125rem;
+.ohif-viewer-layout-main {
+  flex: 1 1 0;
+  min-height: 0;
 }
 
-/* Narrow iframe */
-@media (max-width: 768px), (max-height: 600px) {
-  .iframe-toolbar-compact button,
-  .iframe-toolbar-compact [data-tool] button {
-    width: 2rem !important;
-    height: 2rem !important;
-    min-width: 2rem !important;
-    min-height: 2rem !important;
-    padding: 0.125rem !important;
-  }
+.iframe-mode {
+  min-height: 0;
+}
 
-  .iframe-toolbar-compact svg,
-  .iframe-toolbar-compact [data-tool] svg,
-  .iframe-toolbar-compact [data-tool] button svg,
-  .iframe-toolbar-compact button svg {
-    width: 1.75rem !important;
-    height: 1.75rem !important;
-    min-width: 1.75rem !important;
-    min-height: 1.75rem !important;
-  }
+.iframe-hanging-protocol button {
+  max-width: 7.5rem;
+}
 
-  .iframe-toolbar-compact .gap-\\[4px\\] {
-    gap: 0.0625rem !important;
-  }
+/* Split tool groups: keep primary + chevron aligned in iframe */
+.iframe-toolbar-compact [data-cy$='-split-button-primary'],
+.iframe-toolbar-compact [data-cy$='-split-button-secondary'] {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 /* Hide scrollbar but keep functionality */
 .scrollbar-hide {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .scrollbar-hide::-webkit-scrollbar {
-  display: none;  /* Chrome, Safari and Opera */
+  display: none;
 }
 
 /* Ensure toolbar items don't wrap */

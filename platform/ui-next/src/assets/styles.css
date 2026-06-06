@@ -41,8 +41,14 @@
   height: 44px !important;
 }
 
-.iframe-toolbar-compact button,
-.iframe-toolbar-compact [data-tool] button,
+/* Square icon tool buttons only — exclude hanging-protocol & layout custom controls */
+.iframe-toolbar-compact [data-tool] > div > button,
+.iframe-toolbar-compact [data-tool] button:not([data-cy='hanging-protocol-dropdown-trigger']),
+.iframe-toolbar-compact [data-cy$='-split-button-primary'] button,
+.iframe-toolbar-compact [data-cy$='-split-button-secondary'] button,
+.iframe-toolbar-compact [data-cy='MoreTools-button'] button,
+.iframe-toolbar-compact [data-cy='Layout'] button,
+.iframe-toolbar-compact [data-cy='layout-button'] button,
 .iframe-toolbar-compact .tool-button {
   width: 34px !important;
   height: 34px !important;
@@ -64,17 +70,25 @@
   flex-shrink: 0 !important;
 }
 
-.iframe-toolbar-compact .dropdown-trigger,
-.iframe-toolbar-compact [role="button"] {
+.iframe-toolbar-compact .dropdown-trigger:not([data-cy='hanging-protocol-dropdown-trigger']) {
   width: 34px !important;
   height: 34px !important;
   min-width: 34px !important;
   padding: 2px 4px !important;
 }
 
-.iframe-toolbar-compact .dropdown-trigger svg {
+.iframe-toolbar-compact .dropdown-trigger:not([data-cy='hanging-protocol-dropdown-trigger']) svg {
   width: 30px !important;
   height: 30px !important;
+}
+
+/* Hanging protocol dropdown stays compact in iframe toolbar */
+.iframe-toolbar-compact .iframe-hanging-protocol button {
+  width: auto !important;
+  min-width: 5.5rem !important;
+  max-width: 7.5rem !important;
+  height: 26px !important;
+  padding: 0 0.375rem !important;
 }
 
 /* Make More Tools button more prominent in iframe mode */
