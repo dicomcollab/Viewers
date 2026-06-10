@@ -13,6 +13,8 @@
  */
 
 export type RisAppConfigSlice = {
+  /** When true, use local RIS portal + dev API fallbacks (see default.js isDev). */
+  isDev?: boolean;
   risWorklistUrl?: string;
   risAuthRedirectUrl?: string;
   risRootRedirectUrl?: string;
@@ -35,28 +37,61 @@ function readEnv(key: string): string | undefined {
   return v.trim();
 }
 
-const FALLBACK_RIS_WORKLIST_URL = 'https://synapse.med-pacs.com/worklist';
-const FALLBACK_RIS_LOGIN_URL = 'https://synapse.med-pacs.com/login';
-const FALLBACK_RIS_API_BASE =
+const RIS_DEV_PORTAL_ORIGIN = 'http://192.168.1.120:5173';
+const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
+const RIS_DEV_API_BASE =
   'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+const RIS_PROD_API_BASE = 'https://synapse.med-pacs.com';
 
-export function getDefaultRisWorklistUrl(): string {
-  return readEnv('REACT_APP_RIS_WORKLIST_URL') || FALLBACK_RIS_WORKLIST_URL;
+function isRisDevMode(appConfig?: RisAppConfigSlice | null): boolean {
+  if (appConfig?.isDev === true) {
+    return true;
+  }
+  if (appConfig?.isDev === false) {
+    return false;
+  }
+  if (typeof window !== 'undefined') {
+    const fromWindow = (window as unknown as { config?: RisAppConfigSlice }).config?.isDev;
+    if (fromWindow === true) {
+      return true;
+    }
+    if (fromWindow === false) {
+      return false;
+    }
+  }
+  return false;
 }
 
-export function getDefaultRisLoginUrl(): string {
-  return readEnv('REACT_APP_RIS_LOGIN_URL') || FALLBACK_RIS_LOGIN_URL;
+function getFallbackRisPortalOrigin(appConfig?: RisAppConfigSlice | null): string {
+  return isRisDevMode(appConfig) ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
 }
 
-export function getDefaultRisApiBase(): string {
-  return readEnv('REACT_APP_RIS_API_BASE') || FALLBACK_RIS_API_BASE;
+function getFallbackRisApiBase(appConfig?: RisAppConfigSlice | null): string {
+  return isRisDevMode(appConfig) ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
 }
 
-export function getDefaultRisPortalOrigin(): string {
+export function getDefaultRisWorklistUrl(appConfig?: RisAppConfigSlice | null): string {
+  return (
+    readEnv('REACT_APP_RIS_WORKLIST_URL') ||
+    `${getFallbackRisPortalOrigin(appConfig)}/worklist`
+  );
+}
+
+export function getDefaultRisLoginUrl(appConfig?: RisAppConfigSlice | null): string {
+  return (
+    readEnv('REACT_APP_RIS_LOGIN_URL') || `${getFallbackRisPortalOrigin(appConfig)}/login`
+  );
+}
+
+export function getDefaultRisApiBase(appConfig?: RisAppConfigSlice | null): string {
+  return readEnv('REACT_APP_RIS_API_BASE') || getFallbackRisApiBase(appConfig);
+}
+
+export function getDefaultRisPortalOrigin(appConfig?: RisAppConfigSlice | null): string {
   try {
-    return new URL(getDefaultRisWorklistUrl()).origin;
+    return new URL(getDefaultRisWorklistUrl(appConfig)).origin;
   } catch {
-    return 'https://synapse.med-pacs.com';
+    return getFallbackRisPortalOrigin(appConfig);
   }
 }
 
@@ -65,15 +100,15 @@ export function resolveRisApiBaseFromConfig(appConfig?: RisAppConfigSlice | null
   if (explicit) {
     return explicit.replace(/\/$/, '');
   }
-  return getDefaultRisApiBase().replace(/\/$/, '');
+  return getDefaultRisApiBase(appConfig).replace(/\/$/, '');
 }
 
-export function resolveRisPreferencesApiBaseUrl(): string {
+export function resolveRisPreferencesApiBaseUrl(appConfig?: RisAppConfigSlice | null): string {
   const fromEnv = readEnv('REACT_APP_BACKEND_HOTKEY_URL');
   if (fromEnv) {
     return fromEnv.replace(/\/$/, '');
   }
-  const base = getDefaultRisApiBase().replace(/\/$/, '');
+  const base = getDefaultRisApiBase(appConfig).replace(/\/$/, '');
   return `${base}/api/v1/preferences`;
 }
 
@@ -171,7 +206,7 @@ export function resolveRisWorklistUrlFromConfig(appConfig?: RisAppConfigSlice | 
   if (appConfig?.risWorklistUrl) {
     return appConfig.risWorklistUrl;
   }
-  return getDefaultRisWorklistUrl();
+  return getDefaultRisWorklistUrl(appConfig);
 }
 
 /**
@@ -196,7 +231,7 @@ export function resolveRis401RedirectUrlFromConfig(appConfig?: RisAppConfigSlice
   if (appConfig?.risWorklistUrl) {
     return appConfig.risWorklistUrl;
   }
-  return getDefaultRisLoginUrl();
+  return getDefaultRisLoginUrl(appConfig);
 }
 
 export function isRedirectToRisOn401Enabled(appConfig?: RisAppConfigSlice | null): boolean {

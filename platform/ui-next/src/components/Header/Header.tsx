@@ -41,6 +41,8 @@ interface HeaderProps {
   reportNavigationHref?: string;
   /** When set (e.g. RIS viewDicomImg), called on click instead of navigating to reportNavigationHref. */
   onReportNavigation?: () => void | Promise<void>;
+  /** Optional controls rendered beside the settings menu (e.g. study cine transport). */
+  HeaderActions?: ReactNode;
 }
 
 function Header({
@@ -55,6 +57,7 @@ function Header({
   isIframeMode = false,
   reportNavigationHref,
   onReportNavigation,
+  HeaderActions,
   ...props
 }: HeaderProps): ReactNode {
   const [reportBusy, setReportBusy] = useState(false);
@@ -141,6 +144,9 @@ function Header({
           <div className={`flex-shrink-0 flex items-center select-none z-10 bg-primary-main ${isIframeMode ? 'pl-1' : 'pl-2'}`}>
             {UndoRedo && !isIframeMode}
             {UndoRedo && !isIframeMode && <div className="border-primary-dark mx-1.5 h-[25px] border-r"></div>}
+            {HeaderActions && !isIframeMode ? (
+              <div className="mr-1 flex shrink-0 items-center">{HeaderActions}</div>
+            ) : null}
             <div className="flex-shrink-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

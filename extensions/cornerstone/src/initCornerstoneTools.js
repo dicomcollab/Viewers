@@ -82,7 +82,9 @@ async function fetchPreferences() {
     } else if (typeof window !== 'undefined' && window.config && window.config.backendHotkeyUrl) {
       backendUrl = String(window.config.backendHotkeyUrl).replace(/\/$/, '');
     } else {
-      backendUrl = resolveRisPreferencesApiBaseUrlLocal();
+      backendUrl = resolveRisPreferencesApiBaseUrlLocal(
+        typeof window !== 'undefined' ? window.config : undefined
+      );
     }
 
     const response = await fetch(`${backendUrl}/getPreferences`, {

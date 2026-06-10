@@ -275,10 +275,17 @@ function getExternalViewerBasicToken() {
   return null;
 }
 
-// Share link (ShortCode) - RIS API base and basic token for PACS when viewing via share link
-const RIS_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
-/** Synapse / RIS web portal origin. Align with platform/core risEnvironmentDefaults fallbacks when changing. */
-const RIS_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
+// RIS environment toggle — set true for local RIS dev; false for Synapse production.
+// Align with platform/core risEnvironmentDefaults when changing these URLs.
+const isDev = false;
+
+const RIS_DEV_PORTAL_ORIGIN = 'http://192.168.1.120:5173';
+const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
+const RIS_DEV_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+const RIS_PROD_API_BASE = 'https://synapse.med-pacs.com';
+
+const RIS_PORTAL_ORIGIN = isDev ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
+const RIS_API_BASE = isDev ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
 // Use same token as demo for share links, or set a dedicated share-link read-only token
 const SHARE_LINK_BASIC_TOKEN = DEMO_TOKEN;
 
@@ -1064,6 +1071,7 @@ async function updateDefaultDataSourceName() {
 // @ts-expect-error - Adding custom property to window
 window.config = {
   name: 'config/default.js',
+  isDev,
   routerBasename: null,
   // whiteLabeling: {},
   extensions: [],
@@ -1071,11 +1079,11 @@ window.config = {
   customizationService: {},
   showStudyList: true,
   // Report: createreport base — local dev: createReportAppBaseUrl. Production: createReportAppBaseUrlProduction or risWorklistUrl origin (used with viewDicomImg dicomData._id).
-  // createReportAppBaseUrl: 'http://localhost:5173',
+  createReportAppBaseUrl: isDev ? RIS_DEV_PORTAL_ORIGIN : undefined,
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: true,
-  redirectToRisOn401: true,
+  redirectRootToRis: false,
+  redirectToRisOn401: false,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1134,6 +1142,8 @@ window.config = {
     enabled: false,
     allowedOrigins: [
       'http://localhost:5173',
+      RIS_DEV_PORTAL_ORIGIN,
+      RIS_PROD_PORTAL_ORIGIN,
       RIS_PORTAL_ORIGIN,
       // 'https://your-ris-production-origin',
     ],

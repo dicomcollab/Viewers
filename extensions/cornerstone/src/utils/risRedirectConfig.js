@@ -15,9 +15,38 @@ function readEnv(key) {
   return v.trim();
 }
 
-const FALLBACK_RIS_LOGIN_URL = 'https://synapse.med-pacs.com/login';
-const FALLBACK_RIS_API_BASE =
+const RIS_DEV_PORTAL_ORIGIN = 'http://192.168.1.120:5173';
+const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
+const RIS_DEV_API_BASE =
   'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+const RIS_PROD_API_BASE = 'https://synapse.med-pacs.com';
+
+function isRisDevMode(appConfig) {
+  if (appConfig?.isDev === true) {
+    return true;
+  }
+  if (appConfig?.isDev === false) {
+    return false;
+  }
+  if (typeof window !== 'undefined' && window.config) {
+    if (window.config.isDev === true) {
+      return true;
+    }
+    if (window.config.isDev === false) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function getFallbackRisLoginUrl(appConfig) {
+  const origin = isRisDevMode(appConfig) ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
+  return `${origin}/login`;
+}
+
+function getFallbackRisApiBase(appConfig) {
+  return isRisDevMode(appConfig) ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
+}
 
 export function isRedirectToRisOn401Enabled(appConfig) {
   return appConfig?.redirectToRisOn401 !== false;
@@ -32,15 +61,18 @@ export function resolveRis401RedirectUrlFromConfig(appConfig) {
   if (appConfig?.risWorklistUrl) {
     return appConfig.risWorklistUrl;
   }
-  return readEnv('REACT_APP_RIS_LOGIN_URL') || FALLBACK_RIS_LOGIN_URL;
+  return readEnv('REACT_APP_RIS_LOGIN_URL') || getFallbackRisLoginUrl(appConfig);
 }
 
 /** Same rules as resolveRisPreferencesApiBaseUrl in @ohif/core */
-export function resolveRisPreferencesApiBaseUrlLocal() {
+export function resolveRisPreferencesApiBaseUrlLocal(appConfig) {
   const fromEnv = readEnv('REACT_APP_BACKEND_HOTKEY_URL');
   if (fromEnv) {
     return fromEnv.replace(/\/$/, '');
   }
-  const base = (readEnv('REACT_APP_RIS_API_BASE') || FALLBACK_RIS_API_BASE).replace(/\/$/, '');
+  const base = (readEnv('REACT_APP_RIS_API_BASE') || getFallbackRisApiBase(appConfig)).replace(
+    /\/$/,
+    ''
+  );
   return `${base}/api/v1/preferences`;
 }

@@ -15,6 +15,18 @@ const { sortStudyInstances, formatDate, createStudyBrowserTabs } = utils;
 
 const thumbnailNoImageModalities = ['SR', 'SEG', 'RTSTRUCT', 'RTPLAN', 'RTDOSE', 'DOC', 'PMAP'];
 
+/** Persists study panel state across sidebar close/reopen so thumbnails and loading are not repeated. */
+const studyPanelLoadSession = {
+  fetchedStudyUIDs: new Set<string>(),
+  viewportReadySessionKeys: new Set<string>(),
+  studyDisplayLists: new Map<string, unknown[]>(),
+  thumbnailImageSrcMap: {} as Record<string, string>,
+};
+
+function getStudySessionKey(studyInstanceUIDs: string[]) {
+  return studyInstanceUIDs.length ? [...studyInstanceUIDs].sort().join('|') : '';
+}
+
 function isStructuredReportDisplaySet(displaySet) {
   if (!displaySet) {
     return false;
@@ -63,7 +75,14 @@ function PanelStudyBrowser({
 
   const internalImageViewer = useImageViewer();
   const StudyInstanceUIDs = internalImageViewer.StudyInstanceUIDs;
-  const fetchedStudiesRef = useRef(new Set());
+  const sessionKey = useMemo(
+    () => getStudySessionKey(StudyInstanceUIDs),
+    [StudyInstanceUIDs.join(',')]
+  );
+  const fetchedStudiesRef = useRef(studyPanelLoadSession.fetchedStudyUIDs);
+  const hasCachedViewportReady = sessionKey
+    ? studyPanelLoadSession.viewportReadySessionKeys.has(sessionKey)
+    : false;
 
   const [{ activeViewportId, viewports, isHangingProtocolLayout }] = useViewportGrid();
   const activeDisplaySetInstanceUIDs = useMemo(() => {
@@ -83,12 +102,24 @@ function PanelStudyBrowser({
       ? [StudyInstanceUIDs[0]]
       : [...StudyInstanceUIDs]
   );
-  const [hasLoadedViewports, setHasLoadedViewports] = useState(false);
-  const [isStudyPanelLoading, setIsStudyPanelLoading] = useState(true);
-  const [studyDisplayList, setStudyDisplayList] = useState([]);
+  const [hasLoadedViewports, setHasLoadedViewports] = useState(hasCachedViewportReady);
+  const [isStudyPanelLoading, setIsStudyPanelLoading] = useState(() => {
+    if (!StudyInstanceUIDs.length) {
+      return false;
+    }
+    if (hasCachedViewportReady) {
+      return false;
+    }
+    return !StudyInstanceUIDs.every(uid => fetchedStudiesRef.current.has(uid));
+  });
+  const [studyDisplayList, setStudyDisplayList] = useState(
+    () => studyPanelLoadSession.studyDisplayLists.get(sessionKey) ?? []
+  );
   const [displaySets, setDisplaySets] = useState([]);
   const [displaySetsLoadingState, setDisplaySetsLoadingState] = useState({});
-  const [thumbnailImageSrcMap, setThumbnailImageSrcMap] = useState({});
+  const [thumbnailImageSrcMap, setThumbnailImageSrcMap] = useState(() => ({
+    ...studyPanelLoadSession.thumbnailImageSrcMap,
+  }));
   /** Display sets the user explicitly preloaded (download) — show progress on those thumbnails too */
   const [prefetchProgressTrackByUid, setPrefetchProgressTrackByUid] = useState({});
   const [jumpToDisplaySet, setJumpToDisplaySet] = useState(null);
@@ -290,10 +321,24 @@ function PanelStudyBrowser({
     ]
   );
 
+  useEffect(() => {
+    Object.assign(studyPanelLoadSession.thumbnailImageSrcMap, thumbnailImageSrcMap);
+  }, [thumbnailImageSrcMap]);
+
   // ~~ studyDisplayList
   useEffect(() => {
     if (!StudyInstanceUIDs.length) {
       setIsStudyPanelLoading(false);
+      return;
+    }
+
+    const allAlreadyFetched = StudyInstanceUIDs.every(uid => fetchedStudiesRef.current.has(uid));
+    if (allAlreadyFetched) {
+      setIsStudyPanelLoading(false);
+      const cachedList = studyPanelLoadSession.studyDisplayLists.get(sessionKey);
+      if (cachedList?.length) {
+        setStudyDisplayList(cachedList);
+      }
       return;
     }
 
@@ -347,6 +392,9 @@ function PanelStudyBrowser({
             ret.push(study);
           }
         }
+        if (sessionKey) {
+          studyPanelLoadSession.studyDisplayLists.set(sessionKey, ret);
+        }
         return ret;
       });
     }
@@ -360,7 +408,7 @@ function PanelStudyBrowser({
     return () => {
       isUnmounted = true;
     };
-  }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate]);
+  }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate, sessionKey]);
 
   // ~~ Initial Thumbnails
   useEffect(() => {
@@ -667,16 +715,22 @@ function PanelStudyBrowser({
     return false;
   }, [viewports, displaySetService]);
 
-  const [hasSeenFirstViewportReady, setHasSeenFirstViewportReady] = useState(false);
+  const [hasSeenFirstViewportReady, setHasSeenFirstViewportReady] = useState(hasCachedViewportReady);
   useEffect(() => {
     if (hasViewportReadyWithDisplaySet && !hasSeenFirstViewportReady) {
       setHasSeenFirstViewportReady(true);
+      if (sessionKey) {
+        studyPanelLoadSession.viewportReadySessionKeys.add(sessionKey);
+      }
     }
-  }, [hasViewportReadyWithDisplaySet, hasSeenFirstViewportReady]);
+  }, [hasViewportReadyWithDisplaySet, hasSeenFirstViewportReady, sessionKey]);
 
   useEffect(() => {
-    // New study context should be allowed to show initial study loading again.
-    setHasSeenFirstViewportReady(false);
+    const key = getStudySessionKey(StudyInstanceUIDs);
+    setHasSeenFirstViewportReady(
+      key !== '' && studyPanelLoadSession.viewportReadySessionKeys.has(key)
+    );
+    setHasLoadedViewports(key !== '' && studyPanelLoadSession.viewportReadySessionKeys.has(key));
     setPrefetchProgressTrackByUid({});
   }, [StudyInstanceUIDs.join(',')]);
 

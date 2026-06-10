@@ -1,5 +1,10 @@
 import { utilities as csUtils } from '@cornerstonejs/core';
-import { getCineControlViewportId, getViewportEnabledElement } from './cineSyncUtils';
+import {
+  getCineControlViewportId,
+  getCineDisplaySetFromViewport,
+  getViewportEnabledElement,
+  isCineCapableDisplaySet,
+} from './cineSyncUtils';
 import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUtils';
 
 type UsBatchNavigationInfo = {
@@ -59,15 +64,7 @@ function getPageInfo(batchStart: number, batchSize: number, totalCount: number) 
   };
 }
 
-function getUsDisplaySetFromViewport(displaySetService, viewportState) {
-  const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs ?? [];
-
-  return displaySetInstanceUIDs
-    .map(uid => displaySetService.getDisplaySetByUID(uid))
-    .find(ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 0);
-}
-
-function sortUsDisplaySets(displaySets) {
+function sortCineDisplaySets(displaySets) {
   return [...displaySets].sort((a, b) => {
     const aSeries = Number(a.SeriesNumber ?? 0);
     const bSeries = Number(b.SeriesNumber ?? 0);
@@ -88,29 +85,31 @@ function sortUsDisplaySets(displaySets) {
 }
 
 /**
- * All US display sets in the active study, sorted by series number.
- * Used for multi-series layouts (e.g. US | 1×4) where each viewport shows a different series.
+ * All cine-capable display sets in the active study, sorted by series number.
+ * Used for multi-series layouts where each viewport shows a different series.
  */
-function getAllUsStudyDisplaySets(displaySetService, studyInstanceUID?: string) {
+function getAllCineCapableStudyDisplaySets(displaySetService, studyInstanceUID?: string) {
   const displaySets = displaySetService.activeDisplaySets.filter(
     ds =>
-      ds?.Modality === 'US' &&
-      (ds?.numImageFrames ?? 0) > 0 &&
+      isCineCapableDisplaySet(ds) &&
       (!studyInstanceUID || ds.StudyInstanceUID === studyInstanceUID)
   );
 
-  return sortUsDisplaySets(displaySets);
+  return sortCineDisplaySets(displaySets);
+}
+
+function getAllUsStudyDisplaySets(displaySetService, studyInstanceUID?: string) {
+  return getAllCineCapableStudyDisplaySets(displaySetService, studyInstanceUID);
 }
 
 function getUsSeriesDisplaySets(displaySetService, seriesInstanceUID: string) {
   const displaySets = displaySetService.activeDisplaySets.filter(
     ds =>
-      ds?.Modality === 'US' &&
-      ds?.SeriesInstanceUID === seriesInstanceUID &&
-      (ds?.numImageFrames ?? 0) > 0
+      isCineCapableDisplaySet(ds) &&
+      ds?.SeriesInstanceUID === seriesInstanceUID
   );
 
-  return sortUsDisplaySets(displaySets);
+  return sortCineDisplaySets(displaySets);
 }
 
 function getDisplaySetIndex(displaySets, displaySet) {
@@ -279,7 +278,7 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
 
   const { viewports } = viewportGridService.getState();
   const controlViewportState = viewports.get(controlViewportId);
-  const controlDisplaySet = getUsDisplaySetFromViewport(displaySetService, controlViewportState);
+  const controlDisplaySet = getCineDisplaySetFromViewport(displaySetService, controlViewportState);
 
   if (!controlDisplaySet) {
     return null;
@@ -288,11 +287,11 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
   const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
   const batchSize = getLayoutBatchSize(servicesManager);
   const viewportDisplaySets = layoutViewportIds
-    .map(viewportId => getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId)))
+    .map(viewportId => getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId)))
     .filter(Boolean);
 
   const uniqueDisplaySetUIDs = new Set(viewportDisplaySets.map(ds => ds.displaySetInstanceUID));
-  const studyDisplaySets = getAllUsStudyDisplaySets(
+  const studyDisplaySets = getAllCineCapableStudyDisplaySets(
     displaySetService,
     controlDisplaySet.StudyInstanceUID
   );
@@ -304,7 +303,7 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
   if (isInstanceBatchMode) {
     const indices = layoutViewportIds
       .map(viewportId => {
-        const ds = getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
+        const ds = getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
 
         if (!ds) {
           return -1;
@@ -379,7 +378,7 @@ function advanceUsBatch(
 
   const { viewports } = viewportGridService.getState();
   const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
-  const controlDisplaySet = getUsDisplaySetFromViewport(
+  const controlDisplaySet = getCineDisplaySetFromViewport(
     displaySetService,
     viewports.get(controlViewportId)
   );
@@ -391,7 +390,7 @@ function advanceUsBatch(
   stopCineOnViewports(servicesManager, layoutViewportIds);
 
   const target = resolveNavigationTarget(batchInfo, direction);
-  const studyDisplaySets = getAllUsStudyDisplaySets(
+  const studyDisplaySets = getAllCineCapableStudyDisplaySets(
     displaySetService,
     controlDisplaySet.StudyInstanceUID
   );
@@ -431,7 +430,7 @@ function getUsSeriesPositionInStudy(
 ): { seriesIndex: number; totalSeries: number } | null {
   const { displaySetService, viewportGridService } = servicesManager.services;
   const { viewports } = viewportGridService.getState();
-  const displaySet = getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
+  const displaySet = getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
 
   if (!displaySet) {
     return null;

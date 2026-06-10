@@ -127,6 +127,8 @@ declare global {
       activateViewportBeforeInteraction?: boolean;
       autoPlayCine?: boolean;
       showStudyList?: boolean;
+      /** When true, RIS fallbacks use local dev portal (192.168.1.120:5173) and dev API. */
+      isDev?: boolean;
       /** RIS / Synapse worklist URL (used for root redirect and optional header link). */
       risWorklistUrl?: string;
       /** Optional URL for `/` root redirect; defaults to risWorklistUrl / env / built-in worklist. */

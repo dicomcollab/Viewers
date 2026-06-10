@@ -461,19 +461,21 @@ const SidePanel = ({
       className={classnames(className, baseClasses)}
       style={style}
     >
-      {panelOpen ? (
-        <>
-          {getOpenStateComponent()}
-          {tabs.map((tab, tabIndex) => {
-            if (tabIndex === activeTabIndex) {
-              return <tab.content key={tabIndex} />;
-            }
-            return null;
-          })}
-        </>
-      ) : (
-        <React.Fragment>{getCloseStateComponent()}</React.Fragment>
-      )}
+      {panelOpen ? getOpenStateComponent() : getCloseStateComponent()}
+      {tabs.map((tab, tabIndex) => {
+        if (tabIndex !== activeTabIndex) {
+          return null;
+        }
+
+        return (
+          <div
+            key={tabIndex}
+            className={panelOpen ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+          >
+            <tab.content />
+          </div>
+        );
+      })}
     </div>
   );
 };

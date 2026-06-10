@@ -10,12 +10,24 @@ function _getVolumeFromViewport(viewport: Types.IBaseVolumeViewport) {
   return dynamicVolume ?? volumes[0];
 }
 
-function getUsDisplaySetFromViewport(displaySetService, viewportState) {
+export function isCineCapableDisplaySet(displaySet) {
+  if (!displaySet || displaySet.unsupported) {
+    return false;
+  }
+
+  return displaySet.isDynamicVolume || (displaySet.numImageFrames ?? 0) > 1;
+}
+
+export function getCineDisplaySetFromViewport(displaySetService, viewportState) {
   const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs ?? [];
 
   return displaySetInstanceUIDs
     .map(uid => displaySetService.getDisplaySetByUID(uid))
-    .find(ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 0);
+    .find(isCineCapableDisplaySet);
+}
+
+function getUsDisplaySetFromViewport(displaySetService, viewportState) {
+  return getCineDisplaySetFromViewport(displaySetService, viewportState);
 }
 
 export function viewportSupportsCine(displaySetService, viewportState) {
@@ -73,9 +85,9 @@ export function getOrderedCineViewportIds(
 }
 
 /**
- * True when multiple viewports show different US series (e.g. US | 1×4 hanging protocol).
+ * True when multiple viewports show different cine-capable series (e.g. 1×4 hanging protocol).
  */
-export function isUsMultiSeriesInstanceLayout(servicesManager: AppTypes.ServicesManager): boolean {
+export function isMultiSeriesInstanceLayout(servicesManager: AppTypes.ServicesManager): boolean {
   const { viewportGridService, displaySetService } = servicesManager.services;
   const { viewports, layout } = viewportGridService.getState();
   const gridSize = (layout?.numRows ?? 1) * (layout?.numCols ?? 1);
@@ -84,21 +96,26 @@ export function isUsMultiSeriesInstanceLayout(servicesManager: AppTypes.Services
     return false;
   }
 
-  const usDisplaySets = Array.from(viewports.values())
-    .map(viewportState => getUsDisplaySetFromViewport(displaySetService, viewportState))
+  const cineDisplaySets = Array.from(viewports.values())
+    .map(viewportState => getCineDisplaySetFromViewport(displaySetService, viewportState))
     .filter(Boolean);
 
-  if (usDisplaySets.length < 2) {
+  if (cineDisplaySets.length < 2) {
     return false;
   }
 
-  const uniqueDisplaySetUIDs = new Set(usDisplaySets.map(ds => ds.displaySetInstanceUID));
+  const uniqueDisplaySetUIDs = new Set(cineDisplaySets.map(ds => ds.displaySetInstanceUID));
 
   return uniqueDisplaySetUIDs.size > 1;
 }
 
+/** @deprecated Use isMultiSeriesInstanceLayout */
+export function isUsMultiSeriesInstanceLayout(servicesManager: AppTypes.ServicesManager): boolean {
+  return isMultiSeriesInstanceLayout(servicesManager);
+}
+
 /**
- * Per-viewport cine bar for US multiframe series (any grid layout).
+ * Per-viewport cine bar for multiframe series (any modality / grid layout).
  */
 export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesManager): boolean {
   const { viewportGridService, displaySetService } = servicesManager.services;
@@ -111,21 +128,32 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
   const { viewports } = viewportGridService.getState();
 
   return capableViewportIds.some(viewportId => {
-    const ds = getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
+    const ds = getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
     return !!ds;
   });
 }
 
 /**
- * Show the study-level page header (1/5, play all, stop all) when paging US series.
+ * Show study-level cine controls in the viewer header (page nav + play/pause all).
  */
-export function shouldShowUsStudyCineHeader(servicesManager: AppTypes.ServicesManager): boolean {
-  const { displaySetService } = servicesManager.services;
-  const studyDisplaySets = displaySetService.activeDisplaySets.filter(
-    ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 0
-  );
+export function shouldShowStudyCineHeaderControls(
+  servicesManager: AppTypes.ServicesManager
+): boolean {
+  const capableIds = getCineCapableViewportIds(servicesManager);
 
-  return studyDisplaySets.length > 1 && shouldUsePerViewportUsCine(servicesManager);
+  if (!capableIds.length) {
+    return false;
+  }
+
+  const { displaySetService } = servicesManager.services;
+  const cineStudySets = displaySetService.activeDisplaySets.filter(isCineCapableDisplaySet);
+
+  return cineStudySets.length > 1 || capableIds.length > 1;
+}
+
+/** @deprecated Use shouldShowStudyCineHeaderControls */
+export function shouldShowUsStudyCineHeader(servicesManager: AppTypes.ServicesManager): boolean {
+  return shouldShowStudyCineHeaderControls(servicesManager);
 }
 
 /**
@@ -194,7 +222,7 @@ export function getSyncedCineViewportIds(
   servicesManager: AppTypes.ServicesManager,
   srcViewportId: string
 ): string[] {
-  if (isUsMultiSeriesInstanceLayout(servicesManager)) {
+  if (isMultiSeriesInstanceLayout(servicesManager)) {
     return [];
   }
 

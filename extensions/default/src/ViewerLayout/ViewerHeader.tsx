@@ -78,6 +78,7 @@ function getCreateReportBaseUrl(appConfig: AppTypes.Config): string | null {
 
   const host = window.location.hostname || '';
   const isLocalDev =
+    appConfig.isDev === true ||
     host === 'localhost' ||
     host === '127.0.0.1' ||
     host === '[::1]' ||
@@ -96,7 +97,7 @@ function getCreateReportBaseUrl(appConfig: AppTypes.Config): string | null {
   try {
     return new URL(ris).origin;
   } catch {
-    return getDefaultRisPortalOrigin();
+    return getDefaultRisPortalOrigin(appConfig);
   }
 }
 
@@ -227,6 +228,10 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
     'ohif.userPreferencesModal'
   ) as Types.MenuComponentCustomization;
 
+  const ViewerHeaderCineControls = customizationService.getCustomization(
+    'ohif.viewerHeaderCineControls'
+  ) as React.ComponentType<{ servicesManager: typeof servicesManager }> | undefined;
+
   const menuOptions = [
     {
       title: AboutModal?.menuTitle ?? t('Header:About'),
@@ -279,6 +284,11 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
       onReportNavigation={onReportNavigation}
       Secondary={<Toolbar buttonSection="secondary" />}
       isIframeMode={isIframeMode}
+      HeaderActions={
+        ViewerHeaderCineControls ? (
+          <ViewerHeaderCineControls servicesManager={servicesManager} />
+        ) : null
+      }
       UndoRedo={
         <div className="text-primary flex cursor-pointer items-center">
           <Button

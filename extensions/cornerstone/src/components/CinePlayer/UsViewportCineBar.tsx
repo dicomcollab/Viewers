@@ -25,7 +25,6 @@ type UsViewportCineBarProps = {
   cinePlayMode: CinePlayMode;
   stackCineInfo: UsStackCineInfo | null;
   onPlayPauseChange: (playing: boolean) => void;
-  onStop: () => void;
   onFrameRateChange: (fps: number) => void;
   onFrameStepChange: (step: number) => void;
   onPlayModeChange: (mode: CinePlayMode) => void;
@@ -93,7 +92,6 @@ function UsViewportCineBar({
   cinePlayMode,
   stackCineInfo,
   onPlayPauseChange,
-  onStop,
   onFrameRateChange,
   onFrameStepChange,
   onPlayModeChange,
@@ -193,16 +191,6 @@ function UsViewportCineBar({
           data-cy="cine-player-play-pause"
         >
           <Icons.ByName name={isPlaying ? 'icon-pause' : 'icon-play'} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`${ICON_BTN} rounded-sm text-white/90 hover:bg-white/10`}
-          onClick={onStop}
-          title="Stop"
-          data-cy="cine-player-stop"
-        >
-          <span className="inline-block h-2 w-2 rounded-[1px] bg-current" />
         </Button>
       </div>
 
