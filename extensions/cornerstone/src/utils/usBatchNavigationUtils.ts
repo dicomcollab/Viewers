@@ -1,15 +1,14 @@
 import { utilities as csUtils } from '@cornerstonejs/core';
-import {
-  getCineControlViewportId,
-  getSyncedCineViewportIds,
-  getViewportEnabledElement,
-} from './cineSyncUtils';
+import { getCineControlViewportId, getViewportEnabledElement } from './cineSyncUtils';
+import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUtils';
 
 type UsBatchNavigationInfo = {
   batchSize: number;
   batchStart: number;
   batchEnd: number;
   totalCount: number;
+  currentPage: number;
+  totalPages: number;
   hasNextBatch: boolean;
   hasPrevBatch: boolean;
   mode: 'instances' | 'frames';
@@ -36,37 +35,8 @@ function getFrameViewIndex(viewportState): number | null {
   return null;
 }
 
-function getOrderedCineViewportIds(
-  servicesManager: AppTypes.ServicesManager,
-  controlViewportId: string
-): string[] {
-  const syncedIds = getSyncedCineViewportIds(servicesManager, controlViewportId);
-  const allIds = [controlViewportId, ...syncedIds.filter(id => id !== controlViewportId)];
-  const { viewports } = servicesManager.services.viewportGridService.getState();
-
-  return allIds.sort((a, b) => {
-    const va = viewports.get(a);
-    const vb = viewports.get(b);
-
-    if (!va || !vb) {
-      return 0;
-    }
-
-    const rowDiff = (va.y ?? 0) - (vb.y ?? 0);
-
-    if (rowDiff !== 0) {
-      return rowDiff;
-    }
-
-    return (va.x ?? 0) - (vb.x ?? 0);
-  });
-}
-
-function getLayoutBatchSize(servicesManager: AppTypes.ServicesManager, viewportCount: number): number {
-  const { layout } = servicesManager.services.viewportGridService.getState();
-  const gridSize = (layout?.numRows ?? 1) * (layout?.numCols ?? 1);
-
-  return Math.max(1, Math.min(gridSize, viewportCount || gridSize));
+function getLayoutBatchSize(servicesManager: AppTypes.ServicesManager): number {
+  return getUsLayoutGridSize(servicesManager);
 }
 
 function getLastBatchStart(totalCount: number, batchSize: number): number {
@@ -77,6 +47,18 @@ function getLastBatchStart(totalCount: number, batchSize: number): number {
   return Math.floor((totalCount - 1) / batchSize) * batchSize;
 }
 
+function getPageInfo(batchStart: number, batchSize: number, totalCount: number) {
+  const totalPages = Math.max(1, Math.ceil(totalCount / batchSize));
+  const currentPage = Math.min(totalPages, Math.floor(batchStart / batchSize) + 1);
+
+  return {
+    currentPage,
+    totalPages,
+    hasNextBatch: batchStart + batchSize < totalCount,
+    hasPrevBatch: batchStart > 0,
+  };
+}
+
 function getUsDisplaySetFromViewport(displaySetService, viewportState) {
   const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs ?? [];
 
@@ -85,8 +67,15 @@ function getUsDisplaySetFromViewport(displaySetService, viewportState) {
     .find(ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 0);
 }
 
-function sortUsSeriesDisplaySets(displaySets) {
+function sortUsDisplaySets(displaySets) {
   return [...displaySets].sort((a, b) => {
+    const aSeries = Number(a.SeriesNumber ?? 0);
+    const bSeries = Number(b.SeriesNumber ?? 0);
+
+    if (aSeries !== bSeries) {
+      return aSeries - bSeries;
+    }
+
     const aNum = Number(a.instanceNumber ?? a.InstanceNumber ?? 0);
     const bNum = Number(b.instanceNumber ?? b.InstanceNumber ?? 0);
 
@@ -98,6 +87,21 @@ function sortUsSeriesDisplaySets(displaySets) {
   });
 }
 
+/**
+ * All US display sets in the active study, sorted by series number.
+ * Used for multi-series layouts (e.g. US | 1×4) where each viewport shows a different series.
+ */
+function getAllUsStudyDisplaySets(displaySetService, studyInstanceUID?: string) {
+  const displaySets = displaySetService.activeDisplaySets.filter(
+    ds =>
+      ds?.Modality === 'US' &&
+      (ds?.numImageFrames ?? 0) > 0 &&
+      (!studyInstanceUID || ds.StudyInstanceUID === studyInstanceUID)
+  );
+
+  return sortUsDisplaySets(displaySets);
+}
+
 function getUsSeriesDisplaySets(displaySetService, seriesInstanceUID: string) {
   const displaySets = displaySetService.activeDisplaySets.filter(
     ds =>
@@ -106,7 +110,13 @@ function getUsSeriesDisplaySets(displaySetService, seriesInstanceUID: string) {
       (ds?.numImageFrames ?? 0) > 0
   );
 
-  return sortUsSeriesDisplaySets(displaySets);
+  return sortUsDisplaySets(displaySets);
+}
+
+function getDisplaySetIndex(displaySets, displaySet) {
+  return displaySets.findIndex(
+    candidate => candidate.displaySetInstanceUID === displaySet.displaySetInstanceUID
+  );
 }
 
 function resolveNavigationTarget(
@@ -121,20 +131,12 @@ function resolveNavigationTarget(
       return { type: 'instance', instanceDirection: 1, framePreset: 'start' };
     }
 
-    if (batchSize === 1 && mode === 'instances') {
-      return { type: 'batch', batchStart: 0 };
-    }
-
     return { type: 'batch', batchStart: 0 };
   }
 
   if (direction === -1 && nextBatchStart < 0) {
     if (batchSize === 1 && mode === 'frames') {
       return { type: 'instance', instanceDirection: -1, framePreset: 'end' };
-    }
-
-    if (batchSize === 1 && mode === 'instances') {
-      return { type: 'batch', batchStart: totalCount - 1 };
     }
 
     return { type: 'batch', batchStart: getLastBatchStart(totalCount, batchSize) };
@@ -187,24 +189,25 @@ function applyInstanceBatch(
   servicesManager: AppTypes.ServicesManager,
   orderedViewportIds: string[],
   batchStart: number,
-  seriesDisplaySets
+  studyDisplaySets
 ) {
   const { viewportGridService } = servicesManager.services;
 
-  const viewportsToUpdate = orderedViewportIds
-    .map((viewportId, index) => {
-      const targetIndex = batchStart + index;
+  const viewportsToUpdate = orderedViewportIds.map((viewportId, index) => {
+    const targetIndex = batchStart + index;
 
-      if (targetIndex >= seriesDisplaySets.length) {
-        return null;
-      }
-
+    if (targetIndex >= studyDisplaySets.length) {
       return {
         viewportId,
-        displaySetInstanceUIDs: [seriesDisplaySets[targetIndex].displaySetInstanceUID],
+        displaySetInstanceUIDs: [],
       };
-    })
-    .filter(Boolean);
+    }
+
+    return {
+      viewportId,
+      displaySetInstanceUIDs: [studyDisplaySets[targetIndex].displaySetInstanceUID],
+    };
+  });
 
   if (viewportsToUpdate.length) {
     viewportGridService.setDisplaySetsForViewports(viewportsToUpdate);
@@ -215,15 +218,13 @@ function navigateToAdjacentInstance(
   servicesManager: AppTypes.ServicesManager,
   controlViewportId: string,
   orderedViewportIds: string[],
-  seriesDisplaySets,
+  studyDisplaySets,
   currentDisplaySet,
   instanceDirection: 1 | -1,
   framePreset: 'start' | 'end',
   batchSize: number
 ) {
-  const currentIndex = seriesDisplaySets.findIndex(
-    ds => ds.displaySetInstanceUID === currentDisplaySet.displaySetInstanceUID
-  );
+  const currentIndex = getDisplaySetIndex(studyDisplaySets, currentDisplaySet);
 
   if (currentIndex < 0) {
     return;
@@ -232,15 +233,14 @@ function navigateToAdjacentInstance(
   let nextIndex = currentIndex + instanceDirection;
 
   if (nextIndex < 0) {
-    nextIndex = seriesDisplaySets.length - 1;
-  } else if (nextIndex >= seriesDisplaySets.length) {
+    nextIndex = studyDisplaySets.length - 1;
+  } else if (nextIndex >= studyDisplaySets.length) {
     nextIndex = 0;
   }
 
-  const targetDisplaySet = seriesDisplaySets[nextIndex];
+  const targetDisplaySet = studyDisplaySets[nextIndex];
   const numFrames = Number(targetDisplaySet.numImageFrames) || 1;
-  const targetBatchStart =
-    framePreset === 'end' ? getLastBatchStart(numFrames, batchSize) : 0;
+  const targetBatchStart = framePreset === 'end' ? getLastBatchStart(numFrames, batchSize) : 0;
 
   const { viewportGridService } = servicesManager.services;
 
@@ -261,10 +261,10 @@ function navigateToAdjacentInstance(
 
   const instanceBatchStart = Math.max(
     0,
-    Math.min(nextIndex, seriesDisplaySets.length - orderedViewportIds.length)
+    Math.min(nextIndex, studyDisplaySets.length - orderedViewportIds.length)
   );
 
-  applyInstanceBatch(servicesManager, orderedViewportIds, instanceBatchStart, seriesDisplaySets);
+  applyInstanceBatch(servicesManager, orderedViewportIds, instanceBatchStart, studyDisplaySets);
 }
 
 function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): UsBatchNavigationInfo | null {
@@ -285,22 +285,24 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
     return null;
   }
 
-  const orderedViewportIds = getOrderedCineViewportIds(servicesManager, controlViewportId);
-  const batchSize = getLayoutBatchSize(servicesManager, orderedViewportIds.length);
-  const viewportDisplaySets = orderedViewportIds
+  const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
+  const batchSize = getLayoutBatchSize(servicesManager);
+  const viewportDisplaySets = layoutViewportIds
     .map(viewportId => getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId)))
     .filter(Boolean);
 
   const uniqueDisplaySetUIDs = new Set(viewportDisplaySets.map(ds => ds.displaySetInstanceUID));
-  const isInstanceBatchMode = uniqueDisplaySetUIDs.size > 1;
-  const seriesDisplaySets = getUsSeriesDisplaySets(
+  const studyDisplaySets = getAllUsStudyDisplaySets(
     displaySetService,
-    controlDisplaySet.SeriesInstanceUID
+    controlDisplaySet.StudyInstanceUID
   );
-  const hasMultipleInstances = seriesDisplaySets.length > 1;
+  const numFrames = Number(controlDisplaySet.numImageFrames) || 0;
+  const isFrameViewMode =
+    uniqueDisplaySetUIDs.size === 1 && numFrames > 1 && layoutViewportIds.length > 1;
+  const isInstanceBatchMode = studyDisplaySets.length > 1 && !isFrameViewMode;
 
   if (isInstanceBatchMode) {
-    const indices = orderedViewportIds
+    const indices = layoutViewportIds
       .map(viewportId => {
         const ds = getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
 
@@ -308,76 +310,52 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
           return -1;
         }
 
-        return seriesDisplaySets.findIndex(
-          candidate => candidate.displaySetInstanceUID === ds.displaySetInstanceUID
-        );
+        return getDisplaySetIndex(studyDisplaySets, ds);
       })
       .filter(index => index >= 0);
 
-    if (!indices.length) {
+    if (!indices.length || !studyDisplaySets.length) {
       return null;
     }
 
     const batchStart = Math.min(...indices);
-    const totalCount = seriesDisplaySets.length;
+    const totalCount = studyDisplaySets.length;
     const batchEnd = Math.min(batchStart + batchSize, totalCount);
+    const pageInfo = getPageInfo(batchStart, batchSize, totalCount);
 
     return {
       batchSize,
       batchStart,
       batchEnd,
       totalCount,
-      hasNextBatch: true,
-      hasPrevBatch: true,
+      ...pageInfo,
       mode: 'instances',
     };
   }
-
-  const numFrames = Number(controlDisplaySet.numImageFrames) || 0;
 
   if (numFrames <= 1) {
-    if (!hasMultipleInstances) {
-      return null;
-    }
-
-    const currentIndex = seriesDisplaySets.findIndex(
-      ds => ds.displaySetInstanceUID === controlDisplaySet.displaySetInstanceUID
-    );
-
-    if (currentIndex < 0) {
-      return null;
-    }
-
-    return {
-      batchSize: 1,
-      batchStart: currentIndex,
-      batchEnd: currentIndex + 1,
-      totalCount: seriesDisplaySets.length,
-      hasNextBatch: true,
-      hasPrevBatch: true,
-      mode: 'instances',
-    };
+    return null;
   }
 
-  const frameViewIndices = orderedViewportIds.map(viewportId => {
+  const frameViewIndices = layoutViewportIds.map(viewportId => {
     const frameViewIndex = getFrameViewIndex(viewports.get(viewportId));
 
-    return frameViewIndex ?? orderedViewportIds.indexOf(viewportId);
+    return frameViewIndex ?? layoutViewportIds.indexOf(viewportId);
   });
-  const sourceViewportId = orderedViewportIds[0];
+  const sourceViewportId = layoutViewportIds[0];
   const sourceViewport = cornerstoneViewportService.getCornerstoneViewport(sourceViewportId);
   const sourceFrameIndex = sourceViewport?.getCurrentImageIdIndex?.() ?? 0;
   const sourceFrameViewIndex = frameViewIndices[0] ?? 0;
   const batchStart = Math.max(0, sourceFrameIndex - sourceFrameViewIndex);
   const batchEnd = Math.min(batchStart + batchSize, numFrames);
+  const pageInfo = getPageInfo(batchStart, batchSize, numFrames);
 
   return {
     batchSize,
     batchStart,
     batchEnd,
     totalCount: numFrames,
-    hasNextBatch: true,
-    hasPrevBatch: true,
+    ...pageInfo,
     mode: 'frames',
   };
 }
@@ -400,7 +378,7 @@ function advanceUsBatch(
   }
 
   const { viewports } = viewportGridService.getState();
-  const orderedViewportIds = getOrderedCineViewportIds(servicesManager, controlViewportId);
+  const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
   const controlDisplaySet = getUsDisplaySetFromViewport(
     displaySetService,
     viewports.get(controlViewportId)
@@ -410,40 +388,35 @@ function advanceUsBatch(
     return null;
   }
 
-  stopCineOnViewports(servicesManager, orderedViewportIds);
+  stopCineOnViewports(servicesManager, layoutViewportIds);
 
   const target = resolveNavigationTarget(batchInfo, direction);
-  const seriesDisplaySets = getUsSeriesDisplaySets(
+  const studyDisplaySets = getAllUsStudyDisplaySets(
     displaySetService,
-    controlDisplaySet.SeriesInstanceUID
+    controlDisplaySet.StudyInstanceUID
   );
 
   if (target.type === 'instance') {
     navigateToAdjacentInstance(
       servicesManager,
       controlViewportId,
-      orderedViewportIds,
-      seriesDisplaySets,
+      layoutViewportIds,
+      studyDisplaySets,
       controlDisplaySet,
       target.instanceDirection,
       target.framePreset,
       batchInfo.batchSize
     );
 
-    return batchInfo;
+    return buildUsBatchNavigationInfo(servicesManager);
   }
 
   if (batchInfo.mode === 'instances') {
-    applyInstanceBatch(
-      servicesManager,
-      orderedViewportIds,
-      target.batchStart,
-      seriesDisplaySets
-    );
+    applyInstanceBatch(servicesManager, layoutViewportIds, target.batchStart, studyDisplaySets);
   } else {
     applyFrameBatch(
       servicesManager,
-      orderedViewportIds,
+      layoutViewportIds,
       target.batchStart,
       batchInfo.totalCount
     );
@@ -452,10 +425,39 @@ function advanceUsBatch(
   return buildUsBatchNavigationInfo(servicesManager);
 }
 
+function getUsSeriesPositionInStudy(
+  servicesManager: AppTypes.ServicesManager,
+  viewportId: string
+): { seriesIndex: number; totalSeries: number } | null {
+  const { displaySetService, viewportGridService } = servicesManager.services;
+  const { viewports } = viewportGridService.getState();
+  const displaySet = getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
+
+  if (!displaySet) {
+    return null;
+  }
+
+  const studyDisplaySets = getAllUsStudyDisplaySets(
+    displaySetService,
+    displaySet.StudyInstanceUID
+  );
+  const seriesIndex = getDisplaySetIndex(studyDisplaySets, displaySet);
+
+  if (seriesIndex < 0 || !studyDisplaySets.length) {
+    return null;
+  }
+
+  return {
+    seriesIndex: seriesIndex + 1,
+    totalSeries: studyDisplaySets.length,
+  };
+}
+
 export {
   advanceUsBatch,
   buildUsBatchNavigationInfo,
+  getAllUsStudyDisplaySets,
   getLayoutBatchSize,
-  getOrderedCineViewportIds,
+  getUsSeriesPositionInStudy,
 };
 export type { UsBatchNavigationInfo };

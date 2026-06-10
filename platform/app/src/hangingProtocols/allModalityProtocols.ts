@@ -17,6 +17,34 @@ const viewportOptions = {
   ],
 };
 
+// US-only display set selector for multi-series ultrasound layouts
+const usDisplaySetSelector = {
+  allowUnmatchedView: true,
+  seriesMatchingRules: [
+    {
+      weight: 100,
+      attribute: 'Modality',
+      constraint: {
+        equals: 'US',
+      },
+    },
+    {
+      weight: 10,
+      attribute: 'numImageFrames',
+      constraint: {
+        greaterThan: { value: 0 },
+      },
+    },
+    {
+      attribute: 'isDisplaySetFromUrl',
+      weight: 20,
+      constraint: {
+        equals: true,
+      },
+    },
+  ],
+};
+
 // Common display set selector for all modalities
 // Similar to default protocol, but works for all modalities
 const allModalityDisplaySetSelector = {
@@ -401,9 +429,21 @@ const usModality1x4Protocol: Types.HangingProtocol.Protocol = {
   ],
   toolGroupIds: ['default'],
   displaySetSelectors: {
-    allModalityDisplaySet: allModalityDisplaySetSelector,
+    usDisplaySet: usDisplaySetSelector,
   },
-  defaultViewport,
+  defaultViewport: {
+    viewportOptions: {
+      viewportType: 'stack',
+      toolGroupId: 'default',
+      allowUnmatchedView: true,
+    },
+    displaySets: [
+      {
+        id: 'usDisplaySet',
+        matchedDisplaySetsIndex: -1,
+      },
+    ],
+  },
   stages: [
     {
       id: '1x4',
@@ -423,19 +463,19 @@ const usModality1x4Protocol: Types.HangingProtocol.Protocol = {
       viewports: [
         {
           viewportOptions,
-          displaySets: [{ id: 'allModalityDisplaySet' }],
+          displaySets: [{ id: 'usDisplaySet' }],
         },
         {
           viewportOptions,
-          displaySets: [{ id: 'allModalityDisplaySet', matchedDisplaySetsIndex: 1 }],
+          displaySets: [{ id: 'usDisplaySet', matchedDisplaySetsIndex: 1 }],
         },
         {
           viewportOptions,
-          displaySets: [{ id: 'allModalityDisplaySet', matchedDisplaySetsIndex: 2 }],
+          displaySets: [{ id: 'usDisplaySet', matchedDisplaySetsIndex: 2 }],
         },
         {
           viewportOptions,
-          displaySets: [{ id: 'allModalityDisplaySet', matchedDisplaySetsIndex: 3 }],
+          displaySets: [{ id: 'usDisplaySet', matchedDisplaySetsIndex: 3 }],
         },
       ],
     },

@@ -4,7 +4,15 @@ import { useCine } from '@ohif/ui-next';
 import { Enums, eventTarget, cache, metaData, getEnabledElement } from '@cornerstonejs/core';
 import { useAppConfig } from '@state';
 import { cineDebug, cineDebugWarn } from '../../utils/cineDebug';
-import { getCineControlViewportId, shouldUseUnifiedCineControl } from '../../utils/cineSyncUtils';
+import {
+  getCineControlViewportId,
+  shouldShowUsStudyCineHeader,
+  shouldUsePerViewportUsCine,
+  shouldUseUnifiedCineControl,
+  viewportSupportsCine,
+} from '../../utils/cineSyncUtils';
+import UsStudyCineHeader from './UsStudyCineHeader';
+import UsViewportCineBar from './UsViewportCineBar';
 import { advanceUsBatch } from '../../utils/usBatchNavigationUtils';
 import {
   buildUsStackCineInfo,
@@ -403,18 +411,102 @@ function WrappedCinePlayer({
     };
   }, [viewportId]);
 
-  if (!isCineEnabled) {
-    return null;
-  }
-
+  const usePerViewportUsCine = shouldUsePerViewportUsCine(servicesManager);
   const cineControlViewportId = getCineControlViewportId(servicesManager);
-  const showCineUI = cineControlViewportId === viewportId;
+  const { viewports } = viewportGridService.getState();
+  const viewportState = viewports.get(viewportId);
+  const supportsCine = viewportSupportsCine(displaySetService, viewportState);
+  const showCineUI = usePerViewportUsCine
+    ? supportsCine
+    : cineControlViewportId === viewportId;
 
   if (!showCineUI) {
     return null;
   }
 
+  if (!isCineEnabled && !usePerViewportUsCine) {
+    return null;
+  }
+
   const useUnifiedCineControl = shouldUseUnifiedCineControl(servicesManager);
+  const showUsStudyHeader =
+    shouldShowUsStudyCineHeader(servicesManager) &&
+    cineControlViewportId === viewportId;
+
+  if (usePerViewportUsCine) {
+    return (
+      <>
+        {showUsStudyHeader && (
+          <UsStudyCineHeader
+            servicesManager={servicesManager}
+            onPageChange={newDisplaySetHandler}
+          />
+        )}
+        {stackCineInfo && (
+          <UsViewportCineBar
+            viewportId={viewportId}
+            servicesManager={servicesManager}
+            isPlaying={isPlaying}
+            frameRate={frameRate}
+            frameStep={frameStep}
+            cinePlayMode={cinePlayMode}
+            stackCineInfo={stackCineInfo}
+            onPlayPauseChange={playing => {
+              if (playing && !cineService.getState().isCineEnabled) {
+                cineService.setIsCineEnabled(true);
+              }
+              const current = cines?.[viewportId] ?? {};
+              cineService.setCine({
+                id: viewportId,
+                isPlaying: playing,
+                frameRate: current.frameRate ?? frameRate,
+                cinePlayMode: current.cinePlayMode ?? cinePlayMode,
+                frameStep: current.frameStep ?? frameStep,
+              });
+              if (!playing) {
+                cineService.stopClip(enabledVPElement, { viewportId });
+              }
+            }}
+            onStop={() => {
+              cineService.setCine({ id: viewportId, isPlaying: false });
+              cineService.stopClip(enabledVPElement, { viewportId });
+              cornerstoneViewportService.getCornerstoneViewport(viewportId)?.setImageIdIndex?.(0);
+              setStackCineInfo(prev => (prev ? { ...prev, currentFrame: 1 } : prev));
+            }}
+            onFrameRateChange={nextFrameRate => {
+              cineService.setCine({
+                id: viewportId,
+                frameRate: nextFrameRate,
+                cinePlayMode: 'fps',
+              });
+            }}
+            onFrameStepChange={nextFrameStep => {
+              cineService.setCine({
+                id: viewportId,
+                frameStep: nextFrameStep,
+                cinePlayMode: 'step',
+              });
+            }}
+            onPlayModeChange={mode => {
+              const current = cines?.[viewportId] ?? {};
+              cineService.setCine({
+                id: viewportId,
+                isPlaying: current.isPlaying ?? isPlaying,
+                frameRate: current.frameRate ?? frameRate,
+                cinePlayMode: mode,
+                frameStep: current.frameStep ?? frameStep,
+              });
+            }}
+            onFrameChange={nextFrame => {
+              cineService.setCine({ id: viewportId, isPlaying: false });
+              cornerstoneViewportService.getCornerstoneViewport(viewportId)?.setImageIdIndex?.(nextFrame - 1);
+              setStackCineInfo(prev => (prev ? { ...prev, currentFrame: nextFrame } : prev));
+            }}
+          />
+        )}
+      </>
+    );
+  }
 
   return (
     <RenderCinePlayer
@@ -430,6 +522,7 @@ function WrappedCinePlayer({
       cornerstoneViewportService={cornerstoneViewportService}
       servicesManager={servicesManager}
       useUnifiedCineControl={useUnifiedCineControl}
+      usePerViewportUsCine={false}
     />
   );
 }
@@ -449,6 +542,7 @@ function RenderCinePlayer({
   cornerstoneViewportService,
   servicesManager,
   useUnifiedCineControl = false,
+  usePerViewportUsCine = false,
 }) {
   const CinePlayerComponent = customizationService.getCustomization('cinePlayer');
 
@@ -597,11 +691,24 @@ function RenderCinePlayer({
     window.setTimeout(refreshStackCineInfo, 400);
   }, [refreshStackCineInfo, servicesManager, viewportId]);
 
+  const handleStop = useCallback(() => {
+    cineDebug('CinePlayer', 'onStop', { viewportId });
+    const { isCineEnabled } = cineService.getState();
+
+    if (isCineEnabled) {
+      cineService.setCine({ id: viewportId, isPlaying: false });
+    }
+
+    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+    viewport?.setImageIdIndex?.(0);
+    setStackCineInfo(prev => (prev ? { ...prev, currentFrame: 1 } : prev));
+  }, [cineService, cornerstoneViewportService, viewportId]);
+
   const cinePlayer = (
     <CinePlayerComponent
       portaled={useUnifiedCineControl}
-      placement={useUnifiedCineControl ? 'top-center' : 'bottom-center'}
-      compact={useUnifiedCineControl || !!stackCineInfo}
+      placement={usePerViewportUsCine ? 'bottom-center' : useUnifiedCineControl ? 'top-center' : 'bottom-center'}
+      compact={useUnifiedCineControl || usePerViewportUsCine || !!stackCineInfo}
       frameRate={cineFrameRate}
       cinePlayMode={cinePlayMode}
       frameStep={frameStep}
@@ -627,6 +734,7 @@ function RenderCinePlayer({
           frameStep: current.frameStep,
         });
       }}
+      onStop={handleStop}
       onFrameRateChange={nextFrameRate => {
         cineDebug('CinePlayer', 'onFrameRateChange', { viewportId, nextFrameRate });
         cineService.setCine({
@@ -651,7 +759,7 @@ function RenderCinePlayer({
       dynamicInfo={dynamicInfo}
       updateDynamicInfo={updateDynamicInfo}
       stackCineInfo={stackCineInfo}
-      showStackFrameCounter={!useUnifiedCineControl}
+      showStackFrameCounter={!useUnifiedCineControl || usePerViewportUsCine}
       updateStackCineInfo={updateStackCineInfo}
       onAdvanceUsBatch={handleAdvanceUsBatch}
       onRetreatUsBatch={handleRetreatUsBatch}

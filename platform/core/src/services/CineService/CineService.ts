@@ -80,8 +80,7 @@ class CineService extends PubSubService {
   }
 
   public isViewportCineClosed(viewportId) {
-    // Todo: we should move towards per viewport cine closed in next release
-    return this.closedViewports.size > 0;
+    return this.closedViewports.has(viewportId);
   }
 
   public clearViewportCineClosed(viewportId) {

@@ -22,6 +22,7 @@ export type CinePlayerProps = {
   onCinePlayModeChange?: (mode: 'fps' | 'step') => void;
   onFrameStepChange?: (step: number) => void;
   onPlayPauseChange: (value: boolean) => void;
+  onStop?: () => void;
   onClose: () => void;
   updateDynamicInfo?: (info: any) => void;
   dynamicInfo?: {
@@ -35,6 +36,10 @@ export type CinePlayerProps = {
     batchSize?: number;
     batchStart?: number;
     batchEnd?: number;
+    currentPage?: number;
+    totalPages?: number;
+    seriesIndex?: number;
+    totalSeries?: number;
     hasNextBatch?: boolean;
     hasPrevBatch?: boolean;
   };
@@ -66,6 +71,7 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
   onCinePlayModeChange = () => {},
   onFrameStepChange = () => {},
   onPlayPauseChange = () => {},
+  onStop = () => {},
   onClose = () => {},
   dynamicInfo = {},
   updateDynamicInfo,
@@ -126,6 +132,14 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
     onPlayPauseChange(!isPlaying);
   };
 
+  const handleStopClick = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    flushCineSettings();
+    onStop();
+  };
+
   useEffect(() => {
     frameRateRef.current = defaultFrameRate;
     setFrameRate(defaultFrameRate);
@@ -181,14 +195,15 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
   };
 
   const showBatchNavButtons =
-    isStackCine && !!onAdvanceUsBatch && !!onRetreatUsBatch;
+    isStackCine && !!onAdvanceUsBatch && !!onRetreatUsBatch && !stackCineInfo?.totalPages;
   const batchLabel =
-    stackCineInfo?.batchStart != null &&
-    stackCineInfo?.batchEnd != null &&
-    (stackCineInfo.batchSize ?? 1) > 1
-      ? `${stackCineInfo.batchStart}-${stackCineInfo.batchEnd}/${stackCineInfo.numFrames}`
-      : null;
-
+    stackCineInfo?.currentPage != null && stackCineInfo?.totalPages != null
+      ? null
+      : stackCineInfo?.batchStart != null &&
+          stackCineInfo?.batchEnd != null &&
+          (stackCineInfo.batchSize ?? 1) > 1
+        ? `${stackCineInfo.batchStart}-${stackCineInfo.batchEnd}/${stackCineInfo.numFrames}`
+        : null;
   const barClassName = compact
     ? 'bg-background/90 pointer-events-auto inline-flex h-7 select-none items-center gap-0 rounded border border-white/10 px-0.5 shadow-sm backdrop-blur-sm'
     : 'bg-muted pointer-events-auto inline-flex select-none items-center gap-1 rounded-md px-1 py-1';
@@ -217,6 +232,19 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
         >
           <Icons.ByName name={getPlayPauseIconName()} />
         </Button>
+
+        {isStackCine && onStop && (
+          <Button
+            variant="ghost"
+            size={compact ? 'sm' : 'icon'}
+            className={iconButtonClass}
+            onClick={handleStopClick}
+            data-cy="cine-player-stop"
+            title="Stop"
+          >
+            <span className="bg-foreground inline-block h-2.5 w-2.5 rounded-[1px]" />
+          </Button>
+        )}
 
         {isDynamic && dynamicInfo && (
           <span className="text-foreground px-1 text-[11px] leading-none whitespace-nowrap">

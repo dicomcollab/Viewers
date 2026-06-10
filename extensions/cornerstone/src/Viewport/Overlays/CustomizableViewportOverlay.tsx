@@ -12,6 +12,8 @@ import { StackViewportData, VolumeViewportData } from '../../types/CornerstoneCa
 
 import './CustomizableViewportOverlay.css';
 import { useViewportRendering } from '../../hooks';
+import { isUsMultiSeriesInstanceLayout } from '../../utils/cineSyncUtils';
+import { getUsSeriesPositionInStudy } from '../../utils/usBatchNavigationUtils';
 
 const EPSILON = 1e-4;
 const { formatPN, formatDate } = utils;
@@ -47,6 +49,7 @@ const OverlayItemComponents = {
   'ohif.overlayItem.windowLevel': VOIOverlayItem,
   'ohif.overlayItem.zoomLevel': ZoomOverlayItem,
   'ohif.overlayItem.instanceNumber': InstanceNumberOverlayItem,
+  'ohif.overlayItem.usSeriesPosition': UsSeriesPositionOverlayItem,
   'ohif.overlayItem.patientInfo': PatientInfoOverlayItem,
 };
 
@@ -438,6 +441,36 @@ function ZoomOverlayItem({ scale, customization }: OverlayItemProps) {
     >
       <span className="mr-0.5 shrink-0 opacity-[0.70]">Zoom:</span>
       <span>{scale.toFixed(2)}x</span>
+    </div>
+  );
+}
+
+/**
+ * US series index within study (e.g. 5 / 18) for multi-series layouts.
+ */
+function UsSeriesPositionOverlayItem({
+  displaySet,
+  servicesManager,
+  viewportId,
+  customization,
+}: OverlayItemProps) {
+  if (displaySet?.Modality !== 'US' || !isUsMultiSeriesInstanceLayout(servicesManager)) {
+    return null;
+  }
+
+  const position = getUsSeriesPositionInStudy(servicesManager, viewportId);
+
+  if (!position) {
+    return null;
+  }
+
+  return (
+    <div
+      className="overlay-item flex flex-row"
+      style={{ color: (customization && customization.color) || undefined }}
+      data-cy="us-series-position-overlay"
+    >
+      <span>{`${position.seriesIndex} / ${position.totalSeries}`}</span>
     </div>
   );
 }

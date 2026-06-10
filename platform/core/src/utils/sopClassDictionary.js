@@ -17,6 +17,7 @@ export const sopClassDictionary = {
   EnhancedMRColorImageStorage: '1.2.840.10008.5.1.4.1.1.4.3',
   LegacyConvertedEnhancedMRImageStorage: '1.2.840.10008.5.1.4.1.1.4.4',
   UltrasoundImageStorage: '1.2.840.10008.5.1.4.1.1.6.1',
+  UltrasoundImageStorageRET: '1.2.840.10008.5.1.4.1.1.6',
   EnhancedUSVolumeStorage: '1.2.840.10008.5.1.4.1.1.6.2',
   SecondaryCaptureImageStorage: '1.2.840.10008.5.1.4.1.1.7',
   MultiframeSingleBitSecondaryCaptureImageStorage: '1.2.840.10008.5.1.4.1.1.7.1',

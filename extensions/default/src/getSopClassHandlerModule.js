@@ -207,8 +207,14 @@ function getDisplaySetsFromSeries(instances) {
   // series into another display set.
   const stackableInstances = [];
   instances.forEach(instance => {
-    // All imaging modalities must have a valid value for sopClassUid (x00080016) or rows (x00280010)
-    if (!isImage(instance.SOPClassUID) && !instance.Rows) {
+    // All imaging modalities must have a valid value for sopClassUid (x00080016) or rows (x00280010).
+    // Also accept SOP classes handled by this module (e.g. retired US) when Rows is absent in metadata.
+    const hasImageData =
+      isImage(instance.SOPClassUID) ||
+      instance.Rows ||
+      sopClassUids.includes(instance.SOPClassUID);
+
+    if (!hasImageData) {
       return;
     }
 

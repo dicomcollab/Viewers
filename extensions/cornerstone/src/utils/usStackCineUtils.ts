@@ -1,4 +1,4 @@
-import { buildUsBatchNavigationInfo } from './usBatchNavigationUtils';
+import { buildUsBatchNavigationInfo, getUsSeriesPositionInStudy } from './usBatchNavigationUtils';
 
 type UsStackCineInfo = {
   viewportId: string;
@@ -7,6 +7,10 @@ type UsStackCineInfo = {
   batchSize?: number;
   batchStart?: number;
   batchEnd?: number;
+  currentPage?: number;
+  totalPages?: number;
+  seriesIndex?: number;
+  totalSeries?: number;
   hasNextBatch?: boolean;
   hasPrevBatch?: boolean;
 };
@@ -40,14 +44,23 @@ function buildUsStackCineInfo({
   const currentIndex = viewport?.getCurrentImageIdIndex?.() ?? 0;
 
   const batchInfo = servicesManager ? buildUsBatchNavigationInfo(servicesManager) : null;
+  const seriesPosition = servicesManager
+    ? getUsSeriesPositionInStudy(servicesManager, viewportId)
+    : null;
+
+  const isSeriesBatch = batchInfo?.mode === 'instances';
 
   return {
     viewportId,
     currentFrame: clampFrame(currentIndex + 1, 1, numFrames),
-    numFrames: batchInfo?.totalCount ?? numFrames,
+    numFrames: isSeriesBatch ? numFrames : (batchInfo?.totalCount ?? numFrames),
     batchSize: batchInfo?.batchSize,
     batchStart: batchInfo ? batchInfo.batchStart + 1 : undefined,
     batchEnd: batchInfo?.batchEnd,
+    currentPage: batchInfo?.currentPage,
+    totalPages: batchInfo?.totalPages,
+    seriesIndex: seriesPosition?.seriesIndex,
+    totalSeries: seriesPosition?.totalSeries,
     hasNextBatch: batchInfo?.hasNextBatch,
     hasPrevBatch: batchInfo?.hasPrevBatch,
   };

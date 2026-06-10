@@ -85,5 +85,9 @@ export default {
       id: 'InstanceNumber',
       inheritsFrom: 'ohif.overlayItem.instanceNumber',
     },
+    {
+      id: 'usSeriesPosition',
+      inheritsFrom: 'ohif.overlayItem.usSeriesPosition',
+    },
   ],
 };

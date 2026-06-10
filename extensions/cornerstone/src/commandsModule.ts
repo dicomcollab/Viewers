@@ -37,7 +37,11 @@ import toggleImageSliceSync from './utils/imageSliceSync/toggleImageSliceSync';
 import { getFirstAnnotationSelected } from './utils/measurementServiceMappings/utils/selection';
 import { getViewportEnabledElement } from './utils/getViewportEnabledElement';
 import getActiveViewportEnabledElement from './utils/getActiveViewportEnabledElement';
-import { getCineControlViewportId, shouldUseUnifiedCineControl } from './utils/cineSyncUtils';
+import {
+  getCineControlViewportId,
+  shouldUsePerViewportUsCine,
+  shouldUseUnifiedCineControl,
+} from './utils/cineSyncUtils';
 import { advanceUsBatch as advanceUsBatchNavigation } from './utils/usBatchNavigationUtils';
 import toggleVOISliceSync from './utils/toggleVOISliceSync';
 import {
@@ -845,8 +849,9 @@ function commandsModule({
       const controlViewportId =
         getCineControlViewportId(servicesManager) || activeViewportId;
       const isUnified = shouldUseUnifiedCineControl(servicesManager);
+      const isPerViewportUs = shouldUsePerViewportUsCine(servicesManager);
 
-      if (isUnified && controlViewportId) {
+      if ((isUnified || isPerViewportUs) && controlViewportId) {
         const isPlaying = cines?.[controlViewportId]?.isPlaying ?? false;
         cineService.setCine({
           id: controlViewportId,

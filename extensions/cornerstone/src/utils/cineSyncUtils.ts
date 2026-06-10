@@ -10,6 +10,14 @@ function _getVolumeFromViewport(viewport: Types.IBaseVolumeViewport) {
   return dynamicVolume ?? volumes[0];
 }
 
+function getUsDisplaySetFromViewport(displaySetService, viewportState) {
+  const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs ?? [];
+
+  return displaySetInstanceUIDs
+    .map(uid => displaySetService.getDisplaySetByUID(uid))
+    .find(ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 0);
+}
+
 export function viewportSupportsCine(displaySetService, viewportState) {
   const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs || [];
 
@@ -38,6 +46,88 @@ export function getCineCapableViewportIds(servicesManager: AppTypes.ServicesMana
     .map(([viewportId]) => viewportId);
 }
 
+export function getOrderedCineViewportIds(
+  servicesManager: AppTypes.ServicesManager,
+  controlViewportId: string
+): string[] {
+  const syncedIds = getSyncedCineViewportIds(servicesManager, controlViewportId);
+  const allIds = [controlViewportId, ...syncedIds.filter(id => id !== controlViewportId)];
+  const { viewports } = servicesManager.services.viewportGridService.getState();
+
+  return allIds.sort((a, b) => {
+    const va = viewports.get(a);
+    const vb = viewports.get(b);
+
+    if (!va || !vb) {
+      return 0;
+    }
+
+    const rowDiff = (va.y ?? 0) - (vb.y ?? 0);
+
+    if (rowDiff !== 0) {
+      return rowDiff;
+    }
+
+    return (va.x ?? 0) - (vb.x ?? 0);
+  });
+}
+
+/**
+ * True when multiple viewports show different US series (e.g. US | 1×4 hanging protocol).
+ */
+export function isUsMultiSeriesInstanceLayout(servicesManager: AppTypes.ServicesManager): boolean {
+  const { viewportGridService, displaySetService } = servicesManager.services;
+  const { viewports, layout } = viewportGridService.getState();
+  const gridSize = (layout?.numRows ?? 1) * (layout?.numCols ?? 1);
+
+  if (gridSize <= 1) {
+    return false;
+  }
+
+  const usDisplaySets = Array.from(viewports.values())
+    .map(viewportState => getUsDisplaySetFromViewport(displaySetService, viewportState))
+    .filter(Boolean);
+
+  if (usDisplaySets.length < 2) {
+    return false;
+  }
+
+  const uniqueDisplaySetUIDs = new Set(usDisplaySets.map(ds => ds.displaySetInstanceUID));
+
+  return uniqueDisplaySetUIDs.size > 1;
+}
+
+/**
+ * Per-viewport cine bar for US multiframe series (any grid layout).
+ */
+export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesManager): boolean {
+  const { viewportGridService, displaySetService } = servicesManager.services;
+  const capableViewportIds = getCineCapableViewportIds(servicesManager);
+
+  if (!capableViewportIds.length) {
+    return false;
+  }
+
+  const { viewports } = viewportGridService.getState();
+
+  return capableViewportIds.some(viewportId => {
+    const ds = getUsDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
+    return !!ds;
+  });
+}
+
+/**
+ * Show the study-level page header (1/5, play all, stop all) when paging US series.
+ */
+export function shouldShowUsStudyCineHeader(servicesManager: AppTypes.ServicesManager): boolean {
+  const { displaySetService } = servicesManager.services;
+  const studyDisplaySets = displaySetService.activeDisplaySets.filter(
+    ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 0
+  );
+
+  return studyDisplaySets.length > 1 && shouldUsePerViewportUsCine(servicesManager);
+}
+
 /**
  * When multiple viewports share synced cine, only one viewport shows the cine UI.
  */
@@ -46,6 +136,16 @@ export function getCineControlViewportId(servicesManager: AppTypes.ServicesManag
 
   if (!capableViewportIds.length) {
     return null;
+  }
+
+  if (shouldUsePerViewportUsCine(servicesManager)) {
+    const { activeViewportId } = servicesManager.services.viewportGridService.getState();
+
+    if (activeViewportId && capableViewportIds.includes(activeViewportId)) {
+      return activeViewportId;
+    }
+
+    return capableViewportIds[0];
   }
 
   if (capableViewportIds.length === 1) {
@@ -62,6 +162,10 @@ export function getCineControlViewportId(servicesManager: AppTypes.ServicesManag
 }
 
 export function shouldUseUnifiedCineControl(servicesManager: AppTypes.ServicesManager): boolean {
+  if (shouldUsePerViewportUsCine(servicesManager)) {
+    return false;
+  }
+
   return getCineCapableViewportIds(servicesManager).length > 1;
 }
 
@@ -90,6 +194,10 @@ export function getSyncedCineViewportIds(
   servicesManager: AppTypes.ServicesManager,
   srcViewportId: string
 ): string[] {
+  if (isUsMultiSeriesInstanceLayout(servicesManager)) {
+    return [];
+  }
+
   const { viewportGridService, cornerstoneViewportService, displaySetService } =
     servicesManager.services;
 

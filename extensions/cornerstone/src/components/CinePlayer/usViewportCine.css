@@ -1,0 +1,54 @@
+/* Flex layout: image shrinks, gap + cine bar below (never overlays image) */
+.viewport-wrapper[data-us-cine='true'] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  --us-cine-bar-height: 32px;
+  --us-viewport-bottom-reserve: 44px;
+}
+
+.viewport-wrapper[data-us-cine='true'] > .cornerstone-viewport-element {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  height: auto !important;
+  max-height: none;
+  margin-bottom: calc(var(--us-viewport-bottom-reserve) - var(--us-cine-bar-height));
+}
+
+/* Overlays constrained to the image area only */
+.viewport-wrapper[data-us-cine='true'] > .noselect {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: calc(100% - var(--us-viewport-bottom-reserve));
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.viewport-wrapper[data-us-cine='true'] > .noselect > * {
+  pointer-events: auto;
+}
+
+.viewport-wrapper[data-us-cine='true'] .us-viewport-cine-bar {
+  position: relative;
+  flex: 0 0 var(--us-cine-bar-height);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: var(--us-cine-bar-height);
+  box-sizing: border-box;
+  overflow: hidden;
+  z-index: 50;
+}
+
+/*
+ * Window-level and other bottom action corners are siblings of viewport-wrapper
+ * and were sitting under the cine bar — lift them above the reserved bottom chrome.
+ */
+[data-cy='viewport-pane'][data-us-cine='true'] div[class*='bottom-[3px]'] {
+  bottom: calc(var(--us-viewport-bottom-reserve, 44px) + 2px) !important;
+  z-index: 55;
+}

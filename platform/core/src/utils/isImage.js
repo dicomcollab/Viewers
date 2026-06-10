@@ -18,6 +18,7 @@ const imagesTypes = [
   sopClassDictionary.EnhancedMRColorImageStorage,
   sopClassDictionary.LegacyConvertedEnhancedMRImageStorage,
   sopClassDictionary.UltrasoundImageStorage,
+  sopClassDictionary.UltrasoundImageStorageRET,
   sopClassDictionary.SecondaryCaptureImageStorage,
   sopClassDictionary.MultiframeSingleBitSecondaryCaptureImageStorage,
   sopClassDictionary.MultiframeGrayscaleByteSecondaryCaptureImageStorage,
