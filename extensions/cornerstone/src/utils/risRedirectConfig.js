@@ -17,9 +17,9 @@ function readEnv(key) {
 
 const RIS_DEV_PORTAL_ORIGIN = 'http://192.168.1.120:5173';
 const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
-const RIS_DEV_API_BASE =
+const RIS_DEV_API_BASE = 'http://192.168.1.120:5001';
+const RIS_PROD_API_BASE =
   'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
-const RIS_PROD_API_BASE = 'https://synapse.med-pacs.com';
 
 function isRisDevMode(appConfig) {
   if (appConfig?.isDev === true) {
