@@ -1,7 +1,11 @@
 import { DicomMetadataStore } from '@ohif/core';
-import { captureViewportImage } from '@ohif/extension-cornerstone';
 import { getActiveStudyInstanceUID } from './utils/getActiveStudyInstanceUID';
 import { getKeyImagesAuthHeader } from './utils/getKeyImagesAuthHeader';
+import {
+  captureKeyImage,
+  getKeyImageUploadFileName,
+  resolveKeyImageUploadBlob,
+} from './utils/captureKeyImage';
 
 function refreshAddKeyImageToolbar(servicesManager, viewportId?: string) {
   const { toolbarService } = servicesManager.services;
@@ -11,7 +15,7 @@ function refreshAddKeyImageToolbar(servicesManager, viewportId?: string) {
   });
 }
 
-function getCommandsModule({ servicesManager, commandsManager }) {
+function getCommandsModule({ servicesManager, commandsManager, extensionManager }) {
   const {
     viewportGridService,
     cornerstoneViewportService,
@@ -51,9 +55,21 @@ function getCommandsModule({ servicesManager, commandsManager }) {
         return;
       }
 
-      const imageId =
-        typeof viewport.getCurrentImageId === 'function' ? viewport.getCurrentImageId() : undefined;
       const imageIds = typeof viewport.getImageIds === 'function' ? viewport.getImageIds() : [];
+      const currentImageIndex =
+        typeof viewport.getCurrentImageIdIndex === 'function'
+          ? viewport.getCurrentImageIdIndex()
+          : undefined;
+      const imageId =
+        (typeof viewport.getCurrentImageId === 'function'
+          ? viewport.getCurrentImageId()
+          : undefined) ||
+        (Array.isArray(imageIds) &&
+        currentImageIndex !== undefined &&
+        currentImageIndex >= 0 &&
+        currentImageIndex < imageIds.length
+          ? imageIds[currentImageIndex]
+          : undefined);
       const imageIndex = imageId && Array.isArray(imageIds) ? imageIds.indexOf(imageId) : undefined;
 
       let instance = null;
@@ -89,11 +105,11 @@ function getCommandsModule({ servicesManager, commandsManager }) {
       refreshAddKeyImageToolbar(servicesManager, activeViewportId);
 
       const addPromise = (async () => {
-        const { dataUrl, blob } = await captureViewportImage({
+        const { dataUrl, blob } = await captureKeyImage({
+          imageId,
           activeViewportId,
           cornerstoneViewportService,
-          showAnnotations: true,
-          fileType: 'png',
+          extensionManager,
         });
 
         const measurements = measurementService.getMeasurements(
@@ -242,14 +258,10 @@ function getCommandsModule({ servicesManager, commandsManager }) {
 
       for (let i = 0; i < keyImages.length; i++) {
         const item = keyImages[i];
-        let fileBlob = item.blob;
-        if (!fileBlob && item.dataUrl) {
-          const response = await fetch(item.dataUrl);
-          fileBlob = await response.blob();
-        }
+        const fileBlob = await resolveKeyImageUploadBlob(item, extensionManager);
 
         if (fileBlob) {
-          formData.append('files', fileBlob, `${item.id}.png`);
+          formData.append('files', fileBlob, getKeyImageUploadFileName(item, fileBlob));
         }
       }
 

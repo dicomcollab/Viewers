@@ -56,6 +56,7 @@ import { useSegmentations } from './hooks/useSegmentations';
 import { StudySummaryFromMetadata } from './components/StudySummaryFromMetadata';
 import CornerstoneViewportDownloadForm from './utils/CornerstoneViewportDownloadForm';
 import { captureViewportImage } from './utils/captureViewport';
+import { fetchJpegBlobFromImageId, isJpegWadoUriImageId } from './utils/jpegImageLoader';
 import utils from './utils';
 import { useMeasurementTracking } from './hooks/useMeasurementTracking';
 import { setUpSegmentationEventHandlers } from './utils/setUpSegmentationEventHandlers';
@@ -276,6 +277,8 @@ export {
   StudySummaryFromMetadata,
   CornerstoneViewportDownloadForm,
   captureViewportImage,
+  fetchJpegBlobFromImageId,
+  isJpegWadoUriImageId,
   utils,
   OHIFCornerstoneViewport,
   useMeasurementTracking,

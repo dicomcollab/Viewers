@@ -322,141 +322,166 @@ function handleJpegLoader401(_xhr, reject) {
   return true;
 }
 
-function loadJPEGImage(imageId) {
-  /** @type {any} */
+function buildJpegUrlFromImageId(imageId) {
+  let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
+  const urlWithoutFrame = dicomUrl.split('&frame=')[0];
+  let jpegUrl = urlWithoutFrame.replace(
+    'contentType=application/dicom',
+    'contentType=image/jpeg'
+  );
+
+  if (!jpegUrl.includes('contentType=')) {
+    const separator = jpegUrl.includes('?') ? '&' : '?';
+    jpegUrl = `${jpegUrl}${separator}contentType=image/jpeg`;
+  }
+
+  return jpegUrl;
+}
+
+function buildJpegAuthHeader() {
+  const token = getTokenFromCookie();
+  const externalViewerBasic =
+    typeof window !== 'undefined' &&
+    window.getExternalViewerBasicToken &&
+    typeof window.getExternalViewerBasicToken === 'function'
+      ? window.getExternalViewerBasicToken()
+      : null;
+  const isDemo =
+    typeof window !== 'undefined' &&
+    window.isDemoRoute &&
+    typeof window.isDemoRoute === 'function'
+      ? window.isDemoRoute()
+      : false;
+  const demoToken =
+    typeof window !== 'undefined' &&
+    window.getDemoToken &&
+    typeof window.getDemoToken === 'function'
+      ? window.getDemoToken()
+      : null;
+  const shareLinkToken =
+    typeof window !== 'undefined' &&
+    window.getShareLinkBasicToken &&
+    typeof window.getShareLinkBasicToken === 'function'
+      ? window.getShareLinkBasicToken()
+      : null;
+
+  if (externalViewerBasic) {
+    return `Basic ${externalViewerBasic}`;
+  }
+  if (isDemo && demoToken) {
+    return `Basic ${demoToken}`;
+  }
+  if (shareLinkToken) {
+    return `Basic ${shareLinkToken}`;
+  }
+  if (token) {
+    return `Bearer ${token}`;
+  }
+
+  return '';
+}
+
+/**
+ * Fetch the original JPEG bytes from a WADO-URI imageId (same auth/URL rules as the JPEG loader).
+ */
+export function fetchJpegBlobFromImageId(imageId) {
+  const jpegUrl = buildJpegUrlFromImageId(imageId);
+  return requestJpegBlob(jpegUrl).promise;
+}
+
+function requestJpegBlob(jpegUrl, { imageId, onProgress } = {}) {
+  /** @type {XMLHttpRequest | undefined} */
   let xhr;
+
   const promise = new Promise((resolve, reject) => {
-    try {
-      // Before XHR send: show 0% so the viewport overlay appears as soon as loading starts.
-      dispatchJPEGLoadProgress(imageId, 0, true);
+    const authHeader = buildJpegAuthHeader();
+    xhr = new XMLHttpRequest();
+    xhr.open('GET', jpegUrl, true);
+    xhr.responseType = 'blob';
+    xhr.setRequestHeader('Accept', 'image/jpeg');
+    xhr.setRequestHeader('Content-Type', 'image/jpeg');
+    if (authHeader) {
+      xhr.setRequestHeader('Authorization', authHeader);
+    }
 
-      // Extract the original DICOM URL by removing the protocol prefix
-      // Handle both 'dicomweb-jpeg:' and 'dicomweb:' prefixes
-      let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
-
-      // Strip frame query param; WADO-URI frame is already encoded in the request URL when needed.
-      const urlWithoutFrame = dicomUrl.split('&frame=')[0];
-
-      // Ensure contentType is image/jpeg (replace if it's application/dicom)
-      let jpegUrl = urlWithoutFrame.replace(
-        'contentType=application/dicom',
-        'contentType=image/jpeg'
-      );
-
-      // If contentType is not present, add it
-      if (!jpegUrl.includes('contentType=')) {
-        const separator = jpegUrl.includes('?') ? '&' : '?';
-        jpegUrl = `${jpegUrl}${separator}contentType=image/jpeg`;
-      }
-
-      const token = getTokenFromCookie();
-
-      // /external/viewer: same fixed Basic credential as DicomWebDataSource (JPEG XHR bypasses userAuthenticationService)
-      const externalViewerBasic =
-        typeof window !== 'undefined' &&
-        window.getExternalViewerBasicToken &&
-        typeof window.getExternalViewerBasicToken === 'function'
-          ? window.getExternalViewerBasicToken()
-          : null;
-
-      // Check if we're on a demo route and use demo token
-      const isDemo =
-        typeof window !== 'undefined' &&
-        window.isDemoRoute &&
-        typeof window.isDemoRoute === 'function'
-          ? window.isDemoRoute()
-          : false;
-      const demoToken =
-        typeof window !== 'undefined' &&
-        window.getDemoToken &&
-        typeof window.getDemoToken === 'function'
-          ? window.getDemoToken()
-          : null;
-
-      // Share link (ShortCode): when URL has ShortCode and not expired, use Basic token for WADO-URI
-      const shareLinkToken =
-        typeof window !== 'undefined' &&
-        window.getShareLinkBasicToken &&
-        typeof window.getShareLinkBasicToken === 'function'
-          ? window.getShareLinkBasicToken()
-          : null;
-
-      // Build authorization header
-      let authHeader = '';
-      if (externalViewerBasic) {
-        authHeader = `Basic ${externalViewerBasic}`;
-      } else if (isDemo && demoToken) {
-        authHeader = `Basic ${demoToken}`;
-      } else if (shareLinkToken) {
-        authHeader = `Basic ${shareLinkToken}`;
-      } else if (token) {
-        authHeader = `Bearer ${token}`;
-      }
-
-      xhr = new XMLHttpRequest();
-      xhr.open('GET', jpegUrl, true);
-      xhr.responseType = 'blob';
-
-      xhr.setRequestHeader('Accept', 'image/jpeg');
-      xhr.setRequestHeader('Content-Type', 'image/jpeg');
-      if (authHeader) {
-        xhr.setRequestHeader('Authorization', authHeader);
-      }
-
-      // XHR download progress (reliable % while bytes stream; fetch often lacks this without workarounds)
+    if (onProgress) {
       xhr.onprogress = event => {
         if (event.lengthComputable && event.total > 0) {
-          dispatchJPEGLoadProgress(imageId, Math.min(1, event.loaded / event.total), true);
+          onProgress(Math.min(1, event.loaded / event.total));
         }
       };
-
-      xhr.onload = () => {
-        try {
-          if (xhr.status === 401) {
-            handleJpegLoader401(xhr, reject);
-            return;
-          }
-          if (xhr.status === 406) {
-            handleJpegLoader406(xhr, reject);
-            return;
-          }
-          if (xhr.status < 200 || xhr.status >= 300) {
-            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
-            return;
-          }
-          const jpegBlob = xhr.response;
-          if (!jpegBlob || !(jpegBlob instanceof Blob)) {
-            reject(new Error('Invalid JPEG response'));
-            return;
-          }
-          dispatchJPEGLoadProgress(imageId, 1, true);
-          processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject);
-        } catch (err) {
-          reject(err);
-        }
-      };
-
-      xhr.onerror = () => {
-        reject(new Error('Network error loading JPEG'));
-      };
-
-      xhr.onabort = () => {
-        reject(new Error('Request aborted'));
-      };
-
-      xhr.send();
-    } catch (error) {
-      reject(new Error(`Failed to load JPEG image: ${error.message}`));
     }
+
+    xhr.onload = () => {
+      try {
+        if (xhr.status === 401) {
+          handleJpegLoader401(xhr, reject);
+          return;
+        }
+        if (xhr.status === 406) {
+          handleJpegLoader406(xhr, reject);
+          return;
+        }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+          return;
+        }
+
+        const jpegBlob = xhr.response;
+        if (!jpegBlob || !(jpegBlob instanceof Blob)) {
+          reject(new Error('Invalid JPEG response'));
+          return;
+        }
+
+        if (imageId) {
+          dispatchJPEGLoadProgress(imageId, 1, true);
+        }
+
+        resolve(jpegBlob);
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('Network error loading JPEG'));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error('Request aborted'));
+    };
+
+    xhr.send();
   });
 
   return {
-    promise: promise,
+    promise,
     cancel: () => {
       if (xhr && xhr.readyState !== 4) {
         xhr.abort();
       }
     },
+  };
+}
+
+function loadJPEGImage(imageId) {
+  const jpegUrl = buildJpegUrlFromImageId(imageId);
+  const { promise, cancel } = requestJpegBlob(jpegUrl, {
+    imageId,
+    onProgress: progress => dispatchJPEGLoadProgress(imageId, progress, true),
+  });
+
+  const imagePromise = (async () => {
+    dispatchJPEGLoadProgress(imageId, 0, true);
+    const jpegBlob = await promise;
+    return new Promise((resolve, reject) => {
+      processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject);
+    });
+  })();
+
+  return {
+    promise: imagePromise,
+    cancel,
   };
 }
 
