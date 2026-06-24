@@ -197,10 +197,15 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN
             : null;
         const azureToken = azureTokenFromConfig || azureTokenFromWindow || null;
-        const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
 
-        if (isAzureDicomV2 && !preferCookieAuth && azureToken && azureToken !== azurePlaceholder) {
-          xhrRequestHeaders.Authorization = `Bearer ${azureToken}`;
+        if (
+          isAzureDicomV2 &&
+          !preferCookieAuth &&
+          azureToken &&
+          typeof azureToken === 'string' &&
+          azureToken.trim()
+        ) {
+          xhrRequestHeaders.Authorization = `Bearer ${azureToken.trim()}`;
           return xhrRequestHeaders;
         }
 

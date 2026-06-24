@@ -10,6 +10,7 @@
  * - REACT_APP_RIS_LOGIN_URL
  * - REACT_APP_RIS_API_BASE
  * - REACT_APP_BACKEND_HOTKEY_URL (full …/api/v1/preferences base)
+ * - RIS_PROD_PORTAL_ORIGIN / RIS_PROD_API_BASE / RIS_DEV_PORTAL_ORIGIN / RIS_DEV_API_BASE
  */
 
 export type RisAppConfigSlice = {
@@ -37,12 +38,32 @@ function readEnv(key: string): string | undefined {
   return v.trim();
 }
 
-// Local developer RIS portal origin (used only when appConfig.isDev === true).
-const RIS_DEV_PORTAL_ORIGIN = 'http://localhost:5173';
-const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
-const RIS_DEV_API_BASE =
-  'http://localhost:5001';
-const RIS_PROD_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+const RIS_DEV_PORTAL_ORIGIN = readEnv('RIS_DEV_PORTAL_ORIGIN') || 'http://localhost:5173';
+const RIS_DEV_API_BASE = readEnv('RIS_DEV_API_BASE') || 'http://localhost:5001';
+
+function readRisProdPortalOrigin(): string {
+  return readEnv('RIS_PROD_PORTAL_ORIGIN') || '';
+}
+
+function readRisProdApiBase(): string {
+  return readEnv('RIS_PROD_API_BASE') || '';
+}
+
+function readRisPortalFromWindowConfig(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const cfg = (window as unknown as { config?: RisAppConfigSlice }).config;
+  const worklist = cfg?.risWorklistUrl?.trim();
+  if (worklist) {
+    try {
+      return new URL(worklist).origin;
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined;
+}
 
 function isRisDevMode(appConfig?: RisAppConfigSlice | null): boolean {
   if (appConfig?.isDev === true) {
@@ -64,24 +85,42 @@ function isRisDevMode(appConfig?: RisAppConfigSlice | null): boolean {
 }
 
 function getFallbackRisPortalOrigin(appConfig?: RisAppConfigSlice | null): string {
-  return isRisDevMode(appConfig) ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
+  if (isRisDevMode(appConfig)) {
+    return RIS_DEV_PORTAL_ORIGIN;
+  }
+  return readRisProdPortalOrigin() || readRisPortalFromWindowConfig() || '';
 }
 
 function getFallbackRisApiBase(appConfig?: RisAppConfigSlice | null): string {
-  return isRisDevMode(appConfig) ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
+  if (isRisDevMode(appConfig)) {
+    return RIS_DEV_API_BASE;
+  }
+  const fromWindow =
+    typeof window !== 'undefined'
+      ? (window as unknown as { config?: RisAppConfigSlice }).config?.risApiBase?.trim()
+      : undefined;
+  if (fromWindow) {
+    return fromWindow.replace(/\/$/, '');
+  }
+  return readRisProdApiBase();
 }
 
 export function getDefaultRisWorklistUrl(appConfig?: RisAppConfigSlice | null): string {
-  return (
-    readEnv('REACT_APP_RIS_WORKLIST_URL') ||
-    `${getFallbackRisPortalOrigin(appConfig)}/worklist`
-  );
+  const fromEnv = readEnv('REACT_APP_RIS_WORKLIST_URL');
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const portal = getFallbackRisPortalOrigin(appConfig);
+  return portal ? `${portal}/worklist` : '';
 }
 
 export function getDefaultRisLoginUrl(appConfig?: RisAppConfigSlice | null): string {
-  return (
-    readEnv('REACT_APP_RIS_LOGIN_URL') || `${getFallbackRisPortalOrigin(appConfig)}/login`
-  );
+  const fromEnv = readEnv('REACT_APP_RIS_LOGIN_URL');
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const portal = getFallbackRisPortalOrigin(appConfig);
+  return portal ? `${portal}/login` : '';
 }
 
 export function getDefaultRisApiBase(appConfig?: RisAppConfigSlice | null): string {
@@ -90,10 +129,14 @@ export function getDefaultRisApiBase(appConfig?: RisAppConfigSlice | null): stri
 
 export function getDefaultRisPortalOrigin(appConfig?: RisAppConfigSlice | null): string {
   try {
-    return new URL(getDefaultRisWorklistUrl(appConfig)).origin;
+    const worklist = getDefaultRisWorklistUrl(appConfig);
+    if (worklist) {
+      return new URL(worklist).origin;
+    }
   } catch {
-    return getFallbackRisPortalOrigin(appConfig);
+    /* fall through */
   }
+  return getFallbackRisPortalOrigin(appConfig);
 }
 
 export function resolveRisApiBaseFromConfig(appConfig?: RisAppConfigSlice | null): string {
@@ -110,7 +153,7 @@ export function resolveRisPreferencesApiBaseUrl(appConfig?: RisAppConfigSlice | 
     return fromEnv.replace(/\/$/, '');
   }
   const base = getDefaultRisApiBase(appConfig).replace(/\/$/, '');
-  return `${base}/api/v1/preferences`;
+  return base ? `${base}/api/v1/preferences` : '';
 }
 
 const DEFAULT_VIEW_DICOM_IMG_PATH = '/api/v1/handleDicom/viewDicomImg';

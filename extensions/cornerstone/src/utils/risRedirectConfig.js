@@ -15,12 +15,31 @@ function readEnv(key) {
   return v.trim();
 }
 
-// Local developer RIS portal origin (used only when appConfig.isDev === true).
-const RIS_DEV_PORTAL_ORIGIN = 'http://localhost:5173';
-const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
-const RIS_DEV_API_BASE = 'http://localhost:5001';
-const RIS_PROD_API_BASE =
-  'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+const RIS_DEV_PORTAL_ORIGIN = readEnv('RIS_DEV_PORTAL_ORIGIN') || 'http://localhost:5173';
+const RIS_DEV_API_BASE = readEnv('RIS_DEV_API_BASE') || 'http://localhost:5001';
+
+function readRisProdPortalOrigin() {
+  return readEnv('RIS_PROD_PORTAL_ORIGIN') || '';
+}
+
+function readRisProdApiBase() {
+  return readEnv('RIS_PROD_API_BASE') || '';
+}
+
+function readRisPortalFromWindowConfig() {
+  if (typeof window === 'undefined' || !window.config) {
+    return undefined;
+  }
+  const worklist = window.config.risWorklistUrl?.trim();
+  if (worklist) {
+    try {
+      return new URL(worklist).origin;
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined;
+}
 
 function isRisDevMode(appConfig) {
   if (appConfig?.isDev === true) {
@@ -41,12 +60,23 @@ function isRisDevMode(appConfig) {
 }
 
 function getFallbackRisLoginUrl(appConfig) {
-  const origin = isRisDevMode(appConfig) ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
-  return `${origin}/login`;
+  if (isRisDevMode(appConfig)) {
+    return `${RIS_DEV_PORTAL_ORIGIN}/login`;
+  }
+  const portal = readRisProdPortalOrigin() || readRisPortalFromWindowConfig() || '';
+  return portal ? `${portal}/login` : '';
 }
 
 function getFallbackRisApiBase(appConfig) {
-  return isRisDevMode(appConfig) ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
+  if (isRisDevMode(appConfig)) {
+    return RIS_DEV_API_BASE;
+  }
+  const fromWindow =
+    typeof window !== 'undefined' ? window.config?.risApiBase?.trim() : undefined;
+  if (fromWindow) {
+    return fromWindow.replace(/\/$/, '');
+  }
+  return readRisProdApiBase();
 }
 
 export function isRedirectToRisOn401Enabled(appConfig) {
@@ -75,5 +105,5 @@ export function resolveRisPreferencesApiBaseUrlLocal(appConfig) {
     /\/$/,
     ''
   );
-  return `${base}/api/v1/preferences`;
+  return base ? `${base}/api/v1/preferences` : '';
 }

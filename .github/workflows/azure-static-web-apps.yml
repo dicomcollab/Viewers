@@ -41,9 +41,15 @@ jobs:
           RIS_PROD_API_BASE: ${{ secrets.RIS_PROD_API_BASE }}
           RIS_DEV_PORTAL_ORIGIN: ${{ secrets.RIS_DEV_PORTAL_ORIGIN }}
           RIS_DEV_API_BASE: ${{ secrets.RIS_DEV_API_BASE }}
+          DEMO_STUDY_UID: ${{ secrets.DEMO_STUDY_UID }}
+          CSP_FRAME_ANCESTORS: ${{ secrets.CSP_FRAME_ANCESTORS }}
 
-      - name: Copy staticwebapp.config.json
-        run: cp platform/app/staticwebapp.config.json platform/app/dist/
+      - name: Verify no credentials in app-config
+        run: |
+          if grep -iE 'DEMO_TOKEN|YOUR_AZURE_DICOM|Basic [A-Za-z0-9+/=]{20,}|password\s*[:=]' platform/app/dist/app-config.js; then
+            echo "Sensitive values found in built app-config.js"
+            exit 1
+          fi
 
       - name: Install SWA CLI
         run: npm install -g @azure/static-web-apps-cli
