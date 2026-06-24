@@ -37,10 +37,11 @@ function readEnv(key: string): string | undefined {
   return v.trim();
 }
 
-const RIS_DEV_PORTAL_ORIGIN = 'http://192.168.1.120:5173';
+// Local developer RIS portal origin (used only when appConfig.isDev === true).
+const RIS_DEV_PORTAL_ORIGIN = 'http://localhost:5173';
 const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
 const RIS_DEV_API_BASE =
-  'http://192.168.1.120:5001';
+  'http://localhost:5001';
 const RIS_PROD_API_BASE = 'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
 
 function isRisDevMode(appConfig?: RisAppConfigSlice | null): boolean {
@@ -120,13 +121,6 @@ const DEFAULT_VIEW_DICOM_IMG_PATH = '/api/v1/handleDicom/viewDicomImg';
 export function getRisAuthTokenFromBrowserCookies(): string | null {
   if (typeof window === 'undefined') {
     return null;
-  }
-  const getDemo = (window as unknown as { getDemoToken?: () => string | null }).getDemoToken;
-  if (typeof getDemo === 'function') {
-    const demo = getDemo();
-    if (demo) {
-      return demo;
-    }
   }
   if (typeof document === 'undefined' || !document.cookie) {
     return null;

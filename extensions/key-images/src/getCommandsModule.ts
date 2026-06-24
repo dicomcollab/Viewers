@@ -229,7 +229,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         uiNotificationService.show({
           title: 'Key Images',
           message:
-            'Missing API credentials. Set keyImagesBasicAuthToken or keyImagesAuthorization in app config.',
+            'Missing API credentials. Sign in to RIS or open the viewer from an authenticated session.',
           type: 'error',
         });
         return;

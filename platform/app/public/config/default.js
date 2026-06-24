@@ -1,17 +1,8 @@
-// Demo token - Set your basic token here for the demo datasource
-// This will be sent as: Authorization: Basic YOUR_TOKEN
-// Example: If token is "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV"
-// It will be sent as: Authorization: Basic QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV
-const DEMO_TOKEN =
-  'QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz'; // Replace with your actual token (e.g., "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpCN1g5VjNMUTJaVzhNNlJGRDBKNVBZVDRLTjFHSFNV")
+// Viewer app config — no credentials in this file (served publicly as app-config.js).
+// Deployment URLs are injected at build time via scripts/generate-app-config.mjs (%%PLACEHOLDER%%).
+// PACS access uses session JWT (cookie) or short-lived viewer-access tokens from RIS API.
 
-/**
- * Base64(user:pass) for URLs under /external/viewer — Authorization: Basic …
- * No cookie/session token required for PACS on that route. Change per environment.
- */
-const EXTERNAL_VIEWER_BASIC_TOKEN = DEMO_TOKEN;
-
-// Demo study UID - Only this study will use the demo token
+// Demo study UID — demo route only; token is fetched from RIS when ALLOW_DEMO_VIEWER_TOKEN is enabled server-side.
 const DEMO_STUDY_UID = '1.2.840.113619.2.55.3.4271045733.996.1449464144.595';
 
 // ---------------------------------------------------------------------------
@@ -75,14 +66,67 @@ function resolvePacsIntegrationFromDicomSourceCookie() {
 
 const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
 
+function resolveEnvUrl(value, devFallback) {
+  if (typeof value === 'string' && value.startsWith('%%') && value.endsWith('%%')) {
+    return devFallback;
+  }
+  return value;
+}
+
+function getCookie(name) {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const nameEQ = name + '=';
+  const cookies = document.cookie.split(';');
+  for (let i = 0; i < cookies.length; i++) {
+    let cookie = cookies[i].trim();
+    if (cookie.indexOf(nameEQ) === 0) {
+      try {
+        return decodeURIComponent(cookie.substring(nameEQ.length).trim());
+      } catch (_) {
+        return cookie.substring(nameEQ.length).trim();
+      }
+    }
+  }
+  return null;
+}
+
+function getTokenFromCookie() {
+  return (
+    getCookie('token') ||
+    getCookie('patientToken') ||
+    getCookie('accessToken') ||
+    getCookie('authToken') ||
+    getCookie('jwt') ||
+    null
+  );
+}
+
+// RIS environment toggle — set true for local RIS dev; false for Synapse production.
+const isDev = false;
+
+// Dev values are localhost-only; actual dev/prod URLs are injected via env at build time.
+const RIS_DEV_PORTAL_ORIGIN = resolveEnvUrl('%%RIS_DEV_PORTAL_ORIGIN%%', 'http://localhost:5173');
+const RIS_PROD_PORTAL_ORIGIN = resolveEnvUrl('%%RIS_PROD_PORTAL_ORIGIN%%', 'https://synapse.med-pacs.com');
+const RIS_DEV_API_BASE = resolveEnvUrl('%%RIS_DEV_API_BASE%%', 'http://localhost:5001');
+const RIS_PROD_API_BASE = resolveEnvUrl(
+  '%%RIS_PROD_API_BASE%%',
+  'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net'
+);
+const RIS_PORTAL_ORIGIN = isDev ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
+const RIS_API_BASE = isDev ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
+
 // When true, /dicomservice/* uses the same Bearer token as Med-PACS (cookieAuth). Set false if you call Azure Healthcare APIs directly with AZURE_PACS_TOKEN.
 const AZURE_PACS_PREFER_COOKIE_AUTH = true;
 
-const MED_PACS_DICOMWEB_API_ROOT =
-  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api';
+const MED_PACS_DICOMWEB_API_ROOT = resolveEnvUrl(
+  '%%MED_PACS_DICOMWEB_API_ROOT%%',
+  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api'
+);
 // Legacy separate /wadouri path (JPEG WADO-URI). Raw DICOM WADO-URI uses MED_PACS_DICOMWEB_API_ROOT + query params.
-const MED_PACS_DICOMWEB_WADOURI_ROOT =
-  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri';
+const MED_PACS_DICOMWEB_WADOURI_ROOT = resolveEnvUrl(
+  '%%MED_PACS_DICOMWEB_WADOURI_ROOT%%',
+  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri'
+);
 
 const AZURE_PACS_TOKEN_PLACEHOLDER = 'YOUR_AZURE_DICOM_TOKEN_HERE';
 let AZURE_PACS_INITIAL_TOKEN = AZURE_PACS_TOKEN_PLACEHOLDER;
@@ -116,8 +160,10 @@ function updateAzurePacsTokenEverywhere(newToken) {
 
 // Azure PACS: same host as Med-PACS DICOMweb; your API proxies /dicomservice/* to Azure Healthcare DICOM.
 // getAzureDicomV2BaseUrl() appends /v2; DicomWebDataSource maps .../v2 -> .../dicomservice when pacsIntegration is azurepacs.
-const AZURE_DICOM_SERVICE_URL =
-  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net';
+const AZURE_DICOM_SERVICE_URL = resolveEnvUrl(
+  '%%AZURE_DICOM_SERVICE_URL%%',
+  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net'
+);
 
 function getAzureDicomV2BaseUrl() {
   const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
@@ -220,13 +266,54 @@ function isDemoRoute() {
   );
 }
 
-// Function to get demo token if on demo route
+// Function to get demo access token if on demo route (fetched from RIS; never hardcoded).
+let _cachedDemoAccessToken = null;
+async function fetchDemoAccessToken() {
+  if (_cachedDemoAccessToken) {
+    return _cachedDemoAccessToken;
+  }
+  const studyUIDs =
+    typeof window !== 'undefined' && window.location
+      ? new URLSearchParams(window.location.search).get('StudyInstanceUIDs') ||
+        new URLSearchParams(window.location.search).get('studyInstanceUIDs')
+      : null;
+  if (!studyUIDs) {
+    return null;
+  }
+  const url = `${RIS_API_BASE}/api/v1/viewer/access-token`;
+  try {
+    const sessionToken = getTokenFromCookie();
+    const headers = { 'Content-Type': 'application/json' };
+    if (sessionToken) {
+      headers.Authorization = `Bearer ${sessionToken}`;
+      headers.token = sessionToken;
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        purpose: 'viewer-demo',
+        studyInstanceUID: studyUIDs.split(',')[0],
+      }),
+    });
+    const json = await res.json();
+    if (json?.error === false && json?.data?.viewerAccessToken) {
+      _cachedDemoAccessToken = json.data.viewerAccessToken;
+      return _cachedDemoAccessToken;
+    }
+  } catch (_) {
+    /* demo token unavailable */
+  }
+  return null;
+}
+
 function getDemoToken() {
   if (!isDemoRoute()) {
     return null;
   }
-  if (DEMO_TOKEN && DEMO_TOKEN !== 'YOUR_DEMO_TOKEN_HERE') {
-    return DEMO_TOKEN;
+  if (typeof window !== 'undefined' && window._demoViewerAccessToken) {
+    return window._demoViewerAccessToken;
   }
   return null;
 }
@@ -261,34 +348,55 @@ function isExternalViewerRoute() {
   return path === '/external/viewer' || path.startsWith('/external/viewer/');
 }
 
-/** Credential used for DICOMweb when pathname is /external/viewer (or /external/viewer/:source) */
-function getExternalViewerBasicToken() {
+/** Credential used for DICOMweb when pathname is /external/viewer (short-lived JWT via ?accessToken= or RIS session) */
+function getExternalViewerAccessToken() {
   if (!isExternalViewerRoute()) {
     return null;
   }
-  if (
-    EXTERNAL_VIEWER_BASIC_TOKEN &&
-    EXTERNAL_VIEWER_BASIC_TOKEN !== 'YOUR_EXTERNAL_VIEWER_BASIC_TOKEN_HERE'
-  ) {
-    return EXTERNAL_VIEWER_BASIC_TOKEN;
+  if (typeof window === 'undefined' || !window.location) {
+    return null;
   }
-  return null;
+  const urlParams = new URLSearchParams(window.location.search);
+  const fromQuery = urlParams.get('accessToken') || urlParams.get('viewerAccessToken');
+  if (fromQuery && fromQuery.trim()) {
+    return fromQuery.trim();
+  }
+  return window._externalViewerAccessToken || getTokenFromCookie() || null;
 }
 
-// RIS environment toggle — set true for local RIS dev; false for Synapse production.
-// Align with platform/core risEnvironmentDefaults when changing these URLs.
-const isDev = false;
+/** @deprecated use getExternalViewerAccessToken — kept for callers expecting old name */
+function getExternalViewerBasicToken() {
+  return getExternalViewerAccessToken();
+}
 
-const RIS_DEV_PORTAL_ORIGIN = 'http://192.168.1.120:5173';
-const RIS_PROD_PORTAL_ORIGIN = 'https://synapse.med-pacs.com';
-const RIS_DEV_API_BASE = 'http://192.168.1.120:5001';
-const RIS_PROD_API_BASE =
-  'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net';
+function getViewerProxyApiRoot() {
+  return `${String(RIS_API_BASE).replace(/\/$/, '')}/api/v1/viewer/dicomweb`;
+}
 
-const RIS_PORTAL_ORIGIN = isDev ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
-const RIS_API_BASE = isDev ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
-// Use same token as demo for share links, or set a dedicated share-link read-only token
-const SHARE_LINK_BASIC_TOKEN = DEMO_TOKEN;
+function getViewerProxyWadoUriRoot() {
+  return `${String(RIS_API_BASE).replace(/\/$/, '')}/api/v1/viewer/wadouri`;
+}
+
+function usesViewerAccessProxy() {
+  if (isShareLinkMode() && getShareLinkAccessToken()) {
+    return true;
+  }
+  if (isExternalViewerRoute() && getExternalViewerAccessToken()) {
+    return true;
+  }
+  if (isDemoRoute() && getDemoToken()) {
+    return true;
+  }
+  return false;
+}
+
+function getActiveDicomWebApiRoot() {
+  return usesViewerAccessProxy() ? getViewerProxyApiRoot() : MED_PACS_DICOMWEB_API_ROOT;
+}
+
+function getActiveDicomWebWadoUriRoot() {
+  return usesViewerAccessProxy() ? getViewerProxyWadoUriRoot() : MED_PACS_DICOMWEB_WADOURI_ROOT;
+}
 
 function getShortCodeFromUrl() {
   if (typeof window === 'undefined' || !window.location) return null;
@@ -333,10 +441,15 @@ async function checkShortCodeExpiry(shortCode) {
             isExpired: json.data.isExpired,
             expiresAt: json.data.expiresAt,
             studyInstanceUID: json.data.studyInstanceUID,
+            pinRequired: json.data.pinRequired,
+            viewerAccessToken: json.data.viewerAccessToken || null,
           }
         : { isExpired: true };
     if (typeof window !== 'undefined') {
       window['_shareLinkExpiry'] = expiryState;
+      if (expiryState.viewerAccessToken) {
+        window._shareLinkViewerAccessToken = expiryState.viewerAccessToken;
+      }
     }
     _shareLinkExpiryCache = {
       apiResponse: json,
@@ -369,31 +482,77 @@ function getShareLinkExpiryResult() {
   return typeof window !== 'undefined' ? window['_shareLinkExpiry'] : null;
 }
 
-function getShareLinkBasicToken() {
+function getShareLinkAccessToken() {
   if (!isShareLinkMode()) return null;
+  if (typeof window !== 'undefined' && window.location) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromQuery = urlParams.get('accessToken') || urlParams.get('viewerAccessToken');
+    if (fromQuery && fromQuery.trim()) {
+      return fromQuery.trim();
+    }
+  }
   const result = getShareLinkExpiryResult();
   if (!result || result.isExpired) return null;
-  return SHARE_LINK_BASIC_TOKEN && SHARE_LINK_BASIC_TOKEN !== 'YOUR_DEMO_TOKEN_HERE'
-    ? SHARE_LINK_BASIC_TOKEN
-    : null;
+  if (typeof window !== 'undefined' && window._shareLinkViewerAccessToken) {
+    return window._shareLinkViewerAccessToken;
+  }
+  return result.viewerAccessToken || null;
 }
 
-// Make demo token globally accessible for extensions
+/** @deprecated — returns viewer-access JWT (Bearer), not Basic */
+function getShareLinkBasicToken() {
+  return getShareLinkAccessToken();
+}
+
+/**
+ * Bearer token for viewer-access proxy (share / external / demo). Session cookie JWT for normal login.
+ */
+function getViewerAccessBearerToken() {
+  if (isShareLinkMode()) {
+    return getShareLinkAccessToken();
+  }
+  if (isExternalViewerRoute()) {
+    return getExternalViewerAccessToken();
+  }
+  if (isDemoRoute()) {
+    return getDemoToken();
+  }
+  return getTokenFromCookie();
+}
+
+function applyProxyAwareDicomWebRoots(config) {
+  if (!usesViewerAccessProxy()) {
+    return config;
+  }
+  const apiRoot = getViewerProxyApiRoot();
+  const wadoUriRoot = getViewerProxyWadoUriRoot();
+  const usesSeparateWadoUri =
+    config.wadoUriRoot &&
+    config.qidoRoot &&
+    String(config.wadoUriRoot).replace(/\/$/, '') !== String(config.qidoRoot).replace(/\/$/, '');
+  config.qidoRoot = apiRoot;
+  config.wadoRoot = apiRoot;
+  config.wadoUriRoot = usesSeparateWadoUri ? wadoUriRoot : apiRoot;
+  return config;
+}
+
+// Auth helpers exposed to extensions (no secrets on window)
 if (typeof window !== 'undefined') {
-  // @ts-expect-error - Adding custom property to window
-  window.DEMO_TOKEN = DEMO_TOKEN;
-  // @ts-expect-error - Adding custom property to window
   window.DEMO_STUDY_UID = DEMO_STUDY_UID;
   window.isDemoRoute = isDemoRoute;
   window.getDemoToken = getDemoToken;
+  window.fetchDemoAccessToken = fetchDemoAccessToken;
   window.isExternalViewerRoute = isExternalViewerRoute;
+  window.getExternalViewerAccessToken = getExternalViewerAccessToken;
   window.getExternalViewerBasicToken = getExternalViewerBasicToken;
-  // Share link (ShortCode) helpers
+  window.getViewerAccessBearerToken = getViewerAccessBearerToken;
   window.getShortCodeFromUrl = getShortCodeFromUrl;
   window.checkShortCodeExpiry = checkShortCodeExpiry;
   window.isShareLinkMode = isShareLinkMode;
   window.getShareLinkExpiryResult = getShareLinkExpiryResult;
+  window.getShareLinkAccessToken = getShareLinkAccessToken;
   window.getShareLinkBasicToken = getShareLinkBasicToken;
+  window.applyProxyAwareDicomWebRoots = applyProxyAwareDicomWebRoots;
   if (PACS_INTEGRATION === 'azurepacs') {
     if (!AZURE_PACS_PREFER_COOKIE_AUTH) {
       window.AZURE_PACS_TOKEN = _cachedAzurePacsToken;
@@ -404,47 +563,11 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// Helper function to get token from cookie (token or patientToken - either is passed to PACS API)
-function getTokenFromCookie() {
-  // Check for demo token first
-  const demoToken = getDemoToken();
-  if (demoToken) {
-    return demoToken;
-  }
-  // Otherwise get token from cookie: try token then patientToken (parent app may set either)
-  return (
-    getCookie('token') ||
-    getCookie('patientToken') ||
-    getCookie('accessToken') ||
-    getCookie('authToken') ||
-    getCookie('jwt') ||
-    null
-  );
-}
-
 // Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
 let _preferencesPromise = null;
 let _preferencesCache = undefined;
 
 const USER_PREFERENCES_COOKIE_PREFIX = 'userPreferences_';
-
-/**
- * Get a cookie value by name from document.cookie
- * @param {string} name - Cookie name
- * @returns {string|null} Cookie value or null
- */
-function getCookie(name) {
-  if (typeof document === 'undefined' || !document.cookie) return null;
-  const nameEQ = name + '=';
-  const cookies = document.cookie.split(';');
-  for (let i = 0; i < cookies.length; i++) {
-    let cookie = cookies[i].trim();
-    if (cookie.indexOf(nameEQ) === 0) {
-      return decodeURIComponent(cookie.substring(nameEQ.length).trim());
-    }
-  }
-  return null;
-}
 
 /**
  * Parse a cookie value that may be a JSON string (e.g. "#d952e6" or "[{...}]")
@@ -898,10 +1021,7 @@ function getClinicalDicomWebDataSources() {
           ],
           isAzureDicomV2: true,
           azureToken: token,
-          onConfiguration: config => {
-            config._demoToken = DEMO_TOKEN;
-            return config;
-          },
+          onConfiguration: config => applyProxyAwareDicomWebRoots(config),
           requestOptions: {},
         },
       },
@@ -1037,10 +1157,7 @@ function getClinicalDicomWebDataSources() {
           transform: url => url.replace('/pixeldata.mp4', '/rendered'),
         },
         omitQuotationForMultipartRequest: true,
-        onConfiguration: config => {
-          config._demoToken = DEMO_TOKEN;
-          return config;
-        },
+        onConfiguration: config => applyProxyAwareDicomWebRoots(config),
         requestOptions: {},
       },
     },
@@ -1083,8 +1200,8 @@ window.config = {
   createReportAppBaseUrl: isDev ? RIS_DEV_PORTAL_ORIGIN : undefined,
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: true,
-  redirectToRisOn401: true,
+  redirectRootToRis: false,
+  redirectToRisOn401: false,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1094,12 +1211,8 @@ window.config = {
   risApiBase: RIS_API_BASE,
   // SR text push endpoint (used by SR text viewport "Send SR Text to RIS" button)
   risSrTextUploadPath: '/api/v1/structured-report/send-text',
-  keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images/upload`,
-  // Pre-encoded Basic token (Authorization: Basic <token>). Same pattern as DEMO_TOKEN / DicomWeb.
-  keyImagesBasicAuthToken: DEMO_TOKEN,
-  keyImagesAuthorization: `Basic ${DEMO_TOKEN}`,
-  // Legacy user:pass (runtime btoa) — prefer keyImagesBasicAuthToken above.
-  // keyImagesBasicAuth: 'user:pass',
+  keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images-user/upload`,
+  // JWT session auth via cookie (see getKeyImagesAuthHeader) — no Basic credentials in client config.
   // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,

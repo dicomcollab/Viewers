@@ -170,19 +170,19 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
 
-        // /external/viewer: embedded link with fixed Basic auth (no cookie/session)
-        const externalViewerBasic =
+        const viewerBearer =
           typeof window !== 'undefined' &&
-          (window as unknown as { getExternalViewerBasicToken?: () => string | null })
-            .getExternalViewerBasicToken &&
-          typeof (window as unknown as { getExternalViewerBasicToken: () => string | null })
-            .getExternalViewerBasicToken === 'function'
+          (window as unknown as { getViewerAccessBearerToken?: () => string | null })
+            .getViewerAccessBearerToken &&
+          typeof (window as unknown as { getViewerAccessBearerToken: () => string | null })
+            .getViewerAccessBearerToken === 'function'
             ? (
-                window as unknown as { getExternalViewerBasicToken: () => string | null }
-              ).getExternalViewerBasicToken()
+                window as unknown as { getViewerAccessBearerToken: () => string | null }
+              ).getViewerAccessBearerToken()
             : null;
-        if (externalViewerBasic) {
-          xhrRequestHeaders.Authorization = `Basic ${externalViewerBasic}`;
+
+        if (viewerBearer) {
+          xhrRequestHeaders.Authorization = `Bearer ${viewerBearer}`;
           return xhrRequestHeaders;
         }
 
@@ -201,41 +201,6 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
 
         if (isAzureDicomV2 && !preferCookieAuth && azureToken && azureToken !== azurePlaceholder) {
           xhrRequestHeaders.Authorization = `Bearer ${azureToken}`;
-          return xhrRequestHeaders;
-        }
-
-        // Check if we're on a demo route and use demo token
-        // @ts-expect-error - Accessing custom property on window
-        const isDemo =
-          typeof window !== 'undefined' &&
-          window.isDemoRoute &&
-          typeof window.isDemoRoute === 'function'
-            ? window.isDemoRoute()
-            : false;
-        // @ts-expect-error - Accessing custom property on window
-        const demoToken =
-          typeof window !== 'undefined' &&
-          window.getDemoToken &&
-          typeof window.getDemoToken === 'function'
-            ? window.getDemoToken()
-            : null;
-
-        if (isDemo && demoToken) {
-          // Use Basic auth for demo token
-          xhrRequestHeaders.Authorization = `Basic ${demoToken}`;
-          return xhrRequestHeaders;
-        }
-
-        // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
-        // @ts-expect-error - Share link helpers from app config
-        const shareLinkToken =
-          typeof window !== 'undefined' &&
-          window.getShareLinkBasicToken &&
-          typeof window.getShareLinkBasicToken === 'function'
-            ? window.getShareLinkBasicToken()
-            : null;
-        if (shareLinkToken) {
-          xhrRequestHeaders.Authorization = `Basic ${shareLinkToken}`;
           return xhrRequestHeaders;
         }
 

@@ -154,6 +154,24 @@ export default function ModeRoute({
           if (!window.closed) window.location.href = '/';
           return;
         }
+        if (result?.data?.pinRequired && !result?.data?.viewerAccessToken) {
+          window.alert('This share link requires an access code. Open the link from the email or worklist share flow.');
+          return;
+        }
+      }
+
+      if (
+        typeof window !== 'undefined' &&
+        window.isDemoRoute &&
+        typeof window.isDemoRoute === 'function' &&
+        window.isDemoRoute() &&
+        window.fetchDemoAccessToken &&
+        typeof window.fetchDemoAccessToken === 'function'
+      ) {
+        const demoToken = await window.fetchDemoAccessToken();
+        if (demoToken) {
+          window._demoViewerAccessToken = demoToken;
+        }
       }
 
       await dataSource.initialize({

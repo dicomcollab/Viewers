@@ -339,41 +339,18 @@ function buildJpegUrlFromImageId(imageId) {
 }
 
 function buildJpegAuthHeader() {
-  const token = getTokenFromCookie();
-  const externalViewerBasic =
+  const viewerBearer =
     typeof window !== 'undefined' &&
-    window.getExternalViewerBasicToken &&
-    typeof window.getExternalViewerBasicToken === 'function'
-      ? window.getExternalViewerBasicToken()
-      : null;
-  const isDemo =
-    typeof window !== 'undefined' &&
-    window.isDemoRoute &&
-    typeof window.isDemoRoute === 'function'
-      ? window.isDemoRoute()
-      : false;
-  const demoToken =
-    typeof window !== 'undefined' &&
-    window.getDemoToken &&
-    typeof window.getDemoToken === 'function'
-      ? window.getDemoToken()
-      : null;
-  const shareLinkToken =
-    typeof window !== 'undefined' &&
-    window.getShareLinkBasicToken &&
-    typeof window.getShareLinkBasicToken === 'function'
-      ? window.getShareLinkBasicToken()
+    window.getViewerAccessBearerToken &&
+    typeof window.getViewerAccessBearerToken === 'function'
+      ? window.getViewerAccessBearerToken()
       : null;
 
-  if (externalViewerBasic) {
-    return `Basic ${externalViewerBasic}`;
+  if (viewerBearer) {
+    return `Bearer ${viewerBearer}`;
   }
-  if (isDemo && demoToken) {
-    return `Basic ${demoToken}`;
-  }
-  if (shareLinkToken) {
-    return `Basic ${shareLinkToken}`;
-  }
+
+  const token = getTokenFromCookie();
   if (token) {
     return `Bearer ${token}`;
   }

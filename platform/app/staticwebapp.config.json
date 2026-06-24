@@ -8,5 +8,9 @@
       "rewrite": "/index.html",
       "statusCode": 200
     }
+  },
+  "globalHeaders": {
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'self' https://synapse.med-pacs.com"
   }
 }
