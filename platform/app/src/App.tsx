@@ -246,12 +246,13 @@ function App({
             ).config
           : undefined;
       if (appCfg?.pacsIntegration === 'azurepacs' && !appCfg?.azurePacsPreferCookieAuth) {
-        // @ts-ignore - set in config/default.js when pacsIntegration is azurepacs
-        const azureToken = typeof window !== 'undefined' && window.AZURE_PACS_TOKEN;
-        const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
-        if (azureToken && typeof azureToken === 'string' && azureToken !== azurePlaceholder) {
+        const azureToken =
+          typeof window !== 'undefined'
+            ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN
+            : undefined;
+        if (azureToken && typeof azureToken === 'string' && azureToken.trim()) {
           return {
-            Authorization: `Bearer ${azureToken}`,
+            Authorization: `Bearer ${azureToken.trim()}`,
           };
         }
       }

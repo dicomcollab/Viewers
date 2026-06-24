@@ -11,6 +11,6 @@
   },
   "globalHeaders": {
     "X-Frame-Options": "DENY",
-    "Content-Security-Policy": "frame-ancestors 'self' https://synapse.med-pacs.com"
+    "Content-Security-Policy": "frame-ancestors %%CSP_FRAME_ANCESTORS%%"
   }
 }

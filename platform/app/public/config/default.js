@@ -1,14 +1,11 @@
 // Viewer app config — no credentials in this file (served publicly as app-config.js).
-// Deployment URLs are injected at build time via scripts/generate-app-config.mjs (%%PLACEHOLDER%%).
+// Deployment URLs and demo study UID are injected at build time via scripts/generate-app-config.mjs (%%PLACEHOLDER%%).
 // PACS access uses session JWT (cookie) or short-lived viewer-access tokens from RIS API.
-
-// Demo study UID — demo route only; token is fetched from RIS when ALLOW_DEMO_VIEWER_TOKEN is enabled server-side.
-const DEMO_STUDY_UID = '1.2.840.113619.2.55.3.4271045733.996.1449464144.595';
 
 // ---------------------------------------------------------------------------
 // PACS integration: driven by cookie userPreferences_dicomSourceType (read at load):
 //   "medpacs" -> medpacs; "dicom_service" -> azurepacs; missing/unknown -> medpacs
-// medpacs = Med-PACS DICOMweb (cookie/Basic, /api).
+// medpacs = Med-PACS DICOMweb (session JWT / viewer-access Bearer, /api).
 // azurepacs = DICOM service route (/dicomservice via resolver), same host as Med-PACS when proxied.
 // ---------------------------------------------------------------------------
 function readCookieRawForPacs(name) {
@@ -66,12 +63,28 @@ function resolvePacsIntegrationFromDicomSourceCookie() {
 
 const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
 
-function resolveEnvUrl(value, devFallback) {
+function resolveEnvValue(value, localDevFallback) {
   if (typeof value === 'string' && value.startsWith('%%') && value.endsWith('%%')) {
-    return devFallback;
+    return localDevFallback ?? '';
   }
   return value;
 }
+
+/** @deprecated use resolveEnvValue */
+function resolveEnvUrl(value, localDevFallback) {
+  return resolveEnvValue(value, localDevFallback);
+}
+
+function resolveEnvBoolean(value, fallback) {
+  if (typeof value === 'string' && value.startsWith('%%') && value.endsWith('%%')) {
+    return fallback;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes';
+}
+
+// Demo study UID — demo route only; token is fetched from RIS when ALLOW_DEMO_VIEWER_TOKEN is enabled server-side.
+const DEMO_STUDY_UID = resolveEnvValue('%%DEMO_STUDY_UID%%', '');
 
 function getCookie(name) {
   if (typeof document === 'undefined' || !document.cookie) return null;
@@ -101,51 +114,46 @@ function getTokenFromCookie() {
   );
 }
 
-// RIS environment toggle — set true for local RIS dev; false for Synapse production.
-const isDev = false;
+// RIS environment toggle — set VIEWER_IS_DEV=true in .env for local RIS dev.
+const isDev = resolveEnvBoolean('%%VIEWER_IS_DEV%%', false);
 
-// Dev values are localhost-only; actual dev/prod URLs are injected via env at build time.
-const RIS_DEV_PORTAL_ORIGIN = resolveEnvUrl('%%RIS_DEV_PORTAL_ORIGIN%%', 'http://localhost:5173');
-const RIS_PROD_PORTAL_ORIGIN = resolveEnvUrl('%%RIS_PROD_PORTAL_ORIGIN%%', 'https://synapse.med-pacs.com');
-const RIS_DEV_API_BASE = resolveEnvUrl('%%RIS_DEV_API_BASE%%', 'http://localhost:5001');
-const RIS_PROD_API_BASE = resolveEnvUrl(
-  '%%RIS_PROD_API_BASE%%',
-  'https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net'
-);
+// URLs from env at build time; localhost fallbacks only for local dev keys when unset.
+const RIS_DEV_PORTAL_ORIGIN = resolveEnvValue('%%RIS_DEV_PORTAL_ORIGIN%%', 'http://localhost:5173');
+const RIS_PROD_PORTAL_ORIGIN = resolveEnvValue('%%RIS_PROD_PORTAL_ORIGIN%%', '');
+const RIS_DEV_API_BASE = resolveEnvValue('%%RIS_DEV_API_BASE%%', 'http://localhost:5001');
+const RIS_PROD_API_BASE = resolveEnvValue('%%RIS_PROD_API_BASE%%', '');
 const RIS_PORTAL_ORIGIN = isDev ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
 const RIS_API_BASE = isDev ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
 
-// When true, /dicomservice/* uses the same Bearer token as Med-PACS (cookieAuth). Set false if you call Azure Healthcare APIs directly with AZURE_PACS_TOKEN.
+// When true, /dicomservice/* uses the same Bearer token as Med-PACS (cookieAuth).
 const AZURE_PACS_PREFER_COOKIE_AUTH = true;
 
-const MED_PACS_DICOMWEB_API_ROOT = resolveEnvUrl(
-  '%%MED_PACS_DICOMWEB_API_ROOT%%',
-  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api'
-);
+const MED_PACS_DICOMWEB_API_ROOT = resolveEnvValue('%%MED_PACS_DICOMWEB_API_ROOT%%', '');
 // Legacy separate /wadouri path (JPEG WADO-URI). Raw DICOM WADO-URI uses MED_PACS_DICOMWEB_API_ROOT + query params.
-const MED_PACS_DICOMWEB_WADOURI_ROOT = resolveEnvUrl(
-  '%%MED_PACS_DICOMWEB_WADOURI_ROOT%%',
-  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri'
-);
+const MED_PACS_DICOMWEB_WADOURI_ROOT = resolveEnvValue('%%MED_PACS_DICOMWEB_WADOURI_ROOT%%', '');
 
-const AZURE_PACS_TOKEN_PLACEHOLDER = 'YOUR_AZURE_DICOM_TOKEN_HERE';
-let AZURE_PACS_INITIAL_TOKEN = AZURE_PACS_TOKEN_PLACEHOLDER;
-let _cachedAzurePacsToken = AZURE_PACS_INITIAL_TOKEN;
+let _cachedAzurePacsToken = null;
 
 function getAzurePacsToken() {
+  if (AZURE_PACS_PREFER_COOKIE_AUTH) {
+    return null;
+  }
   return _cachedAzurePacsToken;
 }
 
 function updateAzurePacsTokenEverywhere(newToken) {
-  if (PACS_INTEGRATION !== 'azurepacs' || !newToken || typeof newToken !== 'string') {
+  if (
+    PACS_INTEGRATION !== 'azurepacs' ||
+    AZURE_PACS_PREFER_COOKIE_AUTH ||
+    !newToken ||
+    typeof newToken !== 'string'
+  ) {
     return;
   }
   _cachedAzurePacsToken = newToken;
   if (typeof window !== 'undefined') {
-    if (!AZURE_PACS_PREFER_COOKIE_AUTH) {
-      window.AZURE_PACS_TOKEN = newToken;
-    }
-    if (!AZURE_PACS_PREFER_COOKIE_AUTH && window.config && window.config.dataSources) {
+    window.AZURE_PACS_TOKEN = newToken;
+    if (window.config && window.config.dataSources) {
       window.config.dataSources.forEach(function (ds) {
         if (
           ds.configuration &&
@@ -160,10 +168,7 @@ function updateAzurePacsTokenEverywhere(newToken) {
 
 // Azure PACS: same host as Med-PACS DICOMweb; your API proxies /dicomservice/* to Azure Healthcare DICOM.
 // getAzureDicomV2BaseUrl() appends /v2; DicomWebDataSource maps .../v2 -> .../dicomservice when pacsIntegration is azurepacs.
-const AZURE_DICOM_SERVICE_URL = resolveEnvUrl(
-  '%%AZURE_DICOM_SERVICE_URL%%',
-  'https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net'
-);
+const AZURE_DICOM_SERVICE_URL = resolveEnvValue('%%AZURE_DICOM_SERVICE_URL%%', '');
 
 function getAzureDicomV2BaseUrl() {
   const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
@@ -259,6 +264,7 @@ function isDemoRoute() {
   const path = window.location.pathname;
   // Demo token: classic /demo route, or same study opened via localviewer-image-jpeg (redirected viewer)
   return (
+    !!DEMO_STUDY_UID &&
     studyUIDs === DEMO_STUDY_UID &&
     (path.includes('/viewer/demo') ||
       path.includes('/demo') ||
@@ -342,7 +348,7 @@ function getAppPathnameForAuthRoutes() {
   return path;
 }
 
-/** Longitudinal viewer opened as /external/viewer — same UI as /viewer, fixed Basic auth to PACS */
+/** Longitudinal viewer opened as /external/viewer — same UI as /viewer; JWT via ?accessToken= or RIS session */
 function isExternalViewerRoute() {
   const path = getAppPathnameForAuthRoutes();
   return path === '/external/viewer' || path.startsWith('/external/viewer/');
@@ -554,7 +560,7 @@ if (typeof window !== 'undefined') {
   window.getShareLinkBasicToken = getShareLinkBasicToken;
   window.applyProxyAwareDicomWebRoots = applyProxyAwareDicomWebRoots;
   if (PACS_INTEGRATION === 'azurepacs') {
-    if (!AZURE_PACS_PREFER_COOKIE_AUTH) {
+    if (!AZURE_PACS_PREFER_COOKIE_AUTH && _cachedAzurePacsToken) {
       window.AZURE_PACS_TOKEN = _cachedAzurePacsToken;
     }
     window.getAzurePacsToken = getAzurePacsToken;
@@ -1138,7 +1144,7 @@ function getClinicalDicomWebDataSources() {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'demo',
       configuration: {
-        friendlyName: 'Demo PACS (Hardcoded Token)',
+        friendlyName: 'Demo PACS (viewer-access proxy)',
         name: 'Demo PACS',
         wadoUriRoot: MED_PACS_DICOMWEB_API_ROOT,
         qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
@@ -1254,13 +1260,9 @@ window.config = {
   // Set enabled true and list your RIS origins (exact event.origin strings).
   risPostMessage: {
     enabled: false,
-    allowedOrigins: [
-      'http://localhost:5173',
-      RIS_DEV_PORTAL_ORIGIN,
-      RIS_PROD_PORTAL_ORIGIN,
-      RIS_PORTAL_ORIGIN,
-      // 'https://your-ris-production-origin',
-    ],
+    allowedOrigins: [RIS_DEV_PORTAL_ORIGIN, RIS_PROD_PORTAL_ORIGIN, RIS_PORTAL_ORIGIN].filter(
+      Boolean
+    ),
   },
   // filterQueryParam: false,
   // Defines multi-monitor layouts
@@ -1345,93 +1347,6 @@ window.config = {
   //   regex: /.*/,
   // },
   dataSources: [
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'ohif',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado server',
-        name: 'aws',
-        wadoUriRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
-        qidoRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
-        wadoRoot: 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb',
-        qidoSupportsIncludeField: false,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: true,
-        supportsWildcard: false,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        // whether the data source should use retrieveBulkData to grab metadata,
-        // and in case of relative path, what would it be relative to, options
-        // are in the series level or study level (some servers like series some study)
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
-        },
-        omitQuotationForMultipartRequest: true,
-        // acceptHeader: 'multipart/related; type="image/jpeg"; transfer-syntax=*',
-      },
-    },
-
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'ohif2',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado secondary server',
-        name: 'aws',
-        wadoUriRoot: 'https://dd14fa38qiwhyfd.cloudfront.net/dicomweb',
-        qidoRoot: 'https://dd14fa38qiwhyfd.cloudfront.net/dicomweb',
-        wadoRoot: 'https://dd14fa38qiwhyfd.cloudfront.net/dicomweb',
-        qidoSupportsIncludeField: false,
-        supportsReject: false,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        // whether the data source should use retrieveBulkData to grab metadata,
-        // and in case of relative path, what would it be relative to, options
-        // are in the series level or study level (some servers like series some study)
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-        },
-        omitQuotationForMultipartRequest: true,
-      },
-    },
-    {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'ohif3',
-      configuration: {
-        friendlyName: 'AWS S3 Static wado secondary server',
-        name: 'aws',
-        wadoUriRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
-        qidoRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
-        wadoRoot: 'https://d3t6nz73ql33tx.cloudfront.net/dicomweb',
-        qidoSupportsIncludeField: false,
-        supportsReject: false,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        staticWado: true,
-        singlepart: 'bulkdata,video',
-        // whether the data source should use retrieveBulkData to grab metadata,
-        // and in case of relative path, what would it be relative to, options
-        // are in the series level or study level (some servers like series some study)
-        bulkDataURI: {
-          enabled: true,
-          relativeResolution: 'studies',
-        },
-        omitQuotationForMultipartRequest: true,
-      },
-    },
-
     ...getClinicalDicomWebDataSources(),
 
     {
@@ -1540,7 +1455,7 @@ window.config = {
     });
     if (status === 401 || status === 403) {
       console.warn(
-        '[DICOMweb] Auth rejected — check cookie token / Basic auth for your PACS (and ShortCode share link if used).'
+        '[DICOMweb] Auth rejected — check session cookie / viewer-access token (and ShortCode share link if used).'
       );
     } else if (status === 0 || status == null) {
       console.warn(
