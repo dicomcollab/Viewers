@@ -154,7 +154,7 @@ function HangingProtocolSelectorWithServices({
 
   return (
     <div
-      className={`flex items-center gap-2 ${isCompact ? 'iframe-hanging-protocol mr-1' : 'mr-4'}`}
+      className={`flex items-center ${isCompact ? 'iframe-hanging-protocol mr-0.5 gap-0.5' : 'mr-4 gap-2'}`}
       id="HangingProtocol"
       data-cy="HangingProtocol"
     >
@@ -164,13 +164,13 @@ function HangingProtocolSelectorWithServices({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className={`border-inputfield-main focus:border-inputfield-main flex items-center justify-between rounded border bg-black px-2 text-white hover:bg-gray-800 ${
-              isCompact ? 'h-[26px] min-w-[88px] text-xs' : 'h-[26px] min-w-[120px] text-sm'
+            className={`border-inputfield-main focus:border-inputfield-main flex items-center justify-between rounded border bg-black text-white hover:bg-gray-800 ${
+              isCompact ? 'h-[24px] min-w-[4.5rem] max-w-[5.75rem] px-1 text-[10px]' : 'h-[26px] min-w-[120px] px-2 text-sm'
             }`}
             data-cy="hanging-protocol-dropdown-trigger"
           >
             <span className="truncate">{currentProtocol}</span>
-            <span className="ml-2 text-xs">▼</span>
+            <span className={`text-white/70 ${isCompact ? 'ml-1 text-[8px]' : 'ml-2 text-xs'}`}>▼</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

@@ -59,6 +59,15 @@ html.ohif-iframe-embed #root > * {
   flex-shrink: 0;
 }
 
+.iframe-toolbar-compact [data-cy$='-split-button-primary'] + .bg-primary {
+  height: 1rem !important;
+}
+
+/* Toolbar row: tight gaps between tool groups */
+.iframe-toolbar-row {
+  gap: 1px;
+}
+
 /* Hide scrollbar but keep functionality */
 .scrollbar-hide {
   -ms-overflow-style: none;

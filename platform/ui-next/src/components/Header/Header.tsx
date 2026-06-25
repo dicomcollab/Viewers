@@ -70,7 +70,7 @@ function Header({
 
   return (
     <IconPresentationProvider
-      size={isIframeMode ? 30 : 'large'}
+      size={isIframeMode ? 22 : 'large'}
       IconContainer={ToolButton}
     >
       <NavBar
@@ -78,11 +78,11 @@ function Header({
         {...props}
       >
         <div
-          className={`relative flex items-center overflow-hidden ${isIframeMode ? 'h-[44px] iframe-toolbar-compact' : 'h-[48px]'}`}
+          className={`relative flex items-center overflow-hidden ${isIframeMode ? 'h-[40px] iframe-toolbar-compact' : 'h-[48px]'}`}
         >
           {/* Left section: Logo and return button */}
-          <div className={`flex-shrink-0 flex items-center gap-1 z-10 bg-primary-main ${isIframeMode ? 'pr-1' : 'pr-2'}`}>
-            <div className="flex items-center gap-5">
+          <div className={`flex-shrink-0 flex items-center z-10 bg-primary-main ${isIframeMode ? 'gap-0 pr-0.5' : 'gap-1 pr-2'}`}>
+            <div className={`flex items-center ${isIframeMode ? 'gap-1' : 'gap-5'}`}>
               <div
                 className={classNames(
                   'inline-flex items-center',
@@ -91,9 +91,9 @@ function Header({
                 onClick={onClickReturn}
                 data-cy="return-to-work-list"
               >
-                <div className={`flex-shrink-0 ${isIframeMode ? 'ml-0.5' : 'ml-1'}`}>
+                <div className={`flex-shrink-0 ${isIframeMode ? 'ml-0' : 'ml-1'}`}>
                   {WhiteLabeling?.createLogoComponentFn?.(React, props) ||
-                    <div className={isIframeMode ? 'scale-[0.88] origin-left' : ''}>
+                    <div className={isIframeMode ? 'scale-[0.72] origin-left' : ''}>
                       <Icons.OHIFLogo />
                     </div>
                   }
@@ -133,19 +133,19 @@ function Header({
 
           {/* Center section: Toolbar with horizontal scroll */}
           <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-hide">
-            <div className={`flex items-center justify-center h-full ${isIframeMode ? 'px-1' : 'px-2'}`}>
-              <div className={`flex items-center justify-center whitespace-nowrap ${isIframeMode ? 'space-x-1' : 'space-x-2'}`}>
+            <div className={`flex items-center h-full ${isIframeMode ? 'px-0.5 justify-start' : 'px-2 justify-center'}`}>
+              <div className={`flex items-center whitespace-nowrap ${isIframeMode ? 'gap-0.5' : 'space-x-2 justify-center'}`}>
                 {children}
               </div>
             </div>
           </div>
 
           {/* Right section: Undo/Redo and Settings */}
-          <div className={`flex-shrink-0 flex items-center select-none z-10 bg-primary-main ${isIframeMode ? 'pl-1' : 'pl-2'}`}>
+          <div className={`flex-shrink-0 flex items-center select-none z-10 bg-primary-main ${isIframeMode ? 'gap-0 pl-0.5' : 'pl-2'}`}>
             {UndoRedo && !isIframeMode}
             {UndoRedo && !isIframeMode && <div className="border-primary-dark mx-1.5 h-[25px] border-r"></div>}
-            {HeaderActions && !isIframeMode ? (
-              <div className="mr-1 flex shrink-0 items-center">{HeaderActions}</div>
+            {HeaderActions ? (
+              <div className={`flex shrink-0 items-center ${isIframeMode ? 'mr-0.5' : 'mr-1'}`}>{HeaderActions}</div>
             ) : null}
             <div className="flex-shrink-0">
               <DropdownMenu>
@@ -153,7 +153,7 @@ function Header({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`text-white hover:bg-primary-active h-full w-full ${isIframeMode ? 'scale-100' : ''}`}
+                    className={`iframe-header-settings-btn text-white hover:bg-primary-active ${isIframeMode ? 'h-7 w-7' : 'h-full w-full'}`}
                   >
                     <HeaderSettingsGearIcon />
                   </Button>

@@ -312,8 +312,8 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
         </div>
       }
     >
-      <div className={`relative flex justify-center gap-[4px] overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact' : ''}`}>
-        <div className="flex items-center justify-center whitespace-nowrap">
+      <div className={`relative flex justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact iframe-toolbar-row' : 'gap-[4px]'}`}>
+        <div className={`flex items-center whitespace-nowrap ${isIframeMode ? 'iframe-toolbar-row gap-0.5' : 'justify-center gap-1'}`}>
           <Toolbar buttonSection="primary" />
         </div>
       </div>

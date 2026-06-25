@@ -312,17 +312,20 @@ export const toolbarSections = {
   ],
 };
 
-// Iframe toolbar — hanging protocol & layout need the primary bar (custom components, not MoreTools menu items)
+// Iframe toolbar — compact primary bar; US video cine uses viewport bar + header transport
 export const iframeToolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
     'HangingProtocol',
-    'ZoomTools',
+    'Zoom',
     'MeasurementTools',
     'WindowLevelTools',
     'Pan',
     'RotateTools',
     'Layout',
     'Cine',
+    'Crosshairs',
+    'AddKeyImage',
+    'Reset',
     'MoreTools',
   ],
 
@@ -379,12 +382,12 @@ export const iframeToolbarSections = {
 
   // Secondary tools — custom selectors (HangingProtocol, Layout) stay on the primary bar
   MoreTools: [
+    'ZoomIn',
+    'ZoomOut',
+    'Magnify',
     'StackScroll',
-    'Crosshairs',
     'TrackballRotate',
     'Capture',
-    'AddKeyImage',
-    'Reset',
     'ImageSliceSync',
     'ReferenceLines',
     'ImageOverlayViewer',

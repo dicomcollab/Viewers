@@ -10,6 +10,18 @@ function _getVolumeFromViewport(viewport: Types.IBaseVolumeViewport) {
   return dynamicVolume ?? volumes[0];
 }
 
+export function isInIframeEmbed(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+export function isUsMultiframeDisplaySet(displaySet) {
+  return displaySet?.Modality === 'US' && (displaySet?.numImageFrames ?? 0) > 1;
+}
+
 export function isCineCapableDisplaySet(displaySet) {
   if (!displaySet || displaySet.unsupported) {
     return false;
@@ -129,7 +141,7 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
 
   return capableViewportIds.some(viewportId => {
     const ds = getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
-    return !!ds;
+    return isUsMultiframeDisplaySet(ds);
   });
 }
 
@@ -147,8 +159,34 @@ export function shouldShowStudyCineHeaderControls(
 
   const { displaySetService } = servicesManager.services;
   const cineStudySets = displaySetService.activeDisplaySets.filter(isCineCapableDisplaySet);
+  const usMultiframeSets = displaySetService.activeDisplaySets.filter(isUsMultiframeDisplaySet);
+
+  if (isInIframeEmbed() && usMultiframeSets.length > 0) {
+    return usMultiframeSets.length > 1 || capableIds.length > 1;
+  }
 
   return cineStudySets.length > 1 || capableIds.length > 1;
+}
+
+export function activeViewportUsesUsVideoCine(
+  servicesManager: AppTypes.ServicesManager,
+  viewportId?: string
+): boolean {
+  const { viewportGridService, displaySetService } = servicesManager.services;
+  const { activeViewportId, viewports } = viewportGridService.getState();
+  const targetViewportId = viewportId || activeViewportId;
+  const viewportState = targetViewportId ? viewports.get(targetViewportId) : null;
+
+  if (!viewportState) {
+    return false;
+  }
+
+  const displaySetInstanceUIDs = viewportState.displaySetInstanceUIDs ?? [];
+
+  return displaySetInstanceUIDs.some(uid => {
+    const displaySet = displaySetService.getDisplaySetByUID(uid);
+    return isUsMultiframeDisplaySet(displaySet);
+  });
 }
 
 /** @deprecated Use shouldShowStudyCineHeaderControls */

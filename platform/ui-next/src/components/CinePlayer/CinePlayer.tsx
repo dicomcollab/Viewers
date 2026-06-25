@@ -97,8 +97,17 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
   const getPlayPauseIconName = () => (isPlaying ? 'icon-pause' : 'icon-play');
 
   const flushCineSettings = useCallback(() => {
-    onCinePlayModeChange(playModeRef.current);
-    onFrameRateChange(frameRateRef.current);
+    const mode = playModeRef.current;
+    onCinePlayModeChange(mode);
+
+    // Keep mode-specific settings from fighting each other.
+    // Previously this always emitted frameStep, which could flip the cine mode back to `step`
+    // right before playback starts.
+    if (mode === 'fps') {
+      onFrameRateChange(frameRateRef.current);
+      return;
+    }
+
     onFrameStepChange(frameStepRef.current);
   }, [onCinePlayModeChange, onFrameRateChange, onFrameStepChange]);
 

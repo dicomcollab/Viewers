@@ -12,6 +12,10 @@ import TrackingStatus from './components/TrackingStatus/TrackingStatus';
 import ViewportColorbarsContainer from './components/ViewportColorbar';
 import AdvancedRenderingControls from './components/AdvancedRenderingControls';
 import { getActiveZoomButton } from './utils/zoomState';
+import {
+  activeViewportUsesUsVideoCine,
+  isInIframeEmbed,
+} from './utils/cineSyncUtils';
 
 // Extend the Window interface to include our custom viewport action state
 declare global {
@@ -37,6 +41,7 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
     displaySetService,
     viewportGridService,
     segmentationService,
+    cineService,
   } = servicesManager.services;
 
   return [
@@ -442,6 +447,27 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
       evaluate: () => {
         return {
           disabled: false,
+        };
+      },
+    },
+    {
+      name: 'evaluate.cine.iframeToolbar',
+      evaluate: ({ viewportId }) => {
+        if (!isInIframeEmbed()) {
+          return;
+        }
+
+        if (activeViewportUsesUsVideoCine(servicesManager, viewportId)) {
+          return {
+            disabled: true,
+            hideWhenDisabled: true,
+          };
+        }
+
+        const isToggled = cineService.getState().isCineEnabled;
+
+        return {
+          className: utils.getToggledClassName(isToggled),
         };
       },
     },

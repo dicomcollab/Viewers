@@ -1256,6 +1256,12 @@ window.config = {
       'localviewer-application-dicom': 'localviewer-raw-dicom',
     },
   },
+  /**
+   * Dev/demo iframe embed preview: when true, the root page shows a 50/50 split — left side is a
+   * placeholder parent app, right side loads this viewer inside an iframe (same URL). Set false
+   * for normal full-screen viewer or production builds.
+   */
+  iframePreviewHalfScreen: false,
   // RIS → viewer: postMessage LOAD_STUDY to reuse one tab (SPA navigate, no new tab / full reload).
   // Set enabled true and list your RIS origins (exact event.origin strings).
   risPostMessage: {
