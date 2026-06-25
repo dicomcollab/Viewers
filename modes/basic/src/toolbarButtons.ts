@@ -452,6 +452,7 @@ const toolbarButtons: Button[] = [
       commands: 'toggleCine',
       evaluate: [
         'evaluate.cine',
+        'evaluate.cine.iframeToolbar',
         {
           name: 'evaluate.viewport.supported',
           unsupportedViewportTypes: ['volume3d'],

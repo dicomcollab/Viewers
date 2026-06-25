@@ -37,8 +37,7 @@
 
 /* IFRAME MODE OPTIMIZATIONS */
 .iframe-toolbar-compact {
-  /* Slightly compact iframe bar — between “tiny” and the previous 48px pass */
-  height: 44px !important;
+  height: 40px !important;
 }
 
 /* Square icon tool buttons only — exclude hanging-protocol & layout custom controls */
@@ -49,12 +48,20 @@
 .iframe-toolbar-compact [data-cy='MoreTools-button'] button,
 .iframe-toolbar-compact [data-cy='Layout'] button,
 .iframe-toolbar-compact [data-cy='layout-button'] button,
-.iframe-toolbar-compact .tool-button {
-  width: 34px !important;
-  height: 34px !important;
-  min-width: 34px !important;
-  min-height: 34px !important;
-  padding: 2px !important;
+.iframe-toolbar-compact .tool-button,
+.iframe-toolbar-compact .iframe-header-settings-btn {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 1px !important;
+}
+
+/* Split-button chevron is narrower than the primary tool */
+.iframe-toolbar-compact [data-cy$='-split-button-secondary'] button {
+  width: 14px !important;
+  min-width: 14px !important;
+  padding: 0 !important;
 }
 
 /* Override SVG width/height attributes + Tailwind utilities */
@@ -63,32 +70,72 @@
 .iframe-toolbar-compact [data-tool] button svg,
 .iframe-toolbar-compact button svg,
 .iframe-toolbar-compact .tool-button svg {
-  width: 30px !important;
-  height: 30px !important;
-  min-width: 30px !important;
-  min-height: 30px !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
   flex-shrink: 0 !important;
 }
 
+.iframe-toolbar-compact [data-cy$='-split-button-secondary'] svg {
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+}
+
 .iframe-toolbar-compact .dropdown-trigger:not([data-cy='hanging-protocol-dropdown-trigger']) {
-  width: 34px !important;
-  height: 34px !important;
-  min-width: 34px !important;
-  padding: 2px 4px !important;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  padding: 1px 2px !important;
 }
 
 .iframe-toolbar-compact .dropdown-trigger:not([data-cy='hanging-protocol-dropdown-trigger']) svg {
-  width: 30px !important;
-  height: 30px !important;
+  width: 22px !important;
+  height: 22px !important;
 }
 
 /* Hanging protocol dropdown stays compact in iframe toolbar */
 .iframe-toolbar-compact .iframe-hanging-protocol button {
   width: auto !important;
-  min-width: 5.5rem !important;
-  max-width: 7.5rem !important;
-  height: 26px !important;
-  padding: 0 0.375rem !important;
+  min-width: 4.5rem !important;
+  max-width: 5.75rem !important;
+  height: 24px !important;
+  padding: 0 0.25rem !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+}
+
+.iframe-toolbar-compact .iframe-hanging-protocol button span:last-child {
+  margin-left: 0.25rem !important;
+  font-size: 8px !important;
+}
+
+/* Study cine nav beside settings gear */
+.iframe-toolbar-compact [data-cy='study-cine-header-controls'] {
+  height: 24px !important;
+  gap: 0 !important;
+  padding: 0 1px !important;
+}
+
+.iframe-toolbar-compact [data-cy='study-cine-header-controls'] button {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+}
+
+.iframe-toolbar-compact [data-cy='study-cine-header-controls'] button svg {
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+}
+
+.iframe-toolbar-compact [data-cy='study-series-page-label'] {
+  min-width: 1.35rem !important;
+  font-size: 9px !important;
 }
 
 /* Make More Tools button more prominent in iframe mode */
@@ -103,28 +150,32 @@
 
 /* Override any conflicting button styles in iframe mode */
 .iframe-toolbar-compact .w-10 {
-  width: 34px !important;
+  width: 28px !important;
 }
 
 .iframe-toolbar-compact .h-10 {
-  height: 34px !important;
+  height: 28px !important;
 }
 
 .iframe-toolbar-compact .w-8 {
-  width: 30px !important;
+  width: 24px !important;
 }
 
 .iframe-toolbar-compact .h-8 {
-  height: 30px !important;
+  height: 24px !important;
 }
 
 /* Compact spacing */
 .iframe-toolbar-compact .space-x-2 > * + * {
-  margin-left: 0.25rem !important;
+  margin-left: 0.125rem !important;
 }
 
 .iframe-toolbar-compact .space-x-1 > * + * {
-  margin-left: 0.125rem !important;
+  margin-left: 0.0625rem !important;
+}
+
+.iframe-toolbar-compact .gap-0\.5 {
+  gap: 0.0625rem !important;
 }
 
 /* INVISIBLE SCROLLBAR */

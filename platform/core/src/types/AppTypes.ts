@@ -182,6 +182,11 @@ declare global {
         allowedOrigins?: string[];
       };
       /**
+       * Dev/demo: when true, the root page shows a 50/50 split with the viewer embedded in an iframe
+       * (simulates RIS embed). The iframe child loads normally and uses iframe layout/toolbar mode.
+       */
+      iframePreviewHalfScreen?: boolean;
+      /**
        * Clinical PACS backend: `medpacs` = existing Med-PACS DICOMweb; `azurepacs` = Azure Health Data Services DICOM v2 (Bearer, /v2).
        */
       pacsIntegration?: 'medpacs' | 'azurepacs';

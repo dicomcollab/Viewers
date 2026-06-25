@@ -307,7 +307,7 @@ function ViewerLayout({
 
   const viewportComponents = viewports.map(getViewportComponentData);
 
-  const headerHeight = isIframeMode ? 44 : 48;
+  const headerHeight = isIframeMode ? 40 : 48;
 
   return (
     <div

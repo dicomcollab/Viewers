@@ -163,7 +163,39 @@ function App({
   }, []);
 
   if (!init) {
-    return null;
+    if (config.showLoadingIndicator === false) {
+      return null;
+    }
+
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100vw',
+          height: '100vh',
+          background: '#000',
+          color: '#b0b8c4',
+        }}
+      >
+        <div style={{ textAlign: 'center' }}>
+          <div
+            style={{
+              width: '2.5rem',
+              height: '2.5rem',
+              margin: '0 auto 1rem',
+              border: '3px solid #2d3548',
+              borderTopColor: '#7aa2f7',
+              borderRadius: '50%',
+              animation: 'ohif-app-init-spin 0.9s linear infinite',
+            }}
+          />
+          <p style={{ margin: 0 }}>Loading viewer…</p>
+        </div>
+        <style>{`@keyframes ohif-app-init-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
   }
 
   // Set above for named export

@@ -17,8 +17,38 @@ import React from 'react';
  */
 import { modes as defaultModes, extensions as defaultExtensions } from './pluginImports';
 import loadDynamicConfig from './loadDynamicConfig';
+import IframePreviewShell from './IframePreviewShell';
 export { history } from './utils/history';
 export { preserveQueryParameters, preserveQueryStrings } from './utils/preserveQueryParameters';
+
+const IFRAME_PREVIEW_EMBED_PARAM = 'iframePreviewEmbed';
+
+const isEmbeddedInIframe = () => {
+  try {
+    return window.self !== window.top;
+  } catch (e) {
+    return true;
+  }
+};
+
+const isIframePreviewEmbedChild = () => {
+  try {
+    return new URLSearchParams(window.location.search).get(IFRAME_PREVIEW_EMBED_PARAM) === '1';
+  } catch (e) {
+    return false;
+  }
+};
+
+const buildIframePreviewSrc = () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set(IFRAME_PREVIEW_EMBED_PARAM, '1');
+  return url.toString();
+};
+
+const shouldRenderIframePreviewShell = config =>
+  config.iframePreviewHalfScreen === true &&
+  !isEmbeddedInIframe() &&
+  !isIframePreviewEmbedChild();
 
 loadDynamicConfig(window.config).then(config_json => {
   // Reset Dynamic config if defined
@@ -26,18 +56,26 @@ loadDynamicConfig(window.config).then(config_json => {
     window.config = config_json;
   }
 
+  const config = window.config || {};
+  const container = document.getElementById('root');
+  const root = createRoot(container);
+
+  if (shouldRenderIframePreviewShell(config)) {
+    root.render(
+      React.createElement(IframePreviewShell, { iframeSrc: buildIframePreviewSrc() })
+    );
+    return;
+  }
+
   /**
    * Combine our appConfiguration with installed extensions and modes.
    * In the future appConfiguration may contain modes added at runtime.
    *  */
   const appProps = {
-    config: window ? window.config : {},
+    config,
     defaultExtensions,
     defaultModes,
   };
 
-  const container = document.getElementById('root');
-
-  const root = createRoot(container);
   root.render(React.createElement(App, appProps));
 });
