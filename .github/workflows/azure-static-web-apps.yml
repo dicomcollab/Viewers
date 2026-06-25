@@ -44,10 +44,14 @@ jobs:
           DEMO_STUDY_UID: ${{ secrets.DEMO_STUDY_UID }}
           CSP_FRAME_ANCESTORS: ${{ secrets.CSP_FRAME_ANCESTORS }}
 
-      - name: Verify no credentials in app-config
+      - name: Verify no credentials in client config
         run: |
-          if grep -iE 'DEMO_TOKEN|YOUR_AZURE_DICOM|Basic [A-Za-z0-9+/=]{20,}|password\s*[:=]' platform/app/dist/app-config.js; then
-            echo "Sensitive values found in built app-config.js"
+          if grep -iE 'DEMO_TOKEN|YOUR_AZURE_DICOM|Basic [A-Za-z0-9+/=]{20,}|password\s*[:=]' platform/app/dist/build-env.js platform/app/dist/app-config.js; then
+            echo "Sensitive values found in built client config"
+            exit 1
+          fi
+          if grep -E "resolveEnvValue\('[^%]" platform/app/dist/app-config.js; then
+            echo "Inlined env values found in app-config.js (must use getBuildEnv only)"
             exit 1
           fi
 

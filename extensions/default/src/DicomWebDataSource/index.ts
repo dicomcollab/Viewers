@@ -24,6 +24,22 @@ const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 
 const { naturalizeDataset, denaturalizeDataset } = DicomMetaDictionary;
 
+type PacsAuthRequestHook = (request: XMLHttpRequest, metadata?: object) => XMLHttpRequest;
+
+function buildPacsAuthRequestHooks(
+  existing: PacsAuthRequestHook[] | undefined,
+  resolveAuthHeaders: () => HeadersInterface
+): PacsAuthRequestHook[] {
+  const injectAuth: PacsAuthRequestHook = request => {
+    const auth = resolveAuthHeaders();
+    if (auth?.Authorization) {
+      request.setRequestHeader('Authorization', auth.Authorization);
+    }
+    return request;
+  };
+  return [...(existing || []), injectAuth];
+}
+
 const ImplementationClassUID = '2.25.270695996825855179949881587723571202391.2.0.0';
 const ImplementationVersionName = 'OHIF-3.11.0';
 const EXPLICIT_VR_LITTLE_ENDIAN = '1.2.840.10008.1.2.1';
@@ -170,6 +186,22 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
 
+        const demoBasic =
+          typeof window !== 'undefined' &&
+          (window as unknown as { getDemoEnvBasicAuthToken?: () => string | null })
+            .getDemoEnvBasicAuthToken &&
+          typeof (window as unknown as { getDemoEnvBasicAuthToken: () => string | null })
+            .getDemoEnvBasicAuthToken === 'function'
+            ? (
+                window as unknown as { getDemoEnvBasicAuthToken: () => string | null }
+              ).getDemoEnvBasicAuthToken()
+            : null;
+
+        if (demoBasic) {
+          xhrRequestHeaders.Authorization = `Basic ${demoBasic}`;
+          return xhrRequestHeaders;
+        }
+
         const viewerBearer =
           typeof window !== 'undefined' &&
           (window as unknown as { getViewerAccessBearerToken?: () => string | null })
@@ -215,6 +247,11 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         }
         return xhrRequestHeaders;
       };
+
+      const pacsAuthRequestHooks = buildPacsAuthRequestHooks(
+        dicomWebConfig.requestHooks,
+        getAuthorizationHeader
+      );
 
       /**
        * Generates the wado header for requesting resources from DICOMweb.
@@ -279,6 +316,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
           headers: qidoHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };
@@ -287,15 +325,18 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
           headers: initialAuthHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };
       } else {
+        const initialAuthHeaders = getAuthorizationHeader();
         qidoConfig = {
           url: qidoBaseUrl,
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
-          headers: userAuthenticationService.getAuthorizationHeader(),
+          headers: initialAuthHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };
@@ -304,7 +345,8 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           url: wadoBaseUrl,
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
-          headers: userAuthenticationService.getAuthorizationHeader(),
+          headers: initialAuthHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };

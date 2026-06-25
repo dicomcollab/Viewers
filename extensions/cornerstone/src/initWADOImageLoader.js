@@ -595,6 +595,13 @@ export default function initWADOImageLoader(
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};
 
+      const demoBasic =
+        typeof window !== 'undefined' &&
+        window.getDemoEnvBasicAuthToken &&
+        typeof window.getDemoEnvBasicAuthToken === 'function'
+          ? window.getDemoEnvBasicAuthToken()
+          : null;
+
       const viewerBearer =
         typeof window !== 'undefined' &&
         window.getViewerAccessBearerToken &&
@@ -603,7 +610,11 @@ export default function initWADOImageLoader(
           : null;
 
       let headers;
-      if (viewerBearer) {
+      if (demoBasic) {
+        headers = {
+          Authorization: `Basic ${demoBasic}`,
+        };
+      } else if (viewerBearer) {
         headers = {
           Authorization: `Bearer ${viewerBearer}`,
         };

@@ -1,5 +1,5 @@
-// Viewer app config — no credentials in this file (served publicly as app-config.js).
-// Deployment URLs and demo study UID are injected at build time via scripts/generate-app-config.mjs (%%PLACEHOLDER%%).
+// Viewer app config — no credentials or deployment URLs in this file (served as app-config.js).
+// Build-time settings are injected via build-env.js → window.__OHIF_BUILD_ENV__ (see generate-app-config.mjs).
 // PACS access uses session JWT (cookie) or short-lived viewer-access tokens from RIS API.
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,21 @@ function resolvePacsIntegrationFromDicomSourceCookie() {
 
 const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
 
+/**
+ * Deployment settings from build-env.js (window.__OHIF_BUILD_ENV__). Never hardcode secrets here.
+ * @param {string} key
+ * @param {string} [fallback]
+ */
+function getBuildEnv(key, fallback) {
+  if (typeof window !== 'undefined' && window.__OHIF_BUILD_ENV__) {
+    const v = window.__OHIF_BUILD_ENV__[key];
+    if (v != null && String(v).trim() !== '') {
+      return String(v).trim();
+    }
+  }
+  return fallback ?? '';
+}
+
 function resolveEnvValue(value, localDevFallback) {
   if (typeof value === 'string' && value.startsWith('%%') && value.endsWith('%%')) {
     return localDevFallback ?? '';
@@ -84,7 +99,9 @@ function resolveEnvBoolean(value, fallback) {
 }
 
 // Demo study UID — demo route only; token is fetched from RIS when ALLOW_DEMO_VIEWER_TOKEN is enabled server-side.
-const DEMO_STUDY_UID = resolveEnvValue('%%DEMO_STUDY_UID%%', '');
+const DEMO_STUDY_UID = getBuildEnv('DEMO_STUDY_UID', '');
+// Local dev only (.env DEMO_TOKEN via build-env.js): Basic auth when RIS access-token is unavailable.
+const BUILD_DEMO_BASIC_AUTH = getBuildEnv('DEMO_TOKEN', '');
 
 function getCookie(name) {
   if (typeof document === 'undefined' || !document.cookie) return null;
@@ -115,22 +132,22 @@ function getTokenFromCookie() {
 }
 
 // RIS environment toggle — set VIEWER_IS_DEV=true in .env for local RIS dev.
-const isDev = resolveEnvBoolean('%%VIEWER_IS_DEV%%', false);
+const isDev = resolveEnvBoolean(getBuildEnv('VIEWER_IS_DEV', ''), false);
 
-// URLs from env at build time; localhost fallbacks only for local dev keys when unset.
-const RIS_DEV_PORTAL_ORIGIN = resolveEnvValue('%%RIS_DEV_PORTAL_ORIGIN%%', 'http://localhost:5173');
-const RIS_PROD_PORTAL_ORIGIN = resolveEnvValue('%%RIS_PROD_PORTAL_ORIGIN%%', '');
-const RIS_DEV_API_BASE = resolveEnvValue('%%RIS_DEV_API_BASE%%', 'http://localhost:5001');
-const RIS_PROD_API_BASE = resolveEnvValue('%%RIS_PROD_API_BASE%%', '');
+// URLs from build-env.js; localhost fallbacks only for local dev keys when unset.
+const RIS_DEV_PORTAL_ORIGIN = getBuildEnv('RIS_DEV_PORTAL_ORIGIN', 'http://localhost:5173');
+const RIS_PROD_PORTAL_ORIGIN = getBuildEnv('RIS_PROD_PORTAL_ORIGIN', '');
+const RIS_DEV_API_BASE = getBuildEnv('RIS_DEV_API_BASE', 'http://localhost:5001');
+const RIS_PROD_API_BASE = getBuildEnv('RIS_PROD_API_BASE', '');
 const RIS_PORTAL_ORIGIN = isDev ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
 const RIS_API_BASE = isDev ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
 
 // When true, /dicomservice/* uses the same Bearer token as Med-PACS (cookieAuth).
 const AZURE_PACS_PREFER_COOKIE_AUTH = true;
 
-const MED_PACS_DICOMWEB_API_ROOT = resolveEnvValue('%%MED_PACS_DICOMWEB_API_ROOT%%', '');
+const MED_PACS_DICOMWEB_API_ROOT = getBuildEnv('MED_PACS_DICOMWEB_API_ROOT', '');
 // Legacy separate /wadouri path (JPEG WADO-URI). Raw DICOM WADO-URI uses MED_PACS_DICOMWEB_API_ROOT + query params.
-const MED_PACS_DICOMWEB_WADOURI_ROOT = resolveEnvValue('%%MED_PACS_DICOMWEB_WADOURI_ROOT%%', '');
+const MED_PACS_DICOMWEB_WADOURI_ROOT = getBuildEnv('MED_PACS_DICOMWEB_WADOURI_ROOT', '');
 
 let _cachedAzurePacsToken = null;
 
@@ -168,7 +185,7 @@ function updateAzurePacsTokenEverywhere(newToken) {
 
 // Azure PACS: same host as Med-PACS DICOMweb; your API proxies /dicomservice/* to Azure Healthcare DICOM.
 // getAzureDicomV2BaseUrl() appends /v2; DicomWebDataSource maps .../v2 -> .../dicomservice when pacsIntegration is azurepacs.
-const AZURE_DICOM_SERVICE_URL = resolveEnvValue('%%AZURE_DICOM_SERVICE_URL%%', '');
+const AZURE_DICOM_SERVICE_URL = getBuildEnv('AZURE_DICOM_SERVICE_URL', '');
 
 function getAzureDicomV2BaseUrl() {
   const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
@@ -254,18 +271,36 @@ function getAzurePacsFrameRetrievalDataSources() {
   });
 }
 
+/** StudyInstanceUID(s) from the current URL query string. */
+function getUrlStudyInstanceUids() {
+  if (typeof window === 'undefined' || !window.location) {
+    return null;
+  }
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('StudyInstanceUIDs') || urlParams.get('studyInstanceUIDs');
+}
+
+/** True when the first StudyInstanceUID in the URL matches DEMO_STUDY_UID from .env. */
+function urlStudyMatchesDemoUid() {
+  if (!DEMO_STUDY_UID) {
+    return false;
+  }
+  const studyUIDs = getUrlStudyInstanceUids();
+  if (!studyUIDs) {
+    return false;
+  }
+  return studyUIDs.split(',')[0].trim() === String(DEMO_STUDY_UID).trim();
+}
+
 // Helper function to check if we're on a demo route
 function isDemoRoute() {
   if (typeof window === 'undefined' || !window.location) {
     return false;
   }
-  const urlParams = new URLSearchParams(window.location.search);
-  const studyUIDs = urlParams.get('StudyInstanceUIDs') || urlParams.get('studyInstanceUIDs');
   const path = window.location.pathname;
-  // Demo token: classic /demo route, or same study opened via localviewer-image-jpeg (redirected viewer)
+  // Demo token only when URL study matches DEMO_STUDY_UID and path is a demo viewer route.
   return (
-    !!DEMO_STUDY_UID &&
-    studyUIDs === DEMO_STUDY_UID &&
+    urlStudyMatchesDemoUid() &&
     (path.includes('/viewer/demo') ||
       path.includes('/demo') ||
       path.includes('/localviewer-image-jpeg'))
@@ -278,11 +313,7 @@ async function fetchDemoAccessToken() {
   if (_cachedDemoAccessToken) {
     return _cachedDemoAccessToken;
   }
-  const studyUIDs =
-    typeof window !== 'undefined' && window.location
-      ? new URLSearchParams(window.location.search).get('StudyInstanceUIDs') ||
-        new URLSearchParams(window.location.search).get('studyInstanceUIDs')
-      : null;
+  const studyUIDs = getUrlStudyInstanceUids();
   if (!studyUIDs) {
     return null;
   }
@@ -314,14 +345,47 @@ async function fetchDemoAccessToken() {
   return null;
 }
 
-function getDemoToken() {
+/** @deprecated use urlStudyMatchesDemoUid */
+function isDemoStudyOpen() {
+  return urlStudyMatchesDemoUid();
+}
+
+/** Pre-encoded Basic credential from .env DEMO_TOKEN (local dev). Not a Bearer JWT. */
+function getDemoEnvBasicAuthToken() {
+  const token = BUILD_DEMO_BASIC_AUTH && String(BUILD_DEMO_BASIC_AUTH).trim();
+  if (!token || token === 'YOUR_DEMO_TOKEN_HERE') {
+    return null;
+  }
+  if (!isDemoRoute()) {
+    return null;
+  }
+  return token;
+}
+
+/** Authorization header object for demo route (.env Basic or RIS JWT via other helpers). */
+function getDemoAuthHeaders() {
+  const basic = getDemoEnvBasicAuthToken();
+  if (basic) {
+    return { Authorization: `Basic ${basic}` };
+  }
+  return null;
+}
+
+function getDemoViewerAccessJwt() {
   if (!isDemoRoute()) {
     return null;
   }
   if (typeof window !== 'undefined' && window._demoViewerAccessToken) {
     return window._demoViewerAccessToken;
   }
+  if (_cachedDemoAccessToken) {
+    return _cachedDemoAccessToken;
+  }
   return null;
+}
+
+function getDemoToken() {
+  return getDemoViewerAccessJwt() || getDemoEnvBasicAuthToken();
 }
 
 /**
@@ -390,7 +454,7 @@ function usesViewerAccessProxy() {
   if (isExternalViewerRoute() && getExternalViewerAccessToken()) {
     return true;
   }
-  if (isDemoRoute() && getDemoToken()) {
+  if (isDemoRoute() && getDemoViewerAccessJwt()) {
     return true;
   }
   return false;
@@ -521,7 +585,7 @@ function getViewerAccessBearerToken() {
     return getExternalViewerAccessToken();
   }
   if (isDemoRoute()) {
-    return getDemoToken();
+    return getDemoViewerAccessJwt();
   }
   return getTokenFromCookie();
 }
@@ -547,6 +611,9 @@ if (typeof window !== 'undefined') {
   window.DEMO_STUDY_UID = DEMO_STUDY_UID;
   window.isDemoRoute = isDemoRoute;
   window.getDemoToken = getDemoToken;
+  window.getDemoEnvBasicAuthToken = getDemoEnvBasicAuthToken;
+  window.getDemoAuthHeaders = getDemoAuthHeaders;
+  window.getDemoViewerAccessJwt = getDemoViewerAccessJwt;
   window.fetchDemoAccessToken = fetchDemoAccessToken;
   window.isExternalViewerRoute = isExternalViewerRoute;
   window.getExternalViewerAccessToken = getExternalViewerAccessToken;

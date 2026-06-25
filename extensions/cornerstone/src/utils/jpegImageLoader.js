@@ -339,6 +339,17 @@ function buildJpegUrlFromImageId(imageId) {
 }
 
 function buildJpegAuthHeader() {
+  const demoBasic =
+    typeof window !== 'undefined' &&
+    window.getDemoEnvBasicAuthToken &&
+    typeof window.getDemoEnvBasicAuthToken === 'function'
+      ? window.getDemoEnvBasicAuthToken()
+      : null;
+
+  if (demoBasic) {
+    return `Basic ${demoBasic}`;
+  }
+
   const viewerBearer =
     typeof window !== 'undefined' &&
     window.getViewerAccessBearerToken &&

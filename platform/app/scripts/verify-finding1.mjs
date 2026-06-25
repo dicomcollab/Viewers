@@ -50,34 +50,38 @@ function scanText(label, text, hypothesisId) {
   return hits;
 }
 
-// Generate fresh build config from .env
-execSync('node scripts/generate-app-config.mjs public/config/.build-app-config.js', {
+// Generate fresh build-env from .env
+execSync('node scripts/generate-app-config.mjs', {
   cwd: appRoot,
   stdio: 'pipe',
 });
 
 const defaultJs = fs.readFileSync(path.join(appRoot, 'public/config/default.js'), 'utf8');
-const builtConfig = fs.readFileSync(path.join(appRoot, 'public/config/.build-app-config.js'), 'utf8');
+const buildEnvJs = fs.readFileSync(path.join(appRoot, 'public/config/.build-env.js'), 'utf8');
 
 scanText('default.js template', defaultJs, 'A');
-scanText('.build-app-config.js', builtConfig, 'B');
+scanText('.build-env.js', buildEnvJs, 'B');
 
-// Simulate webpack copy: public/config/.build-app-config.js -> dist/app-config.js
+// app-config.js is a copy of default.js (no env substitution)
 const distDir = path.join(appRoot, 'dist');
 const distAppConfig = path.join(distDir, 'app-config.js');
+const distBuildEnv = path.join(distDir, 'build-env.js');
 fs.mkdirSync(distDir, { recursive: true });
-fs.copyFileSync(path.join(appRoot, 'public/config/.build-app-config.js'), distAppConfig);
+fs.copyFileSync(path.join(appRoot, 'public/config/default.js'), distAppConfig);
+fs.copyFileSync(path.join(appRoot, 'public/config/.build-env.js'), distBuildEnv);
 scanText('dist/app-config.js (deploy artifact)', fs.readFileSync(distAppConfig, 'utf8'), 'L');
+scanText('dist/build-env.js (deploy artifact)', fs.readFileSync(distBuildEnv, 'utf8'), 'M');
 
 // JWT flow checks (not secrets)
 const jwtChecks = {
-  fetchDemoAccessToken: /fetchDemoAccessToken/.test(builtConfig),
-  getViewerAccessBearerToken: /getViewerAccessBearerToken/.test(builtConfig),
-  usesViewerAccessProxy: /usesViewerAccessProxy/.test(builtConfig),
-  azurePreferCookieAuth: /AZURE_PACS_PREFER_COOKIE_AUTH\s*=\s*true/.test(builtConfig),
+  fetchDemoAccessToken: /fetchDemoAccessToken/.test(defaultJs),
+  getViewerAccessBearerToken: /getViewerAccessBearerToken/.test(defaultJs),
+  usesViewerAccessProxy: /usesViewerAccessProxy/.test(defaultJs),
+  getBuildEnv: /function getBuildEnv/.test(defaultJs),
+  azurePreferCookieAuth: /AZURE_PACS_PREFER_COOKIE_AUTH\s*=\s*true/.test(defaultJs),
   deprecatedBasicAliasesReturnJwt:
-    /function getShareLinkBasicToken\(\)/.test(builtConfig) &&
-    /getShareLinkAccessToken\(\)/.test(builtConfig),
+    /function getShareLinkBasicToken\(\)/.test(defaultJs) &&
+    /getShareLinkAccessToken\(\)/.test(defaultJs),
 };
 log({
   hypothesisId: 'H',
