@@ -112,7 +112,7 @@ function WrappedCinePlayer({
 
   const isPlaying = cines?.[viewportId]?.isPlaying ?? false;
   const frameRate = cines?.[viewportId]?.frameRate ?? 24;
-  const cinePlayMode = cines?.[viewportId]?.cinePlayMode ?? 'step';
+  const cinePlayMode = cines?.[viewportId]?.cinePlayMode ?? 'fps';
   const frameStep = cines?.[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
 
   const applyPlayback = useCallback(
@@ -223,7 +223,7 @@ function WrappedCinePlayer({
     const { displaySetInstanceUIDs } = viewportState;
     let nextFrameRate = 24;
     let nextIsPlaying = cinesRef.current[viewportId]?.isPlaying || false;
-    let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'step';
+    let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'fps';
     let nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
     let nextStackCineInfo = null;
 
@@ -260,7 +260,8 @@ function WrappedCinePlayer({
         });
         setStackCineInfo(nextStackCineInfo);
         nextFrameRate = getUsCineFrameRate(displaySet);
-        nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'step';
+        // US multiframe should default to FPS playback unless user explicitly switches to step mode.
+        nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'fps';
         nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
         nextIsPlaying ||= !!appConfig.autoPlayCine;
       } else if (displaySet.FrameRate) {
