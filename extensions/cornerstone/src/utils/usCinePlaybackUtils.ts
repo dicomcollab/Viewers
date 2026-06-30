@@ -1,5 +1,33 @@
 import { getViewportEnabledElement } from './cineSyncUtils';
 import { getUsCineCapableLayoutViewportIds } from './usGridViewportUtils';
+import type { CinePlayMode } from '../components/CinePlayer/usCineUiUtils';
+
+type CineSettingsUpdate = {
+  frameRate?: number;
+  cinePlayMode?: CinePlayMode;
+  frameStep?: number;
+  isPlaying?: boolean;
+};
+function applyCineSettingsToAllViewports(
+  servicesManager: AppTypes.ServicesManager,
+  settings: CineSettingsUpdate
+): void {
+  const { cineService } = servicesManager.services;
+  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  viewportIds.forEach(viewportId => {
+    const { cines } = cineService.getState();
+    const current = cines?.[viewportId] ?? {};
+
+    cineService.setCine({
+      id: viewportId,
+      frameRate: settings.frameRate ?? current.frameRate,
+      cinePlayMode: settings.cinePlayMode ?? current.cinePlayMode,
+      frameStep: settings.frameStep ?? current.frameStep,
+      isPlaying: settings.isPlaying ?? current.isPlaying,
+    });
+  });
+}
 
 function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
   const { cineService, displaySetService, viewportGridService } = servicesManager.services;
@@ -90,4 +118,10 @@ function stepUsViewportFrame(
   viewport.setImageIdIndex?.(nextIndex);
 }
 
-export { pauseAllUsViewports, playAllUsViewports, stepUsViewportFrame, stopAllUsViewports };
+export {
+  applyCineSettingsToAllViewports,
+  pauseAllUsViewports,
+  playAllUsViewports,
+  stepUsViewportFrame,
+  stopAllUsViewports,
+};

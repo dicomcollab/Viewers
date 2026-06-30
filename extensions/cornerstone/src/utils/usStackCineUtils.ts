@@ -1,4 +1,5 @@
 import { buildUsBatchNavigationInfo, getUsSeriesPositionInStudy } from './usBatchNavigationUtils';
+import { isMultiframeStackDisplaySet } from './cineSyncUtils';
 
 type UsStackCineInfo = {
   viewportId: string;
@@ -33,7 +34,7 @@ function buildUsStackCineInfo({
   const { displaySetInstanceUIDs = [] } = viewports.get(viewportId) || {};
   const displaySet = displaySetInstanceUIDs
     .map(uid => displaySetService.getDisplaySetByUID(uid))
-    .find(ds => ds?.Modality === 'US' && (ds?.numImageFrames ?? 0) > 1);
+    .find(isMultiframeStackDisplaySet);
 
   if (!displaySet) {
     return null;

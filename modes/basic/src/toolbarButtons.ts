@@ -798,17 +798,6 @@ const toolbarButtons: Button[] = [
     },
   },
   {
-    id: 'SaveKeyImages',
-    uiType: 'ohif.toolButton',
-    props: {
-      icon: 'tool-capture',
-      label: 'Save Key Images',
-      tooltip: 'Upload all key images in one API call',
-      commands: 'saveKeyImages',
-      evaluate: 'evaluate.action',
-    },
-  },
-  {
     id: 'HangingProtocol',
     uiType: 'ohif.hangingProtocolSelector',
     props: {

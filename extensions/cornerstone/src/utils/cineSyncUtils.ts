@@ -18,8 +18,19 @@ export function isInIframeEmbed(): boolean {
   }
 }
 
+/**
+ * Stack-based cine (play/pause, FPS, frame step) for any modality with multiple frames.
+ */
+export function isMultiframeStackDisplaySet(displaySet) {
+  if (!displaySet || displaySet.unsupported || displaySet.isDynamicVolume) {
+    return false;
+  }
+
+  return (displaySet.numImageFrames ?? 0) > 1;
+}
+
 export function isUsMultiframeDisplaySet(displaySet) {
-  return displaySet?.Modality === 'US' && (displaySet?.numImageFrames ?? 0) > 1;
+  return displaySet?.Modality === 'US' && isMultiframeStackDisplaySet(displaySet);
 }
 
 export function isCineCapableDisplaySet(displaySet) {
@@ -127,9 +138,9 @@ export function isUsMultiSeriesInstanceLayout(servicesManager: AppTypes.Services
 }
 
 /**
- * Per-viewport cine bar for multiframe series (any modality / grid layout).
+ * Per-viewport cine bar for multiframe stacks (any modality / grid layout).
  */
-export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesManager): boolean {
+export function shouldUsePerViewportCine(servicesManager: AppTypes.ServicesManager): boolean {
   const { viewportGridService, displaySetService } = servicesManager.services;
   const capableViewportIds = getCineCapableViewportIds(servicesManager);
 
@@ -141,8 +152,13 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
 
   return capableViewportIds.some(viewportId => {
     const ds = getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
-    return isUsMultiframeDisplaySet(ds);
+    return isMultiframeStackDisplaySet(ds);
   });
+}
+
+/** @deprecated Use shouldUsePerViewportCine */
+export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesManager): boolean {
+  return shouldUsePerViewportCine(servicesManager);
 }
 
 /**
@@ -159,16 +175,16 @@ export function shouldShowStudyCineHeaderControls(
 
   const { displaySetService } = servicesManager.services;
   const cineStudySets = displaySetService.activeDisplaySets.filter(isCineCapableDisplaySet);
-  const usMultiframeSets = displaySetService.activeDisplaySets.filter(isUsMultiframeDisplaySet);
+  const multiframeStackSets = displaySetService.activeDisplaySets.filter(isMultiframeStackDisplaySet);
 
-  if (isInIframeEmbed() && usMultiframeSets.length > 0) {
-    return usMultiframeSets.length > 1 || capableIds.length > 1;
+  if (isInIframeEmbed() && multiframeStackSets.length > 0) {
+    return multiframeStackSets.length > 1 || capableIds.length > 1;
   }
 
   return cineStudySets.length > 1 || capableIds.length > 1;
 }
 
-export function activeViewportUsesUsVideoCine(
+export function activeViewportUsesMultiframeCine(
   servicesManager: AppTypes.ServicesManager,
   viewportId?: string
 ): boolean {
@@ -185,8 +201,16 @@ export function activeViewportUsesUsVideoCine(
 
   return displaySetInstanceUIDs.some(uid => {
     const displaySet = displaySetService.getDisplaySetByUID(uid);
-    return isUsMultiframeDisplaySet(displaySet);
+    return isMultiframeStackDisplaySet(displaySet);
   });
+}
+
+/** @deprecated Use activeViewportUsesMultiframeCine */
+export function activeViewportUsesUsVideoCine(
+  servicesManager: AppTypes.ServicesManager,
+  viewportId?: string
+): boolean {
+  return activeViewportUsesMultiframeCine(servicesManager, viewportId);
 }
 
 /** @deprecated Use shouldShowStudyCineHeaderControls */
@@ -204,7 +228,7 @@ export function getCineControlViewportId(servicesManager: AppTypes.ServicesManag
     return null;
   }
 
-  if (shouldUsePerViewportUsCine(servicesManager)) {
+  if (shouldUsePerViewportCine(servicesManager)) {
     const { activeViewportId } = servicesManager.services.viewportGridService.getState();
 
     if (activeViewportId && capableViewportIds.includes(activeViewportId)) {
@@ -228,7 +252,7 @@ export function getCineControlViewportId(servicesManager: AppTypes.ServicesManag
 }
 
 export function shouldUseUnifiedCineControl(servicesManager: AppTypes.ServicesManager): boolean {
-  if (shouldUsePerViewportUsCine(servicesManager)) {
+  if (shouldUsePerViewportCine(servicesManager)) {
     return false;
   }
 

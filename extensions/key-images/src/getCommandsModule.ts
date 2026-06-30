@@ -1,11 +1,8 @@
 import { DicomMetadataStore } from '@ohif/core';
 import { getActiveStudyInstanceUID } from './utils/getActiveStudyInstanceUID';
 import { getKeyImagesAuthHeader } from './utils/getKeyImagesAuthHeader';
-import {
-  captureKeyImage,
-  getKeyImageUploadFileName,
-  resolveKeyImageUploadBlob,
-} from './utils/captureKeyImage';
+import { deleteKeyImageFromRis, uploadKeyImagesToRis } from './utils/keyImagesApi';
+import { captureKeyImage } from './utils/captureKeyImage';
 
 function refreshAddKeyImageToolbar(servicesManager, viewportId?: string) {
   const { toolbarService } = servicesManager.services;
@@ -27,6 +24,30 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
   };
 
   const actions = {
+    loadKeyImages: async ({ studyInstanceUID } = {}) => {
+      const activeStudyUID = studyInstanceUID || getActiveStudyInstanceUID(servicesManager);
+      if (!activeStudyUID) {
+        return;
+      }
+
+      const authHeaders = getKeyImagesAuthHeader(
+        typeof window !== 'undefined' ? window.config : undefined
+      );
+      if (!authHeaders?.Authorization && !authHeaders?.token) {
+        return;
+      }
+
+      try {
+        await keyImagesService.loadKeyImagesForStudy(activeStudyUID);
+      } catch (error) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: error instanceof Error ? error.message : 'Failed to load key images.',
+          type: 'error',
+        });
+      }
+    },
+
     addKeyImage: async () => {
       const { activeViewportId } = viewportGridService.getState();
       if (!activeViewportId) {
@@ -82,6 +103,41 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       }
 
       const studyInstanceUID = instance?.StudyInstanceUID;
+      if (!studyInstanceUID) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: 'No active study selected. Open a study before adding key images.',
+          type: 'warning',
+        });
+        return;
+      }
+
+      const authHeaders = getKeyImagesAuthHeader(
+        typeof window !== 'undefined' ? window.config : undefined
+      );
+      if (!authHeaders?.Authorization && !authHeaders?.token) {
+        uiNotificationService.show({
+          title: 'Key Images',
+          message:
+            'Missing API credentials. Sign in to RIS or open the viewer from an authenticated session.',
+          type: 'error',
+        });
+        return;
+      }
+
+      if (!keyImagesService.hasLoadedKeyImagesForStudy(studyInstanceUID)) {
+        try {
+          await keyImagesService.loadKeyImagesForStudy(studyInstanceUID);
+        } catch (error) {
+          uiNotificationService.show({
+            title: 'Key Images',
+            message: error instanceof Error ? error.message : 'Failed to load key images.',
+            type: 'error',
+          });
+          return;
+        }
+      }
+
       const existingKeyImage = keyImagesService.findKeyImageForInstance({
         studyInstanceUID,
         imageId,
@@ -118,7 +174,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
             (instance?.SOPInstanceUID && m.SOPInstanceUID === instance.SOPInstanceUID)
         );
 
-        keyImagesService.addKeyImage({
+        const pendingKeyImage = {
           id: `key-image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           imageId,
           imageIndex: imageIndex >= 0 ? imageIndex : undefined,
@@ -131,18 +187,21 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
           dataUrl,
           blob,
           measurements,
-        });
+        };
+
+        await uploadKeyImagesToRis([pendingKeyImage], extensionManager);
+        await keyImagesService.loadKeyImagesForStudy(studyInstanceUID);
       })();
 
       try {
         uiNotificationService.show({
           title: 'Key Images',
-          message: 'Adding key image...',
+          message: 'Saving key image...',
           promise: addPromise,
           promiseMessages: {
-            loading: 'Adding key image...',
-            success: 'Current image added to Key Images.',
-            error: 'Failed to add key image.',
+            loading: 'Saving key image to RIS...',
+            success: 'Key image saved.',
+            error: 'Failed to save key image.',
           },
           id: 'key-images-add',
           allowDuplicates: false,
@@ -155,8 +214,39 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       }
     },
 
-    removeKeyImage: ({ keyImageId }) => {
-      keyImagesService.removeKeyImage(keyImageId);
+    removeKeyImage: async ({ keyImageId }) => {
+      const keyImage = keyImagesService.getKeyImages().find(item => item.id === keyImageId);
+      if (!keyImage) {
+        return;
+      }
+
+      const studyInstanceUID = keyImage.studyInstanceUID;
+      const s3Key = keyImage.s3Key || keyImage.id;
+
+      if (!studyInstanceUID || !s3Key) {
+        keyImagesService.removeKeyImage(keyImageId);
+        return;
+      }
+
+      const removePromise = (async () => {
+        await deleteKeyImageFromRis(studyInstanceUID, s3Key);
+        keyImagesService.removeKeyImage(keyImageId);
+      })();
+
+      uiNotificationService.show({
+        title: 'Key Images',
+        message: 'Removing key image...',
+        promise: removePromise,
+        promiseMessages: {
+          loading: 'Removing key image...',
+          success: 'Key image removed.',
+          error: 'Failed to remove key image.',
+        },
+        id: `key-images-remove-${keyImageId}`,
+        allowDuplicates: false,
+      });
+
+      await removePromise;
     },
 
     jumpToKeyImage: ({ keyImageId }) => {
@@ -184,116 +274,12 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         viewport: { id: activeViewportId },
       });
     },
-
-    saveKeyImages: async () => {
-      const activeStudyUID = getActiveStudyInstanceUID(servicesManager);
-      const keyImages = activeStudyUID
-        ? keyImagesService.getKeyImagesForStudy(activeStudyUID)
-        : [];
-
-      if (!activeStudyUID) {
-        uiNotificationService.show({
-          title: 'Key Images',
-          message: 'No active study selected. Open a study before saving key images.',
-          type: 'warning',
-        });
-        return;
-      }
-
-      if (!keyImages.length) {
-        uiNotificationService.show({
-          title: 'Key Images',
-          message: 'No key images to save for the current study.',
-          type: 'warning',
-        });
-        return;
-      }
-
-      const keyImagesUploadUrl = window.config?.keyImagesUploadUrl;
-      if (!keyImagesUploadUrl) {
-        uiNotificationService.show({
-          title: 'Key Images',
-          message: 'Missing keyImagesUploadUrl in config.',
-          type: 'error',
-        });
-        return;
-      }
-
-      const appConfig =
-        typeof window !== 'undefined'
-          ? (window.config as Parameters<typeof getKeyImagesAuthHeader>[0])
-          : undefined;
-      const authHeaders = getKeyImagesAuthHeader(appConfig);
-
-      if (!authHeaders?.Authorization) {
-        uiNotificationService.show({
-          title: 'Key Images',
-          message:
-            'Missing API credentials. Set keyImagesBasicAuthToken or keyImagesAuthorization in app config.',
-          type: 'error',
-        });
-        return;
-      }
-
-      const metadata = {
-        createdAt: new Date().toISOString(),
-        studyInstanceUID: activeStudyUID,
-        reportContextId: new URLSearchParams(window.location.search).get('reportContextId') || null,
-        tempId: new URLSearchParams(window.location.search).get('tempId') || null,
-        keyImages: keyImages.map(item => ({
-          id: item.id,
-          imageId: item.imageId,
-          imageIndex: item.imageIndex,
-          studyInstanceUID: item.studyInstanceUID,
-          seriesInstanceUID: item.seriesInstanceUID,
-          sopInstanceUID: item.sopInstanceUID,
-          frameNumber: item.frameNumber,
-          createdAt: item.createdAt,
-          measurements: item.measurements || [],
-        })),
-      };
-
-      const formData = new FormData();
-      formData.append('metadata', JSON.stringify(metadata));
-
-      for (let i = 0; i < keyImages.length; i++) {
-        const item = keyImages[i];
-        const fileBlob = await resolveKeyImageUploadBlob(item, extensionManager);
-
-        if (fileBlob) {
-          formData.append('files', fileBlob, getKeyImageUploadFileName(item, fileBlob));
-        }
-      }
-
-      const response = await fetch(keyImagesUploadUrl, {
-        method: 'POST',
-        headers: authHeaders,
-        body: formData,
-      });
-
-      if (!response.ok) {
-        let detail = '';
-        try {
-          detail = await response.text();
-        } catch {
-          /* ignore */
-        }
-        throw new Error(
-          `Upload failed with status ${response.status}${detail ? `: ${detail}` : ''}`
-        );
-      }
-
-      keyImagesService.clearKeyImagesForStudy(activeStudyUID);
-
-      uiNotificationService.show({
-        title: 'Key Images',
-        message: 'Key images saved successfully.',
-        type: 'success',
-      });
-    },
   };
 
   const definitions = {
+    loadKeyImages: {
+      commandFn: actions.loadKeyImages,
+    },
     addKeyImage: {
       commandFn: actions.addKeyImage,
     },
@@ -302,9 +288,6 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     },
     jumpToKeyImage: {
       commandFn: actions.jumpToKeyImage,
-    },
-    saveKeyImages: {
-      commandFn: actions.saveKeyImages,
     },
   };
 
