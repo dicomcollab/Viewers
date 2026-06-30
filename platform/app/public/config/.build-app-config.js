@@ -63,6 +63,21 @@ function resolvePacsIntegrationFromDicomSourceCookie() {
 
 const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
 
+/**
+ * Deployment settings from build-env.js (window.__OHIF_BUILD_ENV__). Never hardcode secrets here.
+ * @param {string} key
+ * @param {string} [fallback]
+ */
+function getBuildEnv(key, fallback) {
+  if (typeof window !== 'undefined' && window.__OHIF_BUILD_ENV__) {
+    const v = window.__OHIF_BUILD_ENV__[key];
+    if (v != null && String(v).trim() !== '') {
+      return String(v).trim();
+    }
+  }
+  return fallback ?? '';
+}
+
 function resolveEnvValue(value, localDevFallback) {
   if (typeof value === 'string' && value.startsWith('%%') && value.endsWith('%%')) {
     return localDevFallback ?? '';
@@ -84,9 +99,9 @@ function resolveEnvBoolean(value, fallback) {
 }
 
 // Demo study UID — demo route only; token is fetched from RIS when ALLOW_DEMO_VIEWER_TOKEN is enabled server-side.
-const DEMO_STUDY_UID = resolveEnvValue('2.25.244943942667588213817986409605978105180', '');
-// Local dev only (platform/app/.env DEMO_TOKEN): pre-encoded Basic auth for demo route when RIS access-token is unavailable.
-const BUILD_DEMO_BASIC_AUTH = resolveEnvValue('QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz', '');
+const DEMO_STUDY_UID = getBuildEnv('DEMO_STUDY_UID', '');
+// Local dev only (.env DEMO_TOKEN via build-env.js): Basic auth when RIS access-token is unavailable.
+const BUILD_DEMO_BASIC_AUTH = getBuildEnv('DEMO_TOKEN', '');
 
 function getCookie(name) {
   if (typeof document === 'undefined' || !document.cookie) return null;
@@ -117,22 +132,22 @@ function getTokenFromCookie() {
 }
 
 // RIS environment toggle — set VIEWER_IS_DEV=true in .env for local RIS dev.
-const isDev = resolveEnvBoolean('false', false);
+const isDev = resolveEnvBoolean(getBuildEnv('VIEWER_IS_DEV', ''), false);
 
-// URLs from env at build time; localhost fallbacks only for local dev keys when unset.
-const RIS_DEV_PORTAL_ORIGIN = resolveEnvValue('http://localhost:5173', 'http://localhost:5173');
-const RIS_PROD_PORTAL_ORIGIN = resolveEnvValue('https://synapse.med-pacs.com', '');
-const RIS_DEV_API_BASE = resolveEnvValue('http://localhost:5001', 'http://localhost:5001');
-const RIS_PROD_API_BASE = resolveEnvValue('https://med-pacs-dev-risapi-fgb0frguhuaqgrfs.eastus-01.azurewebsites.net', '');
+// URLs from build-env.js; localhost fallbacks only for local dev keys when unset.
+const RIS_DEV_PORTAL_ORIGIN = getBuildEnv('RIS_DEV_PORTAL_ORIGIN', 'http://localhost:5173');
+const RIS_PROD_PORTAL_ORIGIN = getBuildEnv('RIS_PROD_PORTAL_ORIGIN', '');
+const RIS_DEV_API_BASE = getBuildEnv('RIS_DEV_API_BASE', 'http://localhost:5001');
+const RIS_PROD_API_BASE = getBuildEnv('RIS_PROD_API_BASE', '');
 const RIS_PORTAL_ORIGIN = isDev ? RIS_DEV_PORTAL_ORIGIN : RIS_PROD_PORTAL_ORIGIN;
 const RIS_API_BASE = isDev ? RIS_DEV_API_BASE : RIS_PROD_API_BASE;
 
 // When true, /dicomservice/* uses the same Bearer token as Med-PACS (cookieAuth).
 const AZURE_PACS_PREFER_COOKIE_AUTH = true;
 
-const MED_PACS_DICOMWEB_API_ROOT = resolveEnvValue('https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/api', '');
+const MED_PACS_DICOMWEB_API_ROOT = getBuildEnv('MED_PACS_DICOMWEB_API_ROOT', '');
 // Legacy separate /wadouri path (JPEG WADO-URI). Raw DICOM WADO-URI uses MED_PACS_DICOMWEB_API_ROOT + query params.
-const MED_PACS_DICOMWEB_WADOURI_ROOT = resolveEnvValue('https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net/wadouri', '');
+const MED_PACS_DICOMWEB_WADOURI_ROOT = getBuildEnv('MED_PACS_DICOMWEB_WADOURI_ROOT', '');
 
 let _cachedAzurePacsToken = null;
 
@@ -170,7 +185,7 @@ function updateAzurePacsTokenEverywhere(newToken) {
 
 // Azure PACS: same host as Med-PACS DICOMweb; your API proxies /dicomservice/* to Azure Healthcare DICOM.
 // getAzureDicomV2BaseUrl() appends /v2; DicomWebDataSource maps .../v2 -> .../dicomservice when pacsIntegration is azurepacs.
-const AZURE_DICOM_SERVICE_URL = resolveEnvValue('https://med-pacs-dev-dicomcloudwebapi-linux-cyhzgxbbb5hqcgby.eastus-01.azurewebsites.net', '');
+const AZURE_DICOM_SERVICE_URL = getBuildEnv('AZURE_DICOM_SERVICE_URL', '');
 
 function getAzureDicomV2BaseUrl() {
   const baseUrl = AZURE_DICOM_SERVICE_URL.replace(/\/v\d+\/?$/, '').replace(/\/$/, '');
