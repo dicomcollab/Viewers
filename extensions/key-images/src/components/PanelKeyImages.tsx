@@ -11,8 +11,13 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
     keyImagesService: {
       getKeyImagesForStudy: (studyInstanceUID?: string | null) => any[];
       isAddingKeyImage: () => boolean;
+      isLoadingKeyImages: (studyInstanceUID?: string | null) => boolean;
       subscribe: (eventName: string, cb: (evt: any) => void) => { unsubscribe: () => void };
-      EVENTS: { KEY_IMAGES_CHANGED: string; KEY_IMAGES_ADDING_CHANGED: string };
+      EVENTS: {
+        KEY_IMAGES_CHANGED: string;
+        KEY_IMAGES_ADDING_CHANGED: string;
+        KEY_IMAGES_LOADING_CHANGED: string;
+      };
     };
   };
 
@@ -34,12 +39,23 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
   const [keyImages, setKeyImages] = useState(() =>
     keyImagesService.getKeyImagesForStudy(resolveActiveStudyUID())
   );
-  const [isSaving, setIsSaving] = useState(false);
   const [isAdding, setIsAdding] = useState(() => keyImagesService.isAddingKeyImage());
+  const [isLoading, setIsLoading] = useState(() =>
+    keyImagesService.isLoadingKeyImages(resolveActiveStudyUID())
+  );
 
   useEffect(() => {
     refreshKeyImages();
   }, [refreshKeyImages]);
+
+  useEffect(() => {
+    if (!activeStudyUID) {
+      setIsLoading(false);
+      return;
+    }
+
+    commandsManager.run('loadKeyImages', { studyInstanceUID: activeStudyUID });
+  }, [activeStudyUID, commandsManager]);
 
   useEffect(() => {
     const refresh = () => refreshKeyImages();
@@ -48,6 +64,14 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
       keyImagesService.subscribe(keyImagesService.EVENTS.KEY_IMAGES_CHANGED, refresh),
       keyImagesService.subscribe(keyImagesService.EVENTS.KEY_IMAGES_ADDING_CHANGED, ({ isAdding }) =>
         setIsAdding(Boolean(isAdding))
+      ),
+      keyImagesService.subscribe(
+        keyImagesService.EVENTS.KEY_IMAGES_LOADING_CHANGED,
+        ({ loading, studyInstanceUID }) => {
+          if (!studyInstanceUID || studyInstanceUID === resolveActiveStudyUID()) {
+            setIsLoading(Boolean(loading));
+          }
+        }
       ),
     ];
 
@@ -61,35 +85,23 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
     }
 
     return () => subscriptions.forEach(sub => sub.unsubscribe());
-  }, [keyImagesService, hangingProtocolService, refreshKeyImages]);
-
-  const onSave = async () => {
-    setIsSaving(true);
-    try {
-      await commandsManager.run('saveKeyImages');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  }, [keyImagesService, hangingProtocolService, refreshKeyImages, resolveActiveStudyUID]);
 
   return (
     <div className="ohif-scrollbar flex h-full flex-col gap-2 overflow-y-auto p-2 text-white">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">Key Images</div>
-        <button
-          className="bg-primary-main hover:bg-primary-dark rounded px-2 py-1 text-xs"
-          onClick={onSave}
-          disabled={isSaving || keyImages.length === 0}
-        >
-          {isSaving ? 'Saving...' : 'Save'}
-        </button>
       </div>
 
-      {isAdding && (
-        <div className="text-muted-foreground text-xs italic">Adding key image...</div>
+      {isLoading && (
+        <div className="text-muted-foreground text-xs italic">Loading key images...</div>
       )}
 
-      {keyImages.length === 0 && !isAdding && (
+      {isAdding && (
+        <div className="text-muted-foreground text-xs italic">Saving key image...</div>
+      )}
+
+      {keyImages.length === 0 && !isAdding && !isLoading && (
         <div className="text-muted-foreground text-xs">
           {activeStudyUID
             ? 'No key images for this study. Use the Add Key Image toolbar button.'
@@ -103,7 +115,7 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
           className="bg-secondary-dark border-secondary-main flex gap-2 rounded border p-2"
         >
           <img
-            src={item.dataUrl}
+            src={item.url || item.dataUrl}
             alt="key-image"
             className="h-16 w-16 rounded object-cover"
           />

@@ -39,7 +39,7 @@ import { getViewportEnabledElement } from './utils/getViewportEnabledElement';
 import getActiveViewportEnabledElement from './utils/getActiveViewportEnabledElement';
 import {
   getCineControlViewportId,
-  shouldUsePerViewportUsCine,
+  shouldUsePerViewportCine,
   shouldUseUnifiedCineControl,
 } from './utils/cineSyncUtils';
 import { advanceUsBatch as advanceUsBatchNavigation } from './utils/usBatchNavigationUtils';
@@ -849,9 +849,9 @@ function commandsModule({
       const controlViewportId =
         getCineControlViewportId(servicesManager) || activeViewportId;
       const isUnified = shouldUseUnifiedCineControl(servicesManager);
-      const isPerViewportUs = shouldUsePerViewportUsCine(servicesManager);
+      const isPerViewportCine = shouldUsePerViewportCine(servicesManager);
 
-      if ((isUnified || isPerViewportUs) && controlViewportId) {
+      if ((isUnified || isPerViewportCine) && controlViewportId) {
         const isPlaying = cines?.[controlViewportId]?.isPlaying ?? false;
         cineService.setCine({
           id: controlViewportId,

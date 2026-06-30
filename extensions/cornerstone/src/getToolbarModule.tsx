@@ -13,7 +13,7 @@ import ViewportColorbarsContainer from './components/ViewportColorbar';
 import AdvancedRenderingControls from './components/AdvancedRenderingControls';
 import { getActiveZoomButton } from './utils/zoomState';
 import {
-  activeViewportUsesUsVideoCine,
+  activeViewportUsesMultiframeCine,
   isInIframeEmbed,
 } from './utils/cineSyncUtils';
 
@@ -457,7 +457,7 @@ export default function getToolbarModule({ servicesManager, extensionManager }: 
           return;
         }
 
-        if (activeViewportUsesUsVideoCine(servicesManager, viewportId)) {
+        if (activeViewportUsesMultiframeCine(servicesManager, viewportId)) {
           return {
             disabled: true,
             hideWhenDisabled: true,

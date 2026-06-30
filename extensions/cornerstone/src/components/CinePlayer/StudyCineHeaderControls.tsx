@@ -1,12 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icons, Button, useCine } from '@ohif/ui-next';
 import { advanceUsBatch, buildUsBatchNavigationInfo } from '../../utils/usBatchNavigationUtils';
-import { pauseAllUsViewports, playAllUsViewports } from '../../utils/usCinePlaybackUtils';
+import {
+  applyCineSettingsToAllViewports,
+  pauseAllUsViewports,
+  playAllUsViewports,
+} from '../../utils/usCinePlaybackUtils';
 import {
   getCineCapableViewportIds,
   shouldShowStudyCineHeaderControls,
 } from '../../utils/cineSyncUtils';
-import { activeTransportClass } from './usCineUiUtils';
+import { DEFAULT_US_FRAME_STEP } from '../../utils/usStackCineUtils';
+import { activeTransportClass, type CinePlayMode } from './usCineUiUtils';
+import CineFpsFrControls from './CineFpsFrControls';
 
 type PageInfo = {
   currentPage: number;
@@ -25,8 +31,21 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
   const [showControls, setShowControls] = useState(() =>
     shouldShowStudyCineHeaderControls(servicesManager)
   );
+  const [activeViewportId, setActiveViewportId] = useState(
+    () => servicesManager.services.viewportGridService.getState().activeViewportId
+  );
 
   const cineCapableViewportIds = getCineCapableViewportIds(servicesManager);
+
+  const referenceViewportId =
+    activeViewportId && cineCapableViewportIds.includes(activeViewportId)
+      ? activeViewportId
+      : (cineCapableViewportIds[0] ?? null);
+
+  const referenceCine = referenceViewportId ? cines?.[referenceViewportId] : null;
+  const frameRate = referenceCine?.frameRate ?? 24;
+  const frameStep = referenceCine?.frameStep ?? DEFAULT_US_FRAME_STEP;
+  const cinePlayMode = (referenceCine?.cinePlayMode ?? 'fps') as CinePlayMode;
 
   const isAnyPlaying = useMemo(() => {
     return cineCapableViewportIds.some(id => cines?.[id]?.isPlaying);
@@ -59,6 +78,10 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
       viewportGridService.EVENTS.GRID_STATE_CHANGED,
       refresh
     );
+    const activeViewportSub = viewportGridService.subscribe(
+      viewportGridService.EVENTS.ACTIVE_VIEWPORT_ID_CHANGED,
+      ({ viewportId }) => setActiveViewportId(viewportId)
+    );
     const dsSub = displaySetService.subscribe(
       displaySetService.EVENTS.DISPLAY_SETS_CHANGED,
       refresh
@@ -69,6 +92,7 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
 
     return () => {
       gridSub.unsubscribe();
+      activeViewportSub.unsubscribe();
       dsSub.unsubscribe();
       cineSub.unsubscribe();
     };
@@ -149,6 +173,29 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
       >
         <Icons.ByName name={isAnyPlaying ? 'icon-pause' : 'icon-play'} />
       </Button>
+
+      <span className="mx-px h-3.5 w-px bg-white/25" aria-hidden />
+
+      <CineFpsFrControls
+        frameRate={frameRate}
+        frameStep={frameStep}
+        cinePlayMode={cinePlayMode}
+        onFrameRateChange={nextFrameRate =>
+          applyCineSettingsToAllViewports(servicesManager, {
+            frameRate: nextFrameRate,
+            cinePlayMode: 'fps',
+          })
+        }
+        onFrameStepChange={nextFrameStep =>
+          applyCineSettingsToAllViewports(servicesManager, {
+            frameStep: nextFrameStep,
+            cinePlayMode: 'step',
+          })
+        }
+        onPlayModeChange={mode =>
+          applyCineSettingsToAllViewports(servicesManager, { cinePlayMode: mode })
+        }
+      />
     </div>
   );
 }

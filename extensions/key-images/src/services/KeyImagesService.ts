@@ -1,27 +1,16 @@
 import { PubSubService } from '@ohif/core';
+import type { KeyImageItem } from '../types';
+import { fetchKeyImagesForStudy } from '../utils/keyImagesApi';
 
-export type KeyImageItem = {
-  id: string;
-  imageId?: string;
-  imageIndex?: number;
-  viewportId?: string;
-  studyInstanceUID?: string;
-  seriesInstanceUID?: string;
-  sopInstanceUID?: string;
-  frameNumber?: number | null;
-  createdAt: number;
-  dataUrl: string;
-  blob?: Blob | null;
-  measurements?: unknown[];
-};
+export type { KeyImageItem } from '../types';
 
 const EVENTS = {
   KEY_IMAGES_CHANGED: 'event::keyimages:changed',
   KEY_IMAGES_ADDING_CHANGED: 'event::keyimages:addingChanged',
+  KEY_IMAGES_LOADING_CHANGED: 'event::keyimages:loadingChanged',
 };
 
 export default class KeyImagesService extends PubSubService {
-  private static readonly STORAGE_KEY = 'ohif.keyImages';
   public static readonly REGISTRATION = {
     name: 'keyImagesService',
     altName: 'KeyImagesService',
@@ -30,10 +19,12 @@ export default class KeyImagesService extends PubSubService {
 
   private _keyImages: KeyImageItem[] = [];
   private _isAddingKeyImage = false;
+  private _loadingStudyUID: string | null = null;
+  private _loadedStudyUIDs = new Set<string>();
 
   constructor() {
     super(EVENTS);
-    this._keyImages = this._loadFromStorage();
+    this._clearLegacyStorage();
   }
 
   public getKeyImages(): KeyImageItem[] {
@@ -50,6 +41,22 @@ export default class KeyImagesService extends PubSubService {
 
   public isAddingKeyImage(): boolean {
     return this._isAddingKeyImage;
+  }
+
+  public isLoadingKeyImages(studyInstanceUID?: string | null): boolean {
+    if (!studyInstanceUID) {
+      return this._loadingStudyUID !== null;
+    }
+
+    return this._loadingStudyUID === studyInstanceUID;
+  }
+
+  public hasLoadedKeyImagesForStudy(studyInstanceUID?: string | null): boolean {
+    if (!studyInstanceUID) {
+      return false;
+    }
+
+    return this._loadedStudyUIDs.has(studyInstanceUID);
   }
 
   public setAddingKeyImage(isAdding: boolean): void {
@@ -93,22 +100,51 @@ export default class KeyImagesService extends PubSubService {
     });
   }
 
-  public addKeyImage(keyImage: KeyImageItem): void {
-    this._keyImages = [keyImage, ...this._keyImages];
-    this._persistToStorage();
+  public async loadKeyImagesForStudy(studyInstanceUID: string): Promise<void> {
+    if (!studyInstanceUID) {
+      return;
+    }
+
+    this._loadingStudyUID = studyInstanceUID;
+    this._broadcastEvent(EVENTS.KEY_IMAGES_LOADING_CHANGED, {
+      loading: true,
+      studyInstanceUID,
+    });
+
+    try {
+      const items = await fetchKeyImagesForStudy(studyInstanceUID);
+      this._keyImages = [
+        ...this._keyImages.filter(item => item.studyInstanceUID !== studyInstanceUID),
+        ...items,
+      ];
+      this._loadedStudyUIDs.add(studyInstanceUID);
+      this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
+    } finally {
+      this._loadingStudyUID = null;
+      this._broadcastEvent(EVENTS.KEY_IMAGES_LOADING_CHANGED, {
+        loading: false,
+        studyInstanceUID,
+      });
+    }
+  }
+
+  public setKeyImagesForStudy(studyInstanceUID: string, items: KeyImageItem[]): void {
+    this._keyImages = [
+      ...this._keyImages.filter(item => item.studyInstanceUID !== studyInstanceUID),
+      ...items,
+    ];
+    this._loadedStudyUIDs.add(studyInstanceUID);
     this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
   }
 
   public removeKeyImage(id: string): void {
+    const removed = this._keyImages.find(item => item.id === id);
     this._keyImages = this._keyImages.filter(item => item.id !== id);
-    this._persistToStorage();
     this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
-  }
 
-  public clearKeyImages(): void {
-    this._keyImages = [];
-    this._persistToStorage();
-    this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: [] });
+    if (removed?.studyInstanceUID && this.getKeyImagesForStudy(removed.studyInstanceUID).length === 0) {
+      this._loadedStudyUIDs.delete(removed.studyInstanceUID);
+    }
   }
 
   public clearKeyImagesForStudy(studyInstanceUID: string): void {
@@ -117,55 +153,19 @@ export default class KeyImagesService extends PubSubService {
     }
 
     this._keyImages = this._keyImages.filter(item => item.studyInstanceUID !== studyInstanceUID);
-    this._persistToStorage();
+    this._loadedStudyUIDs.delete(studyInstanceUID);
     this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
   }
 
-  private _persistToStorage(): void {
+  private _clearLegacyStorage(): void {
     if (typeof window === 'undefined') {
       return;
     }
 
     try {
-      const serializableItems = this._keyImages.map(item => ({
-        ...item,
-        // Blob is not JSON serializable; image is restored from dataUrl.
-        blob: null,
-      }));
-      window.localStorage.setItem(
-        KeyImagesService.STORAGE_KEY,
-        JSON.stringify(serializableItems)
-      );
+      window.localStorage.removeItem('ohif.keyImages');
     } catch {
-      // Best effort persistence only.
-    }
-  }
-
-  private _loadFromStorage(): KeyImageItem[] {
-    if (typeof window === 'undefined') {
-      return [];
-    }
-
-    try {
-      const raw = window.localStorage.getItem(KeyImagesService.STORAGE_KEY);
-      if (!raw) {
-        return [];
-      }
-
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-
-      return parsed
-        .filter(item => item && typeof item.id === 'string' && typeof item.dataUrl === 'string')
-        .map(item => ({
-          ...item,
-          createdAt: Number(item.createdAt) || Date.now(),
-          blob: null,
-        }));
-    } catch {
-      return [];
+      // Best effort cleanup only.
     }
   }
 }

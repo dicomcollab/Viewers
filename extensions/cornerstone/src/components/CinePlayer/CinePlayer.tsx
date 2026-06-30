@@ -6,7 +6,8 @@ import { useAppConfig } from '@state';
 import { cineDebug, cineDebugWarn } from '../../utils/cineDebug';
 import {
   getCineControlViewportId,
-  shouldUsePerViewportUsCine,
+  isMultiframeStackDisplaySet,
+  shouldUsePerViewportCine,
   shouldUseUnifiedCineControl,
   viewportSupportsCine,
 } from '../../utils/cineSyncUtils';
@@ -240,16 +241,32 @@ function WrappedCinePlayer({
         });
         setStackCineInfo(null);
       } else if (displaySet.Modality === 'PT') {
-        setDynamicInfo(
-          buildPetCineDynamicInfo({
+        const petDynamicInfo = buildPetCineDynamicInfo({
+          cornerstoneViewportService,
+          viewportId,
+          displaySetService,
+          viewportGridService,
+        });
+
+        if (petDynamicInfo) {
+          setDynamicInfo(petDynamicInfo);
+          setStackCineInfo(null);
+        } else if (isMultiframeStackDisplaySet(displaySet)) {
+          setDynamicInfo(null);
+          nextStackCineInfo = buildUsStackCineInfo({
             cornerstoneViewportService,
             viewportId,
             displaySetService,
             viewportGridService,
-          })
-        );
-        setStackCineInfo(null);
-      } else if (displaySet.Modality === 'US' && (displaySet.numImageFrames ?? 0) > 1) {
+            servicesManager,
+          });
+          setStackCineInfo(nextStackCineInfo);
+          nextFrameRate = getUsCineFrameRate(displaySet);
+          nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'fps';
+          nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
+          nextIsPlaying ||= !!appConfig.autoPlayCine;
+        }
+      } else if (isMultiframeStackDisplaySet(displaySet)) {
         setDynamicInfo(null);
         nextStackCineInfo = buildUsStackCineInfo({
           cornerstoneViewportService,
@@ -260,7 +277,6 @@ function WrappedCinePlayer({
         });
         setStackCineInfo(nextStackCineInfo);
         nextFrameRate = getUsCineFrameRate(displaySet);
-        // US multiframe should default to FPS playback unless user explicitly switches to step mode.
         nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'fps';
         nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
         nextIsPlaying ||= !!appConfig.autoPlayCine;
@@ -410,12 +426,12 @@ function WrappedCinePlayer({
     };
   }, [viewportId]);
 
-  const usePerViewportUsCine = shouldUsePerViewportUsCine(servicesManager);
+  const usePerViewportCine = shouldUsePerViewportCine(servicesManager);
   const cineControlViewportId = getCineControlViewportId(servicesManager);
   const { viewports } = viewportGridService.getState();
   const viewportState = viewports.get(viewportId);
   const supportsCine = viewportSupportsCine(displaySetService, viewportState);
-  const showCineUI = usePerViewportUsCine
+  const showCineUI = usePerViewportCine
     ? supportsCine
     : cineControlViewportId === viewportId;
 
@@ -423,12 +439,12 @@ function WrappedCinePlayer({
     return null;
   }
 
-  if (!isCineEnabled && !usePerViewportUsCine) {
+  if (!isCineEnabled && !usePerViewportCine) {
     return null;
   }
 
   const useUnifiedCineControl = shouldUseUnifiedCineControl(servicesManager);
-  if (usePerViewportUsCine) {
+  if (usePerViewportCine) {
     return (
       <>
         {stackCineInfo && (
