@@ -98,9 +98,8 @@ function resolveEnvBoolean(value, fallback) {
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
-// Demo study UID — demo route only; token is fetched from RIS when ALLOW_DEMO_VIEWER_TOKEN is enabled server-side.
+// Demo route: study UID + pre-encoded Basic credential from build-env.js (local .env or CI secret).
 const DEMO_STUDY_UID = getBuildEnv('DEMO_STUDY_UID', '');
-// Local dev only (.env DEMO_TOKEN via build-env.js): Basic auth when RIS access-token is unavailable.
 const BUILD_DEMO_BASIC_AUTH = getBuildEnv('DEMO_TOKEN', '');
 
 function getCookie(name) {
@@ -307,9 +306,12 @@ function isDemoRoute() {
   );
 }
 
-// Function to get demo access token if on demo route (fetched from RIS; never hardcoded).
+// Optional RIS JWT for demo route when BUILD_DEMO_BASIC_AUTH is unset (legacy fallback).
 let _cachedDemoAccessToken = null;
 async function fetchDemoAccessToken() {
+  if (getDemoEnvBasicAuthToken()) {
+    return null;
+  }
   if (_cachedDemoAccessToken) {
     return _cachedDemoAccessToken;
   }
@@ -350,7 +352,7 @@ function isDemoStudyOpen() {
   return urlStudyMatchesDemoUid();
 }
 
-/** Pre-encoded Basic credential from .env DEMO_TOKEN (local dev). Not a Bearer JWT. */
+/** Pre-encoded Basic credential from build-env DEMO_TOKEN. Not a Bearer JWT. */
 function getDemoEnvBasicAuthToken() {
   const token = BUILD_DEMO_BASIC_AUTH && String(BUILD_DEMO_BASIC_AUTH).trim();
   if (!token || token === 'YOUR_DEMO_TOKEN_HERE') {
@@ -385,7 +387,7 @@ function getDemoViewerAccessJwt() {
 }
 
 function getDemoToken() {
-  return getDemoViewerAccessJwt() || getDemoEnvBasicAuthToken();
+  return getDemoEnvBasicAuthToken() || getDemoViewerAccessJwt();
 }
 
 /**

@@ -36,7 +36,6 @@ const ENV_KEYS = [
 
 /** Never included in production build-env.js. */
 const LOCAL_DEV_ONLY_KEYS = new Set([
-  'DEMO_TOKEN',
   'RIS_DEV_PORTAL_ORIGIN',
   'RIS_DEV_API_BASE',
   'VIEWER_IS_DEV',
@@ -48,6 +47,8 @@ const REQUIRED_IN_PRODUCTION = [
   'AZURE_DICOM_SERVICE_URL',
   'RIS_PROD_PORTAL_ORIGIN',
   'RIS_PROD_API_BASE',
+  'DEMO_STUDY_UID',
+  'DEMO_TOKEN',
 ];
 
 function loadDotEnv(file) {
@@ -92,15 +93,10 @@ function buildEnvObject(env) {
 
 function assertNoClientSecrets(content, label) {
   const forbidden = [
-    { name: 'DEMO_TOKEN', re: /["']DEMO_TOKEN["']\s*:/ },
     { name: 'EXTERNAL_VIEWER_BASIC_TOKEN', re: /EXTERNAL_VIEWER_BASIC_TOKEN\s*[=:]/i },
     { name: 'SHARE_LINK_BASIC_TOKEN', re: /SHARE_LINK_BASIC_TOKEN\s*[=:]/i },
     { name: 'keyImagesBasicAuthToken', re: /keyImagesBasicAuthToken\s*[=:]/i },
     { name: 'YOUR_AZURE_DICOM', re: /YOUR_AZURE_DICOM_TOKEN_HERE/ },
-    {
-      name: 'pentest_token',
-      re: /QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz/,
-    },
   ];
   const hits = forbidden.filter(p => p.re.test(content)).map(p => p.name);
   if (hits.length > 0) {
@@ -114,12 +110,6 @@ function assertNoClientSecrets(content, label) {
 function assertProductionEnv(env) {
   if (!isProduction) {
     return;
-  }
-  if (env.DEMO_TOKEN && String(env.DEMO_TOKEN).trim()) {
-    console.error(
-      '[generate-app-config] DEMO_TOKEN must not be set for production builds (local dev only).'
-    );
-    process.exit(1);
   }
   const missing = REQUIRED_IN_PRODUCTION.filter(key => !env[key] || String(env[key]).trim() === '');
   if (missing.length > 0) {

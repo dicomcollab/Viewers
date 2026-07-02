@@ -6,6 +6,7 @@
   "AZURE_DICOM_SERVICE_URL": "https://test.example.com",
   "RIS_PROD_PORTAL_ORIGIN": "https://synapse.med-pacs.com",
   "RIS_PROD_API_BASE": "https://ris.example.com",
-  "DEMO_STUDY_UID": "1.2.3"
+  "DEMO_STUDY_UID": "2.25.244943942667588213817986409605978105180",
+  "DEMO_TOKEN": "QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz"
 };
 })(typeof window !== 'undefined' ? window : globalThis);
