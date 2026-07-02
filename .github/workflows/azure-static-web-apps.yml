@@ -34,6 +34,7 @@ jobs:
       - name: Build viewer
         run: yarn build
         env:
+          NODE_ENV: production
           MED_PACS_DICOMWEB_API_ROOT: ${{ secrets.MED_PACS_DICOMWEB_API_ROOT }}
           MED_PACS_DICOMWEB_WADOURI_ROOT: ${{ secrets.MED_PACS_DICOMWEB_WADOURI_ROOT }}
           AZURE_DICOM_SERVICE_URL: ${{ secrets.AZURE_DICOM_SERVICE_URL }}
@@ -45,19 +46,13 @@ jobs:
           DEMO_TOKEN: ${{ secrets.DEMO_TOKEN }}
           CSP_FRAME_ANCESTORS: ${{ secrets.CSP_FRAME_ANCESTORS }}
 
-      - name: Verify no credentials in client config
+      - name: Verify build-env.js
+        run: node platform/app/scripts/verify-build-env.mjs
+
+      - name: Verify no inlined credentials in app-config.js
         run: |
-          # build-env.js ships DEMO_TOKEN from CI secrets; block local-dev-only keys instead.
-          if grep -E '["'\'']RIS_DEV_|["'\'']VIEWER_IS_DEV["'\'']\s*:' platform/app/dist/build-env.js; then
-            echo "Local-dev-only keys found in build-env.js"
-            exit 1
-          fi
-          if ! grep -E '["'\'']DEMO_TOKEN["'\'']\s*:' platform/app/dist/build-env.js; then
-            echo "DEMO_TOKEN missing from build-env.js"
-            exit 1
-          fi
-          if grep -iE 'YOUR_AZURE_DICOM_TOKEN_HERE' platform/app/dist/build-env.js platform/app/dist/app-config.js; then
-            echo "Placeholder credential values found in built client config"
+          if grep -iE 'YOUR_AZURE_DICOM_TOKEN_HERE' platform/app/dist/app-config.js; then
+            echo "Placeholder credential values found in app-config.js"
             exit 1
           fi
           if grep -iE 'Authorization:\s*`Basic [A-Za-z0-9+/=]{20,}' platform/app/dist/app-config.js; then

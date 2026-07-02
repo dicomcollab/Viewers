@@ -158,10 +158,20 @@ function writeBuildEnvFile(envObject, outPath) {
 }
 
 const staticWebAppOnly = process.argv.includes('--staticwebapp-only');
+const emitDistOnly = process.argv.includes('--emit-dist-only');
 const env = resolveBuildEnvSource();
 
 if (staticWebAppOnly) {
   generateStaticWebAppConfig(env);
+  process.exit(0);
+}
+
+if (emitDistOnly) {
+  assertProductionEnv(env);
+  const buildEnv = buildEnvObject(env);
+  const distBuildEnvPath = path.join(appRoot, 'dist', 'build-env.js');
+  writeBuildEnvFile(buildEnv, distBuildEnvPath);
+  console.log(`[generate-app-config] Wrote ${distBuildEnvPath}`);
   process.exit(0);
 }
 
