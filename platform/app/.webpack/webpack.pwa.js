@@ -116,6 +116,11 @@ module.exports = (env, argv) => {
             from: `${PUBLIC_DIR}/${APP_CONFIG}`,
             to: `${DIST_DIR}/app-config.js`,
           },
+          {
+            from: `${PUBLIC_DIR}/config/.build-env.js`,
+            to: `${DIST_DIR}/build-env.js`,
+            noErrorOnMissing: !isProdBuild,
+          },
         ],
       }),
       // Generate "index.html" w/ correct includes/imports

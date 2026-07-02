@@ -269,20 +269,20 @@ function App({
 
   if (shouldUseCookieAuth) {
     const getAuthorizationHeader = () => {
-      // /external/viewer: fixed Basic auth for PACS (no cookie token)
-      const externalViewerBasic =
+      const demoBasic =
         typeof window !== 'undefined' &&
-        (window as unknown as { getExternalViewerBasicToken?: () => string | null })
-          .getExternalViewerBasicToken &&
-        typeof (window as unknown as { getExternalViewerBasicToken: () => string | null })
-          .getExternalViewerBasicToken === 'function'
+        (window as unknown as { getDemoEnvBasicAuthToken?: () => string | null })
+          .getDemoEnvBasicAuthToken &&
+        typeof (window as unknown as { getDemoEnvBasicAuthToken: () => string | null })
+          .getDemoEnvBasicAuthToken === 'function'
           ? (
-              window as unknown as { getExternalViewerBasicToken: () => string | null }
-            ).getExternalViewerBasicToken()
+              window as unknown as { getDemoEnvBasicAuthToken: () => string | null }
+            ).getDemoEnvBasicAuthToken()
           : null;
-      if (externalViewerBasic) {
+
+      if (demoBasic) {
         return {
-          Authorization: `Basic ${externalViewerBasic}`,
+          Authorization: `Basic ${demoBasic}`,
         };
       }
 
@@ -295,75 +295,34 @@ function App({
             ).config
           : undefined;
       if (appCfg?.pacsIntegration === 'azurepacs' && !appCfg?.azurePacsPreferCookieAuth) {
-        // @ts-ignore - set in config/default.js when pacsIntegration is azurepacs
-        const azureToken = typeof window !== 'undefined' && window.AZURE_PACS_TOKEN;
-        const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
-        if (azureToken && typeof azureToken === 'string' && azureToken !== azurePlaceholder) {
+        const azureToken =
+          typeof window !== 'undefined'
+            ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN
+            : undefined;
+        if (azureToken && typeof azureToken === 'string' && azureToken.trim()) {
           return {
-            Authorization: `Bearer ${azureToken}`,
+            Authorization: `Bearer ${azureToken.trim()}`,
           };
         }
       }
 
-      // Check if we're on a demo route and use demo token
-      // @ts-ignore - Accessing custom property on window
-      const isDemo =
-        window.isDemoRoute && typeof window.isDemoRoute === 'function'
-          ? window.isDemoRoute()
-          : false;
-      // @ts-ignore - Accessing custom property on window
-      const demoToken =
-        window.getDemoToken && typeof window.getDemoToken === 'function'
-          ? window.getDemoToken()
+      const viewerBearer =
+        typeof window !== 'undefined' &&
+        (window as unknown as { getViewerAccessBearerToken?: () => string | null })
+          .getViewerAccessBearerToken &&
+        typeof (window as unknown as { getViewerAccessBearerToken: () => string | null })
+          .getViewerAccessBearerToken === 'function'
+          ? (
+              window as unknown as { getViewerAccessBearerToken: () => string | null }
+            ).getViewerAccessBearerToken()
           : null;
 
-      if (isDemo && demoToken) {
-        // Use Basic auth for demo token
+      if (viewerBearer) {
         return {
-          Authorization: `Basic ${demoToken}`,
+          Authorization: `Bearer ${viewerBearer}`,
         };
       }
 
-      // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
-      // @ts-ignore - Share link helpers from app config
-      const isShareLink =
-        window.isShareLinkMode && typeof window.isShareLinkMode === 'function'
-          ? window.isShareLinkMode()
-          : false;
-      // @ts-ignore
-      const shareLinkToken =
-        window.getShareLinkBasicToken && typeof window.getShareLinkBasicToken === 'function'
-          ? window.getShareLinkBasicToken()
-          : null;
-      if (isShareLink && shareLinkToken) {
-        return {
-          Authorization: `Basic ${shareLinkToken}`,
-        };
-      }
-
-      // Get token from cookie - use configured cookie name, then patientToken (for patient-facing app), then common names
-      // Either token or patientToken is passed by the parent application; both are sent to PACS API (study, series, instance)
-      const cookieName = cookieAuth.cookieName || 'token';
-      const patientTokenCookieName = cookieAuth.patientTokenCookieName || 'patientToken';
-      let token = getCookie(cookieName) || getCookie(patientTokenCookieName);
-
-      // Fallback to common cookie names if configured names not found
-      if (!token) {
-        token =
-          getCookie('token') ||
-          getCookie('patientToken') ||
-          getCookie('accessToken') ||
-          getCookie('authToken') ||
-          getCookie('jwt');
-      }
-
-      if (token) {
-        return {
-          Authorization: `Bearer ${token}`,
-        };
-      }
-
-      // Return empty object if no token found
       return {};
     };
 

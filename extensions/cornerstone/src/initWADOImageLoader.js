@@ -595,36 +595,28 @@ export default function initWADOImageLoader(
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};
 
-      const externalViewerBasic =
+      const demoBasic =
         typeof window !== 'undefined' &&
-        window.getExternalViewerBasicToken &&
-        typeof window.getExternalViewerBasicToken === 'function'
-          ? window.getExternalViewerBasicToken()
+        window.getDemoEnvBasicAuthToken &&
+        typeof window.getDemoEnvBasicAuthToken === 'function'
+          ? window.getDemoEnvBasicAuthToken()
           : null;
 
-      // Check if we're on a demo route and use demo token
-      const isDemo =
+      const viewerBearer =
         typeof window !== 'undefined' &&
-        window.isDemoRoute &&
-        typeof window.isDemoRoute === 'function'
-          ? window.isDemoRoute()
-          : false;
-      const demoToken =
-        typeof window !== 'undefined' &&
-        window.getDemoToken &&
-        typeof window.getDemoToken === 'function'
-          ? window.getDemoToken()
+        window.getViewerAccessBearerToken &&
+        typeof window.getViewerAccessBearerToken === 'function'
+          ? window.getViewerAccessBearerToken()
           : null;
 
       let headers;
-      if (externalViewerBasic) {
+      if (demoBasic) {
         headers = {
-          Authorization: `Basic ${externalViewerBasic}`,
+          Authorization: `Basic ${demoBasic}`,
         };
-      } else if (isDemo && demoToken) {
-        // Use Basic auth for demo token
+      } else if (viewerBearer) {
         headers = {
-          Authorization: `Basic ${demoToken}`,
+          Authorization: `Bearer ${viewerBearer}`,
         };
       } else {
         headers = userAuthenticationService.getAuthorizationHeader();

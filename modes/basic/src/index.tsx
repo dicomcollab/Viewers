@@ -265,24 +265,11 @@ export const toolbarSections = {
 
   [TOOLBAR_SECTIONS.viewportActionMenu.bottomLeft]: ['windowLevelMenu'],
 
-  WindowLevelTools: [
-    'WindowLevel',
-    'invert',
-  ],
+  WindowLevelTools: ['WindowLevel', 'invert'],
 
-  ZoomTools: [
-    'ZoomIn',
-    'Zoom',
-    'Magnify',
-    'ZoomOut',
-  ],
+  ZoomTools: ['ZoomIn', 'Zoom', 'Magnify', 'ZoomOut'],
 
-  RotateTools: [
-    'DynamicRotateAction',
-    'rotate-left',
-    'flipHorizontal',
-    'flipVertical',
-  ],
+  RotateTools: ['DynamicRotateAction', 'rotate-left', 'flipHorizontal', 'flipVertical'],
 
   MeasurementTools: [
     'Length',
@@ -349,24 +336,11 @@ export const iframeToolbarSections = {
 
   [TOOLBAR_SECTIONS.viewportActionMenu.bottomLeft]: ['windowLevelMenu'],
 
-  WindowLevelTools: [
-    'WindowLevel',
-    'invert',
-  ],
+  WindowLevelTools: ['WindowLevel', 'invert'],
 
-  ZoomTools: [
-    'ZoomIn',
-    'Zoom',
-    'Magnify',
-    'ZoomOut',
-  ],
+  ZoomTools: ['ZoomIn', 'Zoom', 'Magnify', 'ZoomOut'],
 
-  RotateTools: [
-    'rotate-right',
-    'rotate-left',
-    'flipHorizontal',
-    'flipVertical',
-  ],
+  RotateTools: ['rotate-right', 'rotate-left', 'flipHorizontal', 'flipVertical'],
 
   MeasurementTools: [
     'Length',

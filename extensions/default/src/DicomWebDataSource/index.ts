@@ -24,6 +24,22 @@ const { DicomMetaDictionary, DicomDict } = dcmjs.data;
 
 const { naturalizeDataset, denaturalizeDataset } = DicomMetaDictionary;
 
+type PacsAuthRequestHook = (request: XMLHttpRequest, metadata?: object) => XMLHttpRequest;
+
+function buildPacsAuthRequestHooks(
+  existing: PacsAuthRequestHook[] | undefined,
+  resolveAuthHeaders: () => HeadersInterface
+): PacsAuthRequestHook[] {
+  const injectAuth: PacsAuthRequestHook = request => {
+    const auth = resolveAuthHeaders();
+    if (auth?.Authorization) {
+      request.setRequestHeader('Authorization', auth.Authorization);
+    }
+    return request;
+  };
+  return [...(existing || []), injectAuth];
+}
+
 const ImplementationClassUID = '2.25.270695996825855179949881587723571202391.2.0.0';
 const ImplementationVersionName = 'OHIF-3.11.0';
 const EXPLICIT_VR_LITTLE_ENDIAN = '1.2.840.10008.1.2.1';
@@ -170,19 +186,35 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
 
-        // /external/viewer: embedded link with fixed Basic auth (no cookie/session)
-        const externalViewerBasic =
+        const demoBasic =
           typeof window !== 'undefined' &&
-          (window as unknown as { getExternalViewerBasicToken?: () => string | null })
-            .getExternalViewerBasicToken &&
-          typeof (window as unknown as { getExternalViewerBasicToken: () => string | null })
-            .getExternalViewerBasicToken === 'function'
+          (window as unknown as { getDemoEnvBasicAuthToken?: () => string | null })
+            .getDemoEnvBasicAuthToken &&
+          typeof (window as unknown as { getDemoEnvBasicAuthToken: () => string | null })
+            .getDemoEnvBasicAuthToken === 'function'
             ? (
-                window as unknown as { getExternalViewerBasicToken: () => string | null }
-              ).getExternalViewerBasicToken()
+                window as unknown as { getDemoEnvBasicAuthToken: () => string | null }
+              ).getDemoEnvBasicAuthToken()
             : null;
-        if (externalViewerBasic) {
-          xhrRequestHeaders.Authorization = `Basic ${externalViewerBasic}`;
+
+        if (demoBasic) {
+          xhrRequestHeaders.Authorization = `Basic ${demoBasic}`;
+          return xhrRequestHeaders;
+        }
+
+        const viewerBearer =
+          typeof window !== 'undefined' &&
+          (window as unknown as { getViewerAccessBearerToken?: () => string | null })
+            .getViewerAccessBearerToken &&
+          typeof (window as unknown as { getViewerAccessBearerToken: () => string | null })
+            .getViewerAccessBearerToken === 'function'
+            ? (
+                window as unknown as { getViewerAccessBearerToken: () => string | null }
+              ).getViewerAccessBearerToken()
+            : null;
+
+        if (viewerBearer) {
+          xhrRequestHeaders.Authorization = `Bearer ${viewerBearer}`;
           return xhrRequestHeaders;
         }
 
@@ -197,45 +229,15 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             ? (window as unknown as { AZURE_PACS_TOKEN?: string }).AZURE_PACS_TOKEN
             : null;
         const azureToken = azureTokenFromConfig || azureTokenFromWindow || null;
-        const azurePlaceholder = 'YOUR_AZURE_DICOM_TOKEN_HERE';
 
-        if (isAzureDicomV2 && !preferCookieAuth && azureToken && azureToken !== azurePlaceholder) {
-          xhrRequestHeaders.Authorization = `Bearer ${azureToken}`;
-          return xhrRequestHeaders;
-        }
-
-        // Check if we're on a demo route and use demo token
-        // @ts-expect-error - Accessing custom property on window
-        const isDemo =
-          typeof window !== 'undefined' &&
-          window.isDemoRoute &&
-          typeof window.isDemoRoute === 'function'
-            ? window.isDemoRoute()
-            : false;
-        // @ts-expect-error - Accessing custom property on window
-        const demoToken =
-          typeof window !== 'undefined' &&
-          window.getDemoToken &&
-          typeof window.getDemoToken === 'function'
-            ? window.getDemoToken()
-            : null;
-
-        if (isDemo && demoToken) {
-          // Use Basic auth for demo token
-          xhrRequestHeaders.Authorization = `Basic ${demoToken}`;
-          return xhrRequestHeaders;
-        }
-
-        // Share link (ShortCode): when URL has ShortCode and it is not expired, use basic token for PACS
-        // @ts-expect-error - Share link helpers from app config
-        const shareLinkToken =
-          typeof window !== 'undefined' &&
-          window.getShareLinkBasicToken &&
-          typeof window.getShareLinkBasicToken === 'function'
-            ? window.getShareLinkBasicToken()
-            : null;
-        if (shareLinkToken) {
-          xhrRequestHeaders.Authorization = `Basic ${shareLinkToken}`;
+        if (
+          isAzureDicomV2 &&
+          !preferCookieAuth &&
+          azureToken &&
+          typeof azureToken === 'string' &&
+          azureToken.trim()
+        ) {
+          xhrRequestHeaders.Authorization = `Bearer ${azureToken.trim()}`;
           return xhrRequestHeaders;
         }
 
@@ -245,6 +247,11 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
         }
         return xhrRequestHeaders;
       };
+
+      const pacsAuthRequestHooks = buildPacsAuthRequestHooks(
+        dicomWebConfig.requestHooks,
+        getAuthorizationHeader
+      );
 
       /**
        * Generates the wado header for requesting resources from DICOMweb.
@@ -309,6 +316,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
           headers: qidoHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };
@@ -317,15 +325,18 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
           headers: initialAuthHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };
       } else {
+        const initialAuthHeaders = getAuthorizationHeader();
         qidoConfig = {
           url: qidoBaseUrl,
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
-          headers: userAuthenticationService.getAuthorizationHeader(),
+          headers: initialAuthHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };
@@ -334,7 +345,8 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           url: wadoBaseUrl,
           staticWado: dicomWebConfig.staticWado,
           singlepart: dicomWebConfig.singlepart,
-          headers: userAuthenticationService.getAuthorizationHeader(),
+          headers: initialAuthHeaders,
+          requestHooks: pacsAuthRequestHooks,
           errorInterceptor: errorHandler.getHTTPErrorHandler(),
           supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
         };

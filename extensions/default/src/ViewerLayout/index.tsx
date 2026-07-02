@@ -226,7 +226,10 @@ function ViewerLayout({
       hpService.subscribe(HangingProtocolService.EVENTS.PROTOCOL_CHANGED, scheduleResize),
       viewportGridService?.subscribe?.(viewportGridService.EVENTS.VIEWPORTS_READY, scheduleResize),
       viewportGridService?.subscribe?.(viewportGridService.EVENTS.LAYOUT_CHANGED, scheduleResize),
-      viewportGridService?.subscribe?.(viewportGridService.EVENTS.GRID_SIZE_CHANGED, scheduleResize),
+      viewportGridService?.subscribe?.(
+        viewportGridService.EVENTS.GRID_SIZE_CHANGED,
+        scheduleResize
+      ),
     ].filter(Boolean);
 
     return () => {

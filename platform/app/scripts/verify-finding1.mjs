@@ -1,6 +1,6 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
- * Finding 1 verification ΓÇö scans source + built config for hardcoded credentials.
+ * Finding 1 verification — scans source + built config for hardcoded credentials.
  * Writes NDJSON to debug-7da908.log and posts to debug ingest.
  */
 import fs from 'fs';
@@ -22,7 +22,11 @@ const SECRET_PATTERNS = [
   { id: 'D', name: 'keyImagesBasicAuthToken', re: /keyImagesBasicAuthToken\s*[=:]/i },
   { id: 'E', name: 'YOUR_AZURE_DICOM', re: /YOUR_AZURE_DICOM_TOKEN_HERE/ },
   { id: 'F', name: 'exposed_basic_b64', re: /Authorization:\s*Basic\s+[A-Za-z0-9+/=]{20,}/ },
-  { id: 'G', name: 'pentest_token', re: /QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz/ },
+  {
+    id: 'G',
+    name: 'pentest_token',
+    re: /QjdYOVYzTFEyWlc4TTZSRkQwSjVQWVQ0S04xR0hTVTpaNE0xSzlGOFFYN1RSRDVXMkxDVjBCSk42U0dZSFAz/,
+  },
 ];
 
 function log(entry) {
@@ -93,8 +97,7 @@ log({
 
 // Production URL still in template? (recon risk, not credential)
 const hardcodedAzureInTemplate =
-  /med-pacs-dev-dicomcloudwebapi/.test(defaultJs) ||
-  /med-pacs-dev-risapi/.test(defaultJs);
+  /med-pacs-dev-dicomcloudwebapi/.test(defaultJs) || /med-pacs-dev-risapi/.test(defaultJs);
 log({
   hypothesisId: 'I',
   location: 'verify-finding1.mjs:urls',

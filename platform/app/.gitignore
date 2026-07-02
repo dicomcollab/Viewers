@@ -1,3 +1,6 @@
 .vercel
 test-results
 store.json
+public/config/.build-app-config.js
+public/config/.build-env.js
+.env

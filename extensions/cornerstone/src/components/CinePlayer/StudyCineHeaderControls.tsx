@@ -118,7 +118,7 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
 
   return (
     <div
-      className="inline-flex h-7 items-center gap-0.5 rounded border border-white/15 bg-[#00000080] px-0.5"
+      className="border-white/15 inline-flex h-7 items-center gap-0.5 rounded border bg-[#00000080] px-0.5"
       data-cy="study-cine-header-controls"
     >
       {pageInfo && pageInfo.totalPages > 1 ? (
@@ -136,7 +136,7 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
               <Icons.ChevronLeft />
             </Button>
             <span
-              className="min-w-[1.75rem] px-px text-center text-[10px] font-semibold leading-none text-white tabular-nums"
+              className="min-w-[1.75rem] px-px text-center text-[10px] font-semibold tabular-nums leading-none text-white"
               data-cy="study-series-page-label"
             >
               {pageInfo.currentPage}/{pageInfo.totalPages}
@@ -153,14 +153,17 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
               <Icons.ChevronRight />
             </Button>
           </div>
-          <span className="mx-px h-3.5 w-px bg-white/25" aria-hidden />
+          <span
+            className="mx-px h-3.5 w-px bg-white/25"
+            aria-hidden
+          />
         </>
       ) : null}
 
       <Button
         variant="ghost"
         size="icon"
-        className={`${transportBtnClass} rounded-sm ${isAnyPlaying ? activeTransportClass(true) : 'text-white hover:bg-primary-active'}`}
+        className={`${transportBtnClass} rounded-sm ${isAnyPlaying ? activeTransportClass(true) : 'hover:bg-primary-active text-white'}`}
         onClick={() => {
           if (isAnyPlaying) {
             pauseAllUsViewports(servicesManager);
@@ -174,7 +177,10 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
         <Icons.ByName name={isAnyPlaying ? 'icon-pause' : 'icon-play'} />
       </Button>
 
-      <span className="mx-px h-3.5 w-px bg-white/25" aria-hidden />
+      <span
+        className="mx-px h-3.5 w-px bg-white/25"
+        aria-hidden
+      />
 
       <CineFpsFrControls
         frameRate={frameRate}

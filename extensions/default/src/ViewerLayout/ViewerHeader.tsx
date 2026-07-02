@@ -49,7 +49,9 @@ function resolveStudyInstanceUidForReport(
     params.studyInstanceUid ||
     params.StudyInstanceUID;
   if (fromParams) {
-    const first = String(fromParams).split(/[,\s]+/)[0]?.trim();
+    const first = String(fromParams)
+      .split(/[,\s]+/)[0]
+      ?.trim();
     if (first) {
       return first;
     }
@@ -101,7 +103,10 @@ function getCreateReportBaseUrl(appConfig: AppTypes.Config): string | null {
   }
 }
 
-function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appConfig: AppTypes.Config; isIframeMode?: boolean }>) {
+function ViewerHeader({
+  appConfig,
+  isIframeMode = false,
+}: withAppTypes<{ appConfig: AppTypes.Config; isIframeMode?: boolean }>) {
   const { servicesManager, extensionManager, commandsManager } = useSystem();
   const useViewDicomForReport = Boolean(appConfig.risReportUseViewDicomApi);
   const { customizationService } = servicesManager.services;
@@ -160,14 +165,14 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
         apiBase,
         ...(path ? { path } : {}),
       });
-      const dicomEntryId =
-        dicomData?._id != null ? String(dicomData._id).trim() : '';
+      const dicomEntryId = dicomData?._id != null ? String(dicomData._id).trim() : '';
       if (dicomEntryId) {
         const reportBase = getCreateReportBaseUrl(appConfig);
         if (!reportBase) {
           uiNotificationService.show({
             title: 'Report',
-            message: 'Report app base URL is not configured (createReportAppBaseUrl / production / risWorklistUrl).',
+            message:
+              'Report app base URL is not configured (createReportAppBaseUrl / production / risWorklistUrl).',
             type: 'error',
           });
           return;
@@ -312,8 +317,12 @@ function ViewerHeader({ appConfig, isIframeMode = false }: withAppTypes<{ appCon
         </div>
       }
     >
-      <div className={`relative flex justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact iframe-toolbar-row' : 'gap-[4px]'}`}>
-        <div className={`flex items-center whitespace-nowrap ${isIframeMode ? 'iframe-toolbar-row gap-0.5' : 'justify-center gap-1'}`}>
+      <div
+        className={`relative flex justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact iframe-toolbar-row' : 'gap-[4px]'}`}
+      >
+        <div
+          className={`flex items-center whitespace-nowrap ${isIframeMode ? 'iframe-toolbar-row gap-0.5' : 'justify-center gap-1'}`}
+        >
           <Toolbar buttonSection="primary" />
         </div>
       </div>

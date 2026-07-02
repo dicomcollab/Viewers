@@ -84,7 +84,7 @@ export default function buildModeRoutes({
 
   modes.forEach(mode => {
     pushModeRoutes(mode);
-    // Embedded viewer: same longitudinal mode as /viewer but PACS uses fixed Basic auth (see default.js getExternalViewerBasicToken).
+    // Embedded viewer: same longitudinal mode as /viewer; JWT via getExternalViewerAccessToken (see default.js).
     if (mode.routeName === 'viewer') {
       pushModeRoutes(mode, 'external');
     }

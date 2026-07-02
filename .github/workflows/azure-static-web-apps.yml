@@ -33,9 +33,27 @@ jobs:
 
       - name: Build viewer
         run: yarn build
+        env:
+          MED_PACS_DICOMWEB_API_ROOT: ${{ secrets.MED_PACS_DICOMWEB_API_ROOT }}
+          MED_PACS_DICOMWEB_WADOURI_ROOT: ${{ secrets.MED_PACS_DICOMWEB_WADOURI_ROOT }}
+          AZURE_DICOM_SERVICE_URL: ${{ secrets.AZURE_DICOM_SERVICE_URL }}
+          RIS_PROD_PORTAL_ORIGIN: ${{ secrets.RIS_PROD_PORTAL_ORIGIN }}
+          RIS_PROD_API_BASE: ${{ secrets.RIS_PROD_API_BASE }}
+          RIS_DEV_PORTAL_ORIGIN: ${{ secrets.RIS_DEV_PORTAL_ORIGIN }}
+          RIS_DEV_API_BASE: ${{ secrets.RIS_DEV_API_BASE }}
+          DEMO_STUDY_UID: ${{ secrets.DEMO_STUDY_UID }}
+          CSP_FRAME_ANCESTORS: ${{ secrets.CSP_FRAME_ANCESTORS }}
 
-      - name: Copy staticwebapp.config.json
-        run: cp platform/app/staticwebapp.config.json platform/app/dist/
+      - name: Verify no credentials in client config
+        run: |
+          if grep -iE 'DEMO_TOKEN|YOUR_AZURE_DICOM|Basic [A-Za-z0-9+/=]{20,}|password\s*[:=]' platform/app/dist/build-env.js platform/app/dist/app-config.js; then
+            echo "Sensitive values found in built client config"
+            exit 1
+          fi
+          if grep -E "resolveEnvValue\('[^%]" platform/app/dist/app-config.js; then
+            echo "Inlined env values found in app-config.js (must use getBuildEnv only)"
+            exit 1
+          fi
 
       - name: Install SWA CLI
         run: npm install -g @azure/static-web-apps-cli
