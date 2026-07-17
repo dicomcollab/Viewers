@@ -5,6 +5,10 @@ import {
   getViewportEnabledElement,
   isCineCapableDisplaySet,
 } from './cineSyncUtils';
+import {
+  applyCineSettingsToAllViewports,
+  getSharedStudyCineSettings,
+} from './usCinePlaybackUtils';
 import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUtils';
 
 type UsBatchNavigationInfo = {
@@ -387,6 +391,9 @@ function advanceUsBatch(
     return null;
   }
 
+  // Capture shared FPS/fr before paging so new series do not reset to per-series FrameTime.
+  const sharedCineSettings = getSharedStudyCineSettings(servicesManager);
+
   stopCineOnViewports(servicesManager, layoutViewportIds);
 
   const target = resolveNavigationTarget(batchInfo, direction);
@@ -394,6 +401,19 @@ function advanceUsBatch(
     displaySetService,
     controlDisplaySet.StudyInstanceUID
   );
+
+  const reapplySharedCineSettings = () => {
+    if (!sharedCineSettings) {
+      return;
+    }
+
+    applyCineSettingsToAllViewports(servicesManager, {
+      frameRate: sharedCineSettings.frameRate,
+      cinePlayMode: sharedCineSettings.cinePlayMode,
+      frameStep: sharedCineSettings.frameStep,
+      isPlaying: false,
+    });
+  };
 
   if (target.type === 'instance') {
     navigateToAdjacentInstance(
@@ -407,11 +427,17 @@ function advanceUsBatch(
       batchInfo.batchSize
     );
 
+    // Win race against CinePlayer.newDisplaySetHandler per-series FrameTime init.
+    window.setTimeout(reapplySharedCineSettings, 0);
+    window.setTimeout(reapplySharedCineSettings, 450);
+
     return buildUsBatchNavigationInfo(servicesManager);
   }
 
   if (batchInfo.mode === 'instances') {
     applyInstanceBatch(servicesManager, layoutViewportIds, target.batchStart, studyDisplaySets);
+    window.setTimeout(reapplySharedCineSettings, 0);
+    window.setTimeout(reapplySharedCineSettings, 450);
   } else {
     applyFrameBatch(
       servicesManager,

@@ -2,12 +2,62 @@ import { getViewportEnabledElement } from './cineSyncUtils';
 import { getUsCineCapableLayoutViewportIds } from './usGridViewportUtils';
 import type { CinePlayMode } from '../components/CinePlayer/usCineUiUtils';
 
+// Keep in sync with DEFAULT_US_FRAME_STEP in usStackCineUtils (avoid circular import).
+const DEFAULT_FRAME_STEP = 4;
+
 type CineSettingsUpdate = {
   frameRate?: number;
   cinePlayMode?: CinePlayMode;
   frameStep?: number;
   isPlaying?: boolean;
 };
+
+type SharedStudyCineSettings = {
+  frameRate: number;
+  cinePlayMode: CinePlayMode;
+  frameStep: number;
+};
+
+/**
+ * Shared FPS / fr settings for multi-series layouts (e.g. US 1×4).
+ * Prefers the active viewport, then the first cine-capable viewport with state.
+ */
+function getSharedStudyCineSettings(
+  servicesManager: AppTypes.ServicesManager
+): SharedStudyCineSettings | null {
+  const { cineService, viewportGridService } = servicesManager.services;
+  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  if (!viewportIds.length) {
+    return null;
+  }
+
+  const { cines } = cineService.getState();
+  const { activeViewportId } = viewportGridService.getState();
+  const orderedIds =
+    activeViewportId && viewportIds.includes(activeViewportId)
+      ? [activeViewportId, ...viewportIds.filter(id => id !== activeViewportId)]
+      : viewportIds;
+
+  for (const viewportId of orderedIds) {
+    const current = cines?.[viewportId];
+
+    if (!current) {
+      continue;
+    }
+
+    if (current.frameRate != null || current.cinePlayMode != null || current.frameStep != null) {
+      return {
+        frameRate: current.frameRate ?? 24,
+        cinePlayMode: (current.cinePlayMode ?? 'fps') as CinePlayMode,
+        frameStep: current.frameStep ?? DEFAULT_FRAME_STEP,
+      };
+    }
+  }
+
+  return null;
+}
+
 function applyCineSettingsToAllViewports(
   servicesManager: AppTypes.ServicesManager,
   settings: CineSettingsUpdate
@@ -30,7 +80,7 @@ function applyCineSettingsToAllViewports(
 }
 
 function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
-  const { cineService, displaySetService, viewportGridService } = servicesManager.services;
+  const { cineService } = servicesManager.services;
   const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
 
   if (!viewportIds.length) {
@@ -39,6 +89,8 @@ function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
 
   cineService.setIsCineEnabled(true);
 
+  const shared = getSharedStudyCineSettings(servicesManager);
+
   viewportIds.forEach(viewportId => {
     const { cines } = cineService.getState();
     const current = cines?.[viewportId] ?? {};
@@ -46,9 +98,9 @@ function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
     cineService.setCine({
       id: viewportId,
       isPlaying: true,
-      frameRate: current.frameRate,
-      cinePlayMode: current.cinePlayMode,
-      frameStep: current.frameStep,
+      frameRate: shared?.frameRate ?? current.frameRate,
+      cinePlayMode: shared?.cinePlayMode ?? current.cinePlayMode,
+      frameStep: shared?.frameStep ?? current.frameStep,
     });
   });
 }
@@ -120,8 +172,10 @@ function stepUsViewportFrame(
 
 export {
   applyCineSettingsToAllViewports,
+  getSharedStudyCineSettings,
   pauseAllUsViewports,
   playAllUsViewports,
   stepUsViewportFrame,
   stopAllUsViewports,
 };
+export type { SharedStudyCineSettings };
