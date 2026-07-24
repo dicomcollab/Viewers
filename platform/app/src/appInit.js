@@ -104,6 +104,14 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
 
       // Check if error is a 401 (Unauthorized) - token expired
       if (error && status === 401) {
+        // Defer redirect while RIS AUTH_SESSION handoff is in progress (iframe / popup).
+        if (typeof window !== 'undefined' && window.__RIS_AUTH_PENDING) {
+          console.warn(
+            '401 error - deferring RIS redirect while AUTH_SESSION handoff is pending.'
+          );
+          return;
+        }
+
         // Get userAuthenticationService from stored servicesManager
         const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
 

@@ -165,6 +165,18 @@ export function getRisAuthTokenFromBrowserCookies(): string | null {
   if (typeof window === 'undefined') {
     return null;
   }
+
+  const win = window as unknown as {
+    getRisPostMessageAuthToken?: () => string | null;
+    getViewerAccessBearerToken?: () => string | null;
+  };
+  if (typeof win.getRisPostMessageAuthToken === 'function') {
+    const fromPostMessage = win.getRisPostMessageAuthToken();
+    if (fromPostMessage) {
+      return fromPostMessage;
+    }
+  }
+
   if (typeof document === 'undefined' || !document.cookie) {
     return null;
   }

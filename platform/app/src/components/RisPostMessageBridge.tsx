@@ -2,8 +2,16 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppConfig } from '@state';
 
-const MESSAGE_SOURCE = 'DICOMRIS';
+const MESSAGE_SOURCE_RIS = 'DICOMRIS';
+const MESSAGE_SOURCE_VIEWER = 'DICOMRIS_VIEWER';
 const LOAD_STUDY = 'LOAD_STUDY';
+const AUTH_SESSION = 'AUTH_SESSION';
+const VIEWER_READY = 'VIEWER_READY';
+
+type RisPostMessageConfig = {
+  enabled?: boolean;
+  allowedOrigins?: string[];
+};
 
 function normalizeStudyInstanceUIDs(value: unknown): string | null {
   if (value == null) {
@@ -67,23 +75,62 @@ function stripBasenameFromPathname(pathname: string, basename: string): string {
   return pathname;
 }
 
+function getAllowedOrigins(cfg?: RisPostMessageConfig | null): string[] {
+  return (cfg?.allowedOrigins || []).filter(Boolean);
+}
+
+function notifyRisViewerReady(allowedOrigins: string[]) {
+  if (!allowedOrigins.length) return;
+
+  const payload = {
+    source: MESSAGE_SOURCE_VIEWER,
+    type: VIEWER_READY,
+  };
+
+  const targets: Window[] = [];
+  try {
+    if (window.opener && !window.opener.closed) {
+      targets.push(window.opener);
+    }
+  } catch {
+    /* cross-origin opener may throw */
+  }
+  if (window.parent && window.parent !== window) {
+    targets.push(window.parent);
+  }
+
+  for (const target of targets) {
+    for (const origin of allowedOrigins) {
+      try {
+        target.postMessage(payload, origin);
+      } catch {
+        /* ignore invalid target/origin pairs */
+      }
+    }
+  }
+}
+
+function applyAuthSessionPayload(data: Record<string, unknown>) {
+  const win = window as Window & {
+    applyRisAuthSessionPayload?: (payload: Record<string, unknown>) => boolean;
+    applyRisAuthSessionFromPostMessage?: (payload: Record<string, unknown>) => void;
+  };
+  // Prefer unified early-bridge helper (sets __RIS_AUTH_TOKEN + sessionStorage + cookies).
+  if (typeof win.applyRisAuthSessionPayload === 'function') {
+    win.applyRisAuthSessionPayload(data);
+    return;
+  }
+  if (typeof win.applyRisAuthSessionFromPostMessage === 'function') {
+    win.applyRisAuthSessionFromPostMessage(data);
+    return;
+  }
+  console.warn('[RisPostMessageBridge] AUTH_SESSION apply helper is not available');
+}
+
 /**
- * Listens for postMessage from the parent RIS so one viewer tab can switch studies via SPA
- * navigation (replace) instead of opening a new tab or doing a full page load.
- *
- * RIS example:
- *   viewerWindow.postMessage(
- *     {
- *       source: 'DICOMRIS',
- *       type: 'LOAD_STUDY',
- *       StudyInstanceUIDs: '1.2.840...',
- *       mode: 'viewer',
- *       dataSource: 'dicomweb',
- *       // optional — same viewer origin path or absolute URL:
- *       fullUrl: '/viewer/dicomweb?StudyInstanceUIDs=1.2.840...',
- *     },
- *     'https://viewer-origin'
- *   );
+ * Listens for postMessage from parent RIS:
+ * - AUTH_SESSION: cross-origin token + preference cookies
+ * - LOAD_STUDY: switch study in-tab via SPA navigation
  */
 export default function RisPostMessageBridge() {
   const navigate = useNavigate();
@@ -93,12 +140,24 @@ export default function RisPostMessageBridge() {
 
   useEffect(() => {
     const cfg = appConfig?.risPostMessage;
-    if (!cfg?.enabled || !cfg?.allowedOrigins?.length) {
+    const authCfg = appConfig?.risAuthSession ?? cfg;
+    const allowedOrigins = getAllowedOrigins(cfg);
+    if (!allowedOrigins.length) {
       return;
     }
 
-    const allowed = new Set(cfg.allowedOrigins);
+    const allowed = new Set(allowedOrigins);
     const routerBasename = appConfig?.routerBasename || '/';
+    const loadStudyEnabled = cfg?.enabled !== false;
+    const authSessionEnabled = authCfg?.enabled !== false;
+
+    let readyTimer: number | undefined;
+    let readyTimer2: number | undefined;
+    if (authSessionEnabled) {
+      notifyRisViewerReady(allowedOrigins);
+      readyTimer = window.setTimeout(() => notifyRisViewerReady(allowedOrigins), 500);
+      readyTimer2 = window.setTimeout(() => notifyRisViewerReady(allowedOrigins), 2000);
+    }
 
     const handler = (event: MessageEvent) => {
       if (!allowed.has(event.origin)) {
@@ -106,10 +165,17 @@ export default function RisPostMessageBridge() {
       }
 
       const d = event.data;
-      if (!d || typeof d !== 'object') {
+      if (!d || typeof d !== 'object' || d.source !== MESSAGE_SOURCE_RIS) {
         return;
       }
-      if (d.source !== MESSAGE_SOURCE || d.type !== LOAD_STUDY) {
+
+      if (d.type === AUTH_SESSION) {
+        if (!authSessionEnabled) return;
+        applyAuthSessionPayload(d as Record<string, unknown>);
+        return;
+      }
+
+      if (!loadStudyEnabled || d.type !== LOAD_STUDY) {
         return;
       }
 
@@ -150,7 +216,11 @@ export default function RisPostMessageBridge() {
     };
 
     window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
+    return () => {
+      window.clearTimeout(readyTimer);
+      window.clearTimeout(readyTimer2);
+      window.removeEventListener('message', handler);
+    };
   }, [appConfig]);
 
   return null;

@@ -119,19 +119,152 @@ function getCookie(name) {
   return null;
 }
 
+function isViewerSecureContext() {
+  if (typeof window === 'undefined') return true;
+  return window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+}
+
+function setCookieOnViewer(name, value, options = {}) {
+  if (typeof document === 'undefined' || !name || value == null) return false;
+  const str = String(value);
+  if (str.length > 3800) {
+    console.warn(`[setCookieOnViewer] "${name}" length=${str.length} — skipped (browser limit)`);
+    return false;
+  }
+  const secure = options.secure !== undefined ? options.secure : isViewerSecureContext();
+  const sameSite = options.sameSite || 'lax';
+  const maxAge = options.maxAge != null ? options.maxAge : 86400;
+  const path = options.path || '/';
+  let encoded;
+  try {
+    encoded = encodeURIComponent(str);
+  } catch (_) {
+    encoded = str;
+  }
+  const parts = [`${name}=${encoded}`, `path=${path}`, `max-age=${maxAge}`];
+  if (secure) parts.push('Secure');
+  parts.push(`SameSite=${sameSite.charAt(0).toUpperCase() + sameSite.slice(1).toLowerCase()}`);
+  document.cookie = parts.join('; ');
+  return document.cookie.split(';').some(part => part.trim().startsWith(`${name}=`));
+}
+
+const RIS_AUTH_COOKIE_NAMES = new Set([
+  'token',
+  'patientToken',
+  'authSessionOnly',
+  'accessToken',
+  'authToken',
+  'jwt',
+]);
+
+function shouldPersistRisAuthCookieName(name) {
+  return RIS_AUTH_COOKIE_NAMES.has(name) || name.startsWith('userPreferences');
+}
+
+/**
+ * Write AUTH_SESSION token + preference cookies on the viewer origin so reload keeps auth.
+ */
+function persistRisAuthSessionToCookies(data) {
+  if (!data || typeof data !== 'object' || typeof document === 'undefined') return;
+
+  const token = data.token && String(data.token).trim();
+  if (token) {
+    setCookieOnViewer('token', token);
+  }
+
+  const cookies = data.cookies;
+  if (cookies && typeof cookies === 'object') {
+    Object.keys(cookies).forEach(name => {
+      if (!shouldPersistRisAuthCookieName(name)) return;
+      const value = cookies[name];
+      if (value == null || value === '') return;
+      setCookieOnViewer(name, value);
+    });
+  }
+}
+
+/** In-memory auth from RIS postMessage when cookies cannot be shared cross-origin. */
+let _risPostMessageAuth = {
+  token: null,
+  cookies: null,
+  preferences: null,
+};
+
+function getRisPostMessageAuthToken() {
+  const token = _risPostMessageAuth.token;
+  return token && String(token).trim() ? String(token).trim() : null;
+}
+
+function getRisPostMessagePreferences() {
+  return _risPostMessageAuth.preferences || null;
+}
+
+/**
+ * Apply AUTH_SESSION payload from parent RIS (postMessage).
+ * @param {{ token?: string, cookies?: Record<string, string>, preferences?: object }} data
+ */
+function applyRisAuthSessionFromPostMessage(data) {
+  if (!data || typeof data !== 'object') return;
+
+  if (data.token && String(data.token).trim()) {
+    _risPostMessageAuth.token = String(data.token).trim();
+  }
+  if (data.preferences && typeof data.preferences === 'object') {
+    _risPostMessageAuth.preferences = data.preferences;
+    _preferencesCache = data.preferences;
+    _preferencesPromise = Promise.resolve(data.preferences);
+  }
+  if (data.cookies && typeof data.cookies === 'object') {
+    _risPostMessageAuth.cookies = data.cookies;
+    if (!_risPostMessageAuth.token) {
+      const fromCookies =
+        data.cookies.token || data.cookies.patientToken || data.cookies.accessToken || null;
+      if (fromCookies) _risPostMessageAuth.token = String(fromCookies).trim();
+    }
+  }
+
+  persistRisAuthSessionToCookies(data);
+
+  // Keep early-bridge memory/sessionStorage in sync (iframe / new-tab handoff).
+  if (typeof window !== 'undefined' && _risPostMessageAuth.token) {
+    window.__RIS_AUTH_TOKEN = _risPostMessageAuth.token;
+    try {
+      sessionStorage.setItem('dicomris_auth_token', _risPostMessageAuth.token);
+    } catch (_) {
+      /* ignore */
+    }
+    window.__RIS_AUTH_RECEIVED = true;
+    window.__RIS_AUTH_PENDING = false;
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('RIS_AUTH_SESSION', { detail: data }));
+  }
+}
+
 function getTokenFromCookie() {
-  return (
+  // Prefer in-memory token from RIS postMessage handoff (cross-origin iframe / new tab).
+  if (typeof window !== 'undefined' && window.__RIS_AUTH_TOKEN) {
+    return window.__RIS_AUTH_TOKEN;
+  }
+  const fromCookie =
     getCookie('token') ||
     getCookie('patientToken') ||
     getCookie('accessToken') ||
     getCookie('authToken') ||
-    getCookie('jwt') ||
-    null
-  );
+    getCookie('jwt');
+  if (fromCookie) return fromCookie;
+
+  return getRisPostMessageAuthToken();
 }
 
 // RIS environment toggle — set VIEWER_IS_DEV=true in .env for local RIS dev.
 const isDev = resolveEnvBoolean(getBuildEnv('VIEWER_IS_DEV', ''), false);
+// true = accept AUTH_SESSION postMessage from RIS; false = cookie auth only (shared domain).
+const RIS_AUTH_SESSION_ENABLED = resolveEnvBoolean(
+  getBuildEnv('RIS_AUTH_SESSION_ENABLED', 'true'),
+  true
+);
 
 // URLs from build-env.js; localhost fallbacks only for local dev keys when unset.
 const RIS_DEV_PORTAL_ORIGIN = getBuildEnv('RIS_DEV_PORTAL_ORIGIN', 'http://localhost:5173');
@@ -621,6 +754,8 @@ if (typeof window !== 'undefined') {
   window.getExternalViewerAccessToken = getExternalViewerAccessToken;
   window.getExternalViewerBasicToken = getExternalViewerBasicToken;
   window.getViewerAccessBearerToken = getViewerAccessBearerToken;
+  window.getRisPostMessageAuthToken = getRisPostMessageAuthToken;
+  window.applyRisAuthSessionFromPostMessage = applyRisAuthSessionFromPostMessage;
   window.getShortCodeFromUrl = getShortCodeFromUrl;
   window.checkShortCodeExpiry = checkShortCodeExpiry;
   window.isShareLinkMode = isShareLinkMode;
@@ -636,6 +771,209 @@ if (typeof window !== 'undefined') {
     window.updateAzurePacsTokenEverywhere = updateAzurePacsTokenEverywhere;
     window.getAzureDicomV2BaseUrl = getAzureDicomV2BaseUrl;
   }
+}
+
+// ---------------------------------------------------------------------------
+// RIS → viewer AUTH_SESSION handoff (postMessage).
+// Needed when cookies cannot be shared (cross-origin iframe / Azure static apps).
+// Protocol mirrors DicomRISFronted/src/Common/risViewerAuthBridge.js:
+//   Viewer → RIS: { source: 'DICOMRIS_VIEWER', type: 'VIEWER_READY' }
+//   RIS → Viewer: { source: 'DICOMRIS', type: 'AUTH_SESSION', token, cookies, preferences }
+// ---------------------------------------------------------------------------
+const RIS_AUTH_SS_TOKEN_KEY = 'dicomris_auth_token';
+const RIS_AUTH_SS_RELOAD_KEY = 'dicomris_auth_reloaded';
+const RIS_AUTH_HANDOFF_MAX_MS = 15000;
+
+function getRisAuthAllowedOrigins() {
+  return [RIS_DEV_PORTAL_ORIGIN, RIS_PROD_PORTAL_ORIGIN, RIS_PORTAL_ORIGIN].filter(Boolean);
+}
+
+function isEmbeddedOrPopupViewer() {
+  try {
+    if (window.opener && !window.opener.closed) return true;
+    return window.parent && window.parent !== window;
+  } catch (_) {
+    return true;
+  }
+}
+
+function setRisHostCookie(name, value) {
+  if (!name || value == null || value === '') return;
+  try {
+    const encoded = encodeURIComponent(String(value));
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${name}=${encoded}; path=/; max-age=86400; SameSite=Lax${secure}`;
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applyRisAuthSessionPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+
+  // Shared apply path: in-memory token, preference cache, viewer-origin cookies.
+  applyRisAuthSessionFromPostMessage(payload);
+
+  const token =
+    (typeof payload.token === 'string' && payload.token.trim()) ||
+    getRisPostMessageAuthToken() ||
+    '';
+  const cookies = payload.cookies && typeof payload.cookies === 'object' ? payload.cookies : {};
+
+  if (token) {
+    window.__RIS_AUTH_TOKEN = token;
+    try {
+      sessionStorage.setItem(RIS_AUTH_SS_TOKEN_KEY, token);
+    } catch (_) {
+      /* ignore */
+    }
+    setRisHostCookie('token', token);
+  }
+
+  Object.keys(cookies).forEach(function (name) {
+    if (!name) return;
+    setRisHostCookie(name, cookies[name]);
+  });
+
+  // Flatten preferences object into userPreferences_* cookies when cookie map omitted them.
+  const prefs = payload.preferences;
+  if (prefs && typeof prefs === 'object' && !Array.isArray(prefs)) {
+    Object.keys(prefs).forEach(function (key) {
+      const cookieName = key.indexOf('userPreferences_') === 0 ? key : 'userPreferences_' + key;
+      if (cookies[cookieName] != null) return;
+      try {
+        const val = prefs[key];
+        const str = typeof val === 'string' ? val : JSON.stringify(val);
+        setRisHostCookie(cookieName, str);
+      } catch (_) {
+        /* ignore */
+      }
+    });
+  }
+
+  window.__RIS_AUTH_RECEIVED = Boolean(token || Object.keys(cookies).length);
+  window.__RIS_AUTH_PENDING = false;
+  return window.__RIS_AUTH_RECEIVED;
+}
+
+function restoreRisAuthSessionFromStorage() {
+  try {
+    const token = sessionStorage.getItem(RIS_AUTH_SS_TOKEN_KEY);
+    if (token && token.trim()) {
+      window.__RIS_AUTH_TOKEN = token.trim();
+      setRisHostCookie('token', token.trim());
+      window.__RIS_AUTH_RECEIVED = true;
+      window.__RIS_AUTH_PENDING = false;
+      return true;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+function postViewerReadyToRis() {
+  const msg = { source: 'DICOMRIS_VIEWER', type: 'VIEWER_READY' };
+  const origins = getRisAuthAllowedOrigins();
+  const targets = [];
+  try {
+    if (window.opener && !window.opener.closed) targets.push(window.opener);
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    if (window.parent && window.parent !== window) targets.push(window.parent);
+  } catch (_) {
+    /* ignore */
+  }
+  targets.forEach(function (target) {
+    origins.forEach(function (origin) {
+      try {
+        target.postMessage(msg, origin);
+      } catch (_) {
+        /* ignore */
+      }
+    });
+  });
+}
+
+function installRisAuthSessionBridge() {
+  if (typeof window === 'undefined' || window.__RIS_AUTH_BRIDGE_INSTALLED) {
+    return;
+  }
+  window.__RIS_AUTH_BRIDGE_INSTALLED = true;
+
+  if (!RIS_AUTH_SESSION_ENABLED) {
+    window.__RIS_AUTH_PENDING = false;
+    console.log('[RisAuthSession] disabled (RIS_AUTH_SESSION_ENABLED=false) — using cookie auth');
+    return;
+  }
+
+  restoreRisAuthSessionFromStorage();
+
+  const allowed = {};
+  getRisAuthAllowedOrigins().forEach(function (o) {
+    allowed[o] = true;
+  });
+
+  const needsHandoff = isEmbeddedOrPopupViewer() && !getTokenFromCookie();
+  window.__RIS_AUTH_PENDING = needsHandoff;
+
+  window.addEventListener('message', function (event) {
+    if (!event || !allowed[event.origin]) return;
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.source !== 'DICOMRIS' || data.type !== 'AUTH_SESSION') return;
+
+    const hadToken = Boolean(getTokenFromCookie());
+    const applied = applyRisAuthSessionPayload(data);
+    if (!applied) return;
+
+    console.log('[RisAuthSession] AUTH_SESSION applied', {
+      origin: event.origin,
+      hadTokenBefore: hadToken,
+    });
+
+    // If study requests may already have fired without auth, reload once with token in sessionStorage.
+    if (!hadToken && isEmbeddedOrPopupViewer()) {
+      try {
+        const reloadKey = RIS_AUTH_SS_RELOAD_KEY + ':' + location.pathname + location.search;
+        if (!sessionStorage.getItem(reloadKey)) {
+          sessionStorage.setItem(reloadKey, '1');
+          window.location.reload();
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  });
+
+  if (!needsHandoff) {
+    return;
+  }
+
+  postViewerReadyToRis();
+  var attempts = 0;
+  var maxAttempts = Math.ceil(RIS_AUTH_HANDOFF_MAX_MS / 250);
+  var readyInterval = setInterval(function () {
+    attempts += 1;
+    if (window.__RIS_AUTH_RECEIVED || getTokenFromCookie() || attempts >= maxAttempts) {
+      window.__RIS_AUTH_PENDING = false;
+      clearInterval(readyInterval);
+      return;
+    }
+    postViewerReadyToRis();
+  }, 250);
+
+  setTimeout(function () {
+    window.__RIS_AUTH_PENDING = false;
+  }, RIS_AUTH_HANDOFF_MAX_MS + 500);
+}
+
+if (typeof window !== 'undefined') {
+  installRisAuthSessionBridge();
+  window.applyRisAuthSessionPayload = applyRisAuthSessionPayload;
+  window.postViewerReadyToRis = postViewerReadyToRis;
 }
 
 // Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
@@ -673,6 +1011,10 @@ function parseCookieValue(value) {
  * @returns {Object|null} Preferences object in API shape, or null if no preference cookies found
  */
 function getPreferencesFromCookies() {
+  const fromPostMessage = getRisPostMessagePreferences();
+  if (fromPostMessage && typeof fromPostMessage === 'object') {
+    return fromPostMessage;
+  }
   if (typeof document === 'undefined' || !document.cookie) {
     console.log('[getPreferencesFromCookies] No document or document.cookie');
     return null;
@@ -1331,10 +1673,17 @@ window.config = {
    * for normal full-screen viewer or production builds.
    */
   iframePreviewHalfScreen: false,
-  // RIS → viewer: postMessage LOAD_STUDY to reuse one tab (SPA navigate, no new tab / full reload).
-  // Set enabled true and list your RIS origins (exact event.origin strings).
+  // RIS → viewer: LOAD_STUDY (reuse one tab). Independent of AUTH_SESSION cookie/postMessage mode.
   risPostMessage: {
-    enabled: false,
+    enabled: true,
+    allowedOrigins: [RIS_DEV_PORTAL_ORIGIN, RIS_PROD_PORTAL_ORIGIN, RIS_PORTAL_ORIGIN].filter(
+      Boolean
+    ),
+  },
+  // RIS → viewer AUTH_SESSION (token handoff). false = cookie auth only (shared domain).
+  // Driven by RIS_AUTH_SESSION_ENABLED in .env / build-env.js.
+  risAuthSession: {
+    enabled: RIS_AUTH_SESSION_ENABLED,
     allowedOrigins: [RIS_DEV_PORTAL_ORIGIN, RIS_PROD_PORTAL_ORIGIN, RIS_PORTAL_ORIGIN].filter(
       Boolean
     ),

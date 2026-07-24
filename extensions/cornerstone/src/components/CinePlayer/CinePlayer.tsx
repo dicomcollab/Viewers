@@ -15,10 +15,7 @@ import {
 } from '../../utils/cineSyncUtils';
 import UsViewportCineBar from './UsViewportCineBar';
 import { advanceUsBatch } from '../../utils/usBatchNavigationUtils';
-import {
-  applyCineSettingsToAllViewports,
-  getSharedStudyCineSettings,
-} from '../../utils/usCinePlaybackUtils';
+import { getSharedStudyCineSettings } from '../../utils/usCinePlaybackUtils';
 import { getUsCineCapableLayoutViewportIds } from '../../utils/usGridViewportUtils';
 import {
   buildUsStackCineInfo,
@@ -496,8 +493,6 @@ function WrappedCinePlayer({
 
   const useUnifiedCineControl = shouldUseUnifiedCineControl(servicesManager);
   if (usePerViewportCine) {
-    const syncRateAcrossMultiSeries = isMultiSeriesInstanceLayout(servicesManager);
-
     return (
       <>
         {stackCineInfo && (
@@ -505,9 +500,6 @@ function WrappedCinePlayer({
             viewportId={viewportId}
             servicesManager={servicesManager}
             isPlaying={isPlaying}
-            frameRate={frameRate}
-            frameStep={frameStep}
-            cinePlayMode={cinePlayMode}
             stackCineInfo={stackCineInfo}
             onPlayPauseChange={playing => {
               if (playing && !cineService.getState().isCineEnabled) {
@@ -524,50 +516,6 @@ function WrappedCinePlayer({
               if (!playing) {
                 cineService.stopClip(enabledVPElement, { viewportId });
               }
-            }}
-            onFrameRateChange={nextFrameRate => {
-              if (syncRateAcrossMultiSeries) {
-                applyCineSettingsToAllViewports(servicesManager, {
-                  frameRate: nextFrameRate,
-                  cinePlayMode: 'fps',
-                });
-                return;
-              }
-              cineService.setCine({
-                id: viewportId,
-                frameRate: nextFrameRate,
-                cinePlayMode: 'fps',
-              });
-            }}
-            onFrameStepChange={nextFrameStep => {
-              if (syncRateAcrossMultiSeries) {
-                applyCineSettingsToAllViewports(servicesManager, {
-                  frameStep: nextFrameStep,
-                  cinePlayMode: 'step',
-                });
-                return;
-              }
-              cineService.setCine({
-                id: viewportId,
-                frameStep: nextFrameStep,
-                cinePlayMode: 'step',
-              });
-            }}
-            onPlayModeChange={mode => {
-              if (syncRateAcrossMultiSeries) {
-                applyCineSettingsToAllViewports(servicesManager, {
-                  cinePlayMode: mode,
-                });
-                return;
-              }
-              const current = cines?.[viewportId] ?? {};
-              cineService.setCine({
-                id: viewportId,
-                isPlaying: current.isPlaying ?? isPlaying,
-                frameRate: current.frameRate ?? frameRate,
-                cinePlayMode: mode,
-                frameStep: current.frameStep ?? frameStep,
-              });
             }}
             onFrameChange={nextFrame => {
               cineService.setCine({ id: viewportId, isPlaying: false });

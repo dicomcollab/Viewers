@@ -2,12 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Icons, Button, Numeric } from '@ohif/ui-next';
 import { stepUsViewportFrame } from '../../utils/usCinePlaybackUtils';
 import type { UsStackCineInfo } from '../../utils/usStackCineUtils';
-import {
-  activeTransportClass,
-  setViewportUsCineLayout,
-  type CinePlayMode,
-} from './usCineUiUtils';
-import CineFpsFrControls from './CineFpsFrControls';
+import { activeTransportClass, setViewportUsCineLayout } from './usCineUiUtils';
 import './usViewportCine.css';
 
 const ICON_BTN =
@@ -19,14 +14,8 @@ type UsViewportCineBarProps = {
   viewportId: string;
   servicesManager: AppTypes.ServicesManager;
   isPlaying: boolean;
-  frameRate: number;
-  frameStep: number;
-  cinePlayMode: CinePlayMode;
   stackCineInfo: UsStackCineInfo | null;
   onPlayPauseChange: (playing: boolean) => void;
-  onFrameRateChange: (fps: number) => void;
-  onFrameStepChange: (step: number) => void;
-  onPlayModeChange: (mode: CinePlayMode) => void;
   onFrameChange: (frame: number) => void;
 };
 
@@ -34,14 +23,8 @@ function UsViewportCineBar({
   viewportId,
   servicesManager,
   isPlaying,
-  frameRate,
-  frameStep,
-  cinePlayMode,
   stackCineInfo,
   onPlayPauseChange,
-  onFrameRateChange,
-  onFrameStepChange,
-  onPlayModeChange,
   onFrameChange,
 }: UsViewportCineBarProps) {
   const [barWidth, setBarWidth] = useState(0);
@@ -158,15 +141,6 @@ function UsViewportCineBar({
           />
         </Numeric.Container>
       </div>
-
-      <CineFpsFrControls
-        frameRate={frameRate}
-        frameStep={frameStep}
-        cinePlayMode={cinePlayMode}
-        onFrameRateChange={onFrameRateChange}
-        onFrameStepChange={onFrameStepChange}
-        onPlayModeChange={onPlayModeChange}
-      />
     </div>
   );
 }

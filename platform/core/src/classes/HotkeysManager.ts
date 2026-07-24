@@ -1,22 +1,12 @@
 import objectHash from 'object-hash';
 import { hotkeys as mouseTrapAPI } from '../utils';
-import { resolveRisPreferencesApiBaseUrl } from '../utils/risEnvironmentDefaults';
+import { resolveRisPreferencesApiBaseUrl, getRisAuthTokenFromBrowserCookies } from '../utils/risEnvironmentDefaults';
 import Hotkey from './Hotkey';
 import migrateOldHotkeyDefinitions from '../utils/hotkeys/migrateHotkeys';
 import pubSubServiceInterface from '../services/_shared/pubSubServiceInterface';
 
-// Function to get token from cookie
 function getTokenFromCookie() {
-  const name = 'token=';
-  const decodedCookie = decodeURIComponent(document.cookie);
-  const cookies = decodedCookie.split(';');
-  for (let cookie of cookies) {
-    cookie = cookie.trim();
-    if (cookie.indexOf(name) === 0) {
-      return cookie.substring(name.length);
-    }
-  }
-  return null;
+  return getRisAuthTokenFromBrowserCookies();
 }
 
 // Function to get backend URL from environment or config

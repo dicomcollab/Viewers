@@ -162,7 +162,9 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
 }
 
 /**
- * Show study-level cine controls in the viewer header (page nav + play/pause all).
+ * Show study-level cine controls in the viewer header (page nav + play/pause all + FPS/fr).
+ * Shown whenever multiframe cine is present so rate controls stay available after
+ * removing per-viewport FPS/fr UI.
  */
 export function shouldShowStudyCineHeaderControls(
   servicesManager: AppTypes.ServicesManager
@@ -177,8 +179,9 @@ export function shouldShowStudyCineHeaderControls(
   const cineStudySets = displaySetService.activeDisplaySets.filter(isCineCapableDisplaySet);
   const multiframeStackSets = displaySetService.activeDisplaySets.filter(isMultiframeStackDisplaySet);
 
-  if (isInIframeEmbed() && multiframeStackSets.length > 0) {
-    return multiframeStackSets.length > 1 || capableIds.length > 1;
+  // Per-viewport bars no longer include FPS/fr; header is the shared rate control.
+  if (multiframeStackSets.length > 0) {
+    return true;
   }
 
   return cineStudySets.length > 1 || capableIds.length > 1;

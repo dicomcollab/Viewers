@@ -175,10 +175,16 @@ declare global {
         maxNumPrefetchRequests: number;
         order: 'closest' | 'downward' | 'upward';
       };
-      /** Parent RIS postMessage bridge: switch study in-tab without full reload */
+      /** Parent RIS postMessage bridge: AUTH_SESSION (cross-origin token) and LOAD_STUDY */
       risPostMessage?: {
         enabled?: boolean;
-        /** Exact origins allowed to send LOAD_STUDY (event.origin must match) */
+        /** Exact origins allowed to send AUTH_SESSION / LOAD_STUDY (event.origin must match) */
+        allowedOrigins?: string[];
+      };
+      /** Parent RIS AUTH_SESSION handoff (token/cookies when shared cookies unavailable) */
+      risAuthSession?: {
+        enabled?: boolean;
+        /** Exact origins allowed to send AUTH_SESSION (event.origin must match) */
         allowedOrigins?: string[];
       };
       /**

@@ -42,6 +42,7 @@ import { ShepherdJourneyProvider } from 'react-shepherd';
 import { getCookie } from './utils/cookieUtils';
 import { queryClient } from './utils/queryClient';
 import RisPostMessageBridge from './components/RisPostMessageBridge';
+import RisAuthSessionBridge from './components/RisAuthSessionBridge';
 import './App.css';
 
 let commandsManager: CommandsManager,
@@ -330,7 +331,18 @@ function App({
       if (typeof window === 'undefined') {
         return;
       }
-      const appConfig = window.config || {};
+      // Wait for RIS postMessage AUTH_SESSION before bouncing to login (iframe / popup).
+      const win = window as unknown as {
+        __RIS_AUTH_PENDING?: boolean;
+        config?: Record<string, unknown>;
+      };
+      if (win.__RIS_AUTH_PENDING) {
+        console.warn(
+          'Authentication failed (401) - deferring RIS redirect while AUTH_SESSION handoff is pending.'
+        );
+        return;
+      }
+      const appConfig = win.config || {};
       if (!isRedirectToRisOn401Enabled(appConfig)) {
         console.warn(
           'Authentication failed (401) - RIS redirect disabled (redirectToRisOn401: false).'
@@ -378,6 +390,7 @@ function App({
         future={routerFutureFlags}
       >
         <RisPostMessageBridge />
+        <RisAuthSessionBridge />
         {authRoutes}
         {appRoutes}
       </BrowserRouter>
