@@ -10,10 +10,28 @@ import { extensionManager } from '../../App';
 
 import { Button, Icons } from '@ohif/ui-next';
 
+const DCM_ACCEPT = {
+  'application/dicom': ['.dcm'],
+};
+
+const isDcmFile = (file: File) => Boolean(file?.name?.toLowerCase().endsWith('.dcm'));
+
+const dcmFileValidator = (file: File) => {
+  if (!isDcmFile(file)) {
+    return {
+      code: 'file-invalid-type',
+      message: 'Only .dcm files are allowed',
+    };
+  }
+  return null;
+};
+
 const getLoadButton = (onDrop, text, isDir) => {
   return (
     <Dropzone
       onDrop={onDrop}
+      accept={DCM_ACCEPT}
+      validator={dcmFileValidator}
       noDrag
     >
       {({ getRootProps, getInputProps }) => (
@@ -35,6 +53,7 @@ const getLoadButton = (onDrop, text, isDir) => {
             ) : (
               <input
                 {...getInputProps()}
+                accept=".dcm,application/dicom"
                 style={{ display: 'none' }}
               />
             )}
@@ -51,7 +70,7 @@ type LocalProps = {
 
 function Local({ modePath }: LocalProps) {
   const { servicesManager } = useSystem();
-  const { customizationService } = servicesManager.services;
+  const { customizationService, uiNotificationService } = servicesManager.services;
   const navigate = useNavigate();
   const dropzoneRef = useRef();
   const [dropInitiated, setDropInitiated] = React.useState(false);
@@ -79,8 +98,28 @@ function Local({ modePath }: LocalProps) {
     '@ohif/extension-dicom-microscopy'
   );
 
-  const onDrop = async acceptedFiles => {
-    const studies = await filesToStudies(acceptedFiles, dataSource);
+  const onDrop = async (acceptedFiles, fileRejections = []) => {
+    const dcmFiles = (acceptedFiles || []).filter(isDcmFile);
+    const rejectedCount =
+      (fileRejections?.length || 0) + ((acceptedFiles?.length || 0) - dcmFiles.length);
+
+    if (rejectedCount > 0) {
+      uiNotificationService.show({
+        title: 'Invalid file type',
+        message: 'Only .dcm DICOM files are supported. Other files were ignored.',
+        type: 'error',
+        duration: 5000,
+      });
+    }
+
+    if (!dcmFiles.length) {
+      setDropInitiated(false);
+      return;
+    }
+
+    setDropInitiated(true);
+
+    const studies = await filesToStudies(dcmFiles, dataSource);
 
     const query = new URLSearchParams();
 
@@ -120,10 +159,9 @@ function Local({ modePath }: LocalProps) {
   return (
     <Dropzone
       ref={dropzoneRef}
-      onDrop={acceptedFiles => {
-        setDropInitiated(true);
-        onDrop(acceptedFiles);
-      }}
+      onDrop={onDrop}
+      accept={DCM_ACCEPT}
+      validator={dcmFileValidator}
       noClick
     >
       {({ getRootProps }) => (
@@ -144,10 +182,12 @@ function Local({ modePath }: LocalProps) {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-white pt-0 text-xl">
-                      Drag and drop your DICOM files & folders here <br />
+                      Drag and drop your .dcm DICOM files & folders here <br />
                       to load them locally.
                     </p>
                     <p className="text-muted-foreground text-base">
+                      Only .dcm files are supported.
+                      <br />
                       Note: Your data remains locally within your browser
                       <br /> and is never uploaded to any server.
                     </p>
