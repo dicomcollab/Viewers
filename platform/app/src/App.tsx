@@ -270,23 +270,6 @@ function App({
 
   if (shouldUseCookieAuth) {
     const getAuthorizationHeader = () => {
-      const demoBasic =
-        typeof window !== 'undefined' &&
-        (window as unknown as { getDemoEnvBasicAuthToken?: () => string | null })
-          .getDemoEnvBasicAuthToken &&
-        typeof (window as unknown as { getDemoEnvBasicAuthToken: () => string | null })
-          .getDemoEnvBasicAuthToken === 'function'
-          ? (
-              window as unknown as { getDemoEnvBasicAuthToken: () => string | null }
-            ).getDemoEnvBasicAuthToken()
-          : null;
-
-      if (demoBasic) {
-        return {
-          Authorization: `Basic ${demoBasic}`,
-        };
-      }
-
       const appCfg =
         typeof window !== 'undefined'
           ? (

@@ -1,5 +1,6 @@
 // Viewer app config — no credentials or deployment URLs in this file (served as app-config.js).
-// Build-time settings are injected via build-env.js → window.__OHIF_BUILD_ENV__ (see generate-app-config.mjs).
+// Build-time public settings are injected by generate-app-config.mjs into
+// window.__OHIF_BUILD_ENV__ (prepended to app-config.js). Never put credentials there.
 // PACS access uses session JWT (cookie) or short-lived viewer-access tokens from RIS API.
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,8 @@ function resolvePacsIntegrationFromDicomSourceCookie() {
 const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
 
 /**
- * Deployment settings from build-env.js (window.__OHIF_BUILD_ENV__). Never hardcode secrets here.
+ * Public deployment settings from window.__OHIF_BUILD_ENV__ (build-time injection).
+ * Never hardcode secrets here — they would be visible to every browser.
  * @param {string} key
  * @param {string} [fallback]
  */
@@ -98,9 +100,8 @@ function resolveEnvBoolean(value, fallback) {
   return normalized === 'true' || normalized === '1' || normalized === 'yes';
 }
 
-// Demo route: study UID + pre-encoded Basic credential from build-env.js (local .env or CI secret).
+// Demo route: study UID from public build env. Auth uses short-lived RIS JWT (never a static Basic token in the client).
 const DEMO_STUDY_UID = getBuildEnv('DEMO_STUDY_UID', '');
-const BUILD_DEMO_BASIC_AUTH = getBuildEnv('DEMO_TOKEN', '');
 
 function getCookie(name) {
   if (typeof document === 'undefined' || !document.cookie) return null;
@@ -266,7 +267,7 @@ const RIS_AUTH_SESSION_ENABLED = resolveEnvBoolean(
   true
 );
 
-// URLs from build-env.js; localhost fallbacks only for local dev keys when unset.
+// URLs from public build env; localhost fallbacks only for local dev keys when unset.
 const RIS_DEV_PORTAL_ORIGIN = getBuildEnv('RIS_DEV_PORTAL_ORIGIN', 'http://localhost:5173');
 const RIS_PROD_PORTAL_ORIGIN = getBuildEnv('RIS_PROD_PORTAL_ORIGIN', '');
 const RIS_DEV_API_BASE = getBuildEnv('RIS_DEV_API_BASE', 'http://localhost:5001');
@@ -439,12 +440,9 @@ function isDemoRoute() {
   );
 }
 
-// Optional RIS JWT for demo route when BUILD_DEMO_BASIC_AUTH is unset (legacy fallback).
+// Short-lived RIS JWT for demo route (fetched at runtime — never a static client credential).
 let _cachedDemoAccessToken = null;
 async function fetchDemoAccessToken() {
-  if (getDemoEnvBasicAuthToken()) {
-    return null;
-  }
   if (_cachedDemoAccessToken) {
     return _cachedDemoAccessToken;
   }
@@ -485,24 +483,13 @@ function isDemoStudyOpen() {
   return urlStudyMatchesDemoUid();
 }
 
-/** Pre-encoded Basic credential from build-env DEMO_TOKEN. Not a Bearer JWT. */
+/** @deprecated Static demo Basic credentials are never shipped to the client; always returns null. */
 function getDemoEnvBasicAuthToken() {
-  const token = BUILD_DEMO_BASIC_AUTH && String(BUILD_DEMO_BASIC_AUTH).trim();
-  if (!token || token === 'YOUR_DEMO_TOKEN_HERE') {
-    return null;
-  }
-  if (!isDemoRoute()) {
-    return null;
-  }
-  return token;
+  return null;
 }
 
-/** Authorization header object for demo route (.env Basic or RIS JWT via other helpers). */
+/** Demo route auth uses runtime JWT only — no baked-in Basic credential. */
 function getDemoAuthHeaders() {
-  const basic = getDemoEnvBasicAuthToken();
-  if (basic) {
-    return { Authorization: `Basic ${basic}` };
-  }
   return null;
 }
 
@@ -520,7 +507,7 @@ function getDemoViewerAccessJwt() {
 }
 
 function getDemoToken() {
-  return getDemoEnvBasicAuthToken() || getDemoViewerAccessJwt();
+  return getDemoViewerAccessJwt();
 }
 
 /**
@@ -1139,6 +1126,20 @@ function getPreferencesFromCookies() {
       prefs.mousePreferences = null;
     }
   }
+  if (raw.cinePreferences != null) {
+    try {
+      let parsed =
+        typeof raw.cinePreferences === 'string'
+          ? JSON.parse(raw.cinePreferences)
+          : raw.cinePreferences;
+      while (typeof parsed === 'string') {
+        parsed = JSON.parse(parsed);
+      }
+      prefs.cinePreferences = parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      prefs.cinePreferences = null;
+    }
+  }
   if (raw.tools != null) {
     try {
       let parsed = typeof raw.tools === 'string' ? JSON.parse(raw.tools) : raw.tools;
@@ -1173,6 +1174,7 @@ function getPreferencesFromCookies() {
         ? prefs.tools.length > 0
         : Object.keys(prefs.tools).length > 0)) ||
     (prefs.mousePreferences && Object.keys(prefs.mousePreferences).length > 0) ||
+    (prefs.cinePreferences && Object.keys(prefs.cinePreferences).length > 0) ||
     prefs.windowLevelPresets != null ||
     prefs.dataSourceFormat != null;
   return hasAny ? prefs : null;
@@ -1617,8 +1619,8 @@ window.config = {
   createReportAppBaseUrl: isDev ? RIS_DEV_PORTAL_ORIGIN : undefined,
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: true,
-  redirectToRisOn401: true,
+  redirectRootToRis: false,
+  redirectToRisOn401: false,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1641,6 +1643,17 @@ window.config = {
   strictZSpacingForVolumeViewport: true,
   groupEnabledModesFirst: true,
   allowMultiSelectExport: false,
+  /**
+   * Ultrasound / multiframe cine player defaults.
+   * RIS can override per doctor via cookie: userPreferences_cinePreferences
+   * e.g. {"showFps":true,"showFr":true,"autoPlay":true}
+   * Default behavior is fr mode; enable FPS from preference when needed.
+   */
+  cinePreferences: {
+    showFps: false,
+    showFr: true,
+    autoPlay: true,
+  },
   // Load only first series metadata on init; load other series when user clicks (requires enableStudyLazyLoad on data source).
   loadSeriesMetadataOnDemand: true,
   // When loadSeriesMetadataOnDemand is true, load this many series in background so thumbnails appear (0 = none).
@@ -1681,7 +1694,7 @@ window.config = {
     ),
   },
   // RIS → viewer AUTH_SESSION (token handoff). false = cookie auth only (shared domain).
-  // Driven by RIS_AUTH_SESSION_ENABLED in .env / build-env.js.
+  // Driven by RIS_AUTH_SESSION_ENABLED in .env / public build env.
   risAuthSession: {
     enabled: RIS_AUTH_SESSION_ENABLED,
     allowedOrigins: [RIS_DEV_PORTAL_ORIGIN, RIS_PROD_PORTAL_ORIGIN, RIS_PORTAL_ORIGIN].filter(

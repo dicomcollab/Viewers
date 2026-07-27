@@ -48,8 +48,6 @@ interface HeaderProps {
 function Header({
   children,
   menuOptions,
-  isReturnEnabled = true,
-  onClickReturnButton,
   isSticky = false,
   WhiteLabeling,
   UndoRedo,
@@ -58,15 +56,12 @@ function Header({
   reportNavigationHref,
   onReportNavigation,
   HeaderActions,
+  // Kept for API compatibility; logo no longer navigates on click.
+  isReturnEnabled: _isReturnEnabled = true,
+  onClickReturnButton: _onClickReturnButton,
   ...props
 }: HeaderProps): ReactNode {
   const [reportBusy, setReportBusy] = useState(false);
-
-  const onClickReturn = () => {
-    if (isReturnEnabled && onClickReturnButton) {
-      onClickReturnButton();
-    }
-  };
 
   return (
     <IconPresentationProvider
@@ -86,12 +81,8 @@ function Header({
           >
             <div className={`flex items-center ${isIframeMode ? 'gap-1' : 'gap-5'}`}>
               <div
-                className={classNames(
-                  'inline-flex items-center',
-                  isReturnEnabled && 'cursor-pointer'
-                )}
-                onClick={onClickReturn}
-                data-cy="return-to-work-list"
+                className="inline-flex items-center"
+                data-cy="header-logo"
               >
                 <div className={`flex-shrink-0 ${isIframeMode ? 'ml-0' : 'ml-1'}`}>
                   {WhiteLabeling?.createLogoComponentFn?.(React, props) || (

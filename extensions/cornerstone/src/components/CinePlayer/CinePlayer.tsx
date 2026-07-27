@@ -22,6 +22,11 @@ import {
   getUsCineFrameRate,
   DEFAULT_US_FRAME_STEP,
 } from '../../utils/usStackCineUtils';
+import {
+  getCinePreferences,
+  getDefaultCinePlayMode,
+  shouldAutoPlayCine,
+} from '../../utils/cinePreferencesUtils';
 
 function getPetFrameReferenceTimeFromImageId(imageId: string) {
   if (!imageId) {
@@ -226,9 +231,12 @@ function WrappedCinePlayer({
     }
 
     const { displaySetInstanceUIDs } = viewportState;
+    const cinePreferences = getCinePreferences();
+    const defaultPlayMode = getDefaultCinePlayMode(cinePreferences);
+    const autoPlay = shouldAutoPlayCine(cinePreferences, appConfig.autoPlayCine);
     let nextFrameRate = 24;
     let nextIsPlaying = cinesRef.current[viewportId]?.isPlaying || false;
-    let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? 'fps';
+    let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? defaultPlayMode;
     let nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
     let nextStackCineInfo = null;
     const isMultiSeriesLayout = isMultiSeriesInstanceLayout(servicesManager);
@@ -237,6 +245,7 @@ function WrappedCinePlayer({
       : null;
 
     // First load of a multi-series grid: seed one shared rate from the first tile.
+    // Default play mode is FPS using machine FrameTime (doctors usually need this).
     if (isMultiSeriesLayout && !sharedCineSettings) {
       const layoutViewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
       const { viewports: layoutViewports } = viewportGridService.getState();
@@ -248,7 +257,7 @@ function WrappedCinePlayer({
       if (referenceDisplaySet) {
         sharedCineSettings = {
           frameRate: getUsCineFrameRate(referenceDisplaySet),
-          cinePlayMode: 'fps',
+          cinePlayMode: defaultPlayMode,
           frameStep: DEFAULT_US_FRAME_STEP,
         };
       }
@@ -269,7 +278,7 @@ function WrappedCinePlayer({
 
       return {
         frameRate: getUsCineFrameRate(displaySet),
-        cinePlayMode: existing?.cinePlayMode ?? 'fps',
+        cinePlayMode: existing?.cinePlayMode ?? defaultPlayMode,
         frameStep: existing?.frameStep ?? DEFAULT_US_FRAME_STEP,
       };
     };
@@ -311,7 +320,7 @@ function WrappedCinePlayer({
           nextFrameRate = resolved.frameRate;
           nextCinePlayMode = resolved.cinePlayMode;
           nextFrameStep = resolved.frameStep;
-          nextIsPlaying ||= !!appConfig.autoPlayCine;
+          nextIsPlaying ||= autoPlay;
         }
       } else if (isMultiframeStackDisplaySet(displaySet)) {
         setDynamicInfo(null);
@@ -327,10 +336,10 @@ function WrappedCinePlayer({
         nextFrameRate = resolved.frameRate;
         nextCinePlayMode = resolved.cinePlayMode;
         nextFrameStep = resolved.frameStep;
-        nextIsPlaying ||= !!appConfig.autoPlayCine;
+        nextIsPlaying ||= autoPlay;
       } else if (displaySet.FrameRate) {
         nextFrameRate = Math.round(1000 / displaySet.FrameRate);
-        nextIsPlaying ||= !!appConfig.autoPlayCine;
+        nextIsPlaying ||= autoPlay;
       } else {
         setDynamicInfo(null);
         setStackCineInfo(null);
@@ -711,6 +720,7 @@ function RenderCinePlayer({
     window.setTimeout(refreshStackCineInfo, 400);
   }, [refreshStackCineInfo, servicesManager, viewportId]);
 
+  const cinePreferences = getCinePreferences();
   const cinePlayer = (
     <CinePlayerComponent
       portaled={useUnifiedCineControl}
@@ -719,6 +729,8 @@ function RenderCinePlayer({
       frameRate={cineFrameRate}
       cinePlayMode={cinePlayMode}
       frameStep={frameStep}
+      showFps={cinePreferences.showFps}
+      showFr={cinePreferences.showFr}
       isPlaying={isPlaying}
       onClose={() => {
         cineDebug('CinePlayer', 'onClose', { viewportId });

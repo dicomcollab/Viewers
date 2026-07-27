@@ -71,6 +71,10 @@ type CineFpsFrControlsProps = {
   onFrameRateChange: (fps: number) => void;
   onFrameStepChange: (step: number) => void;
   onPlayModeChange: (mode: CinePlayMode) => void;
+  /** Doctor preference: show FPS control (default true). */
+  showFps?: boolean;
+  /** Doctor preference: show fr (frame-step) control (default true). */
+  showFr?: boolean;
 };
 
 function CineFpsFrControls({
@@ -80,6 +84,8 @@ function CineFpsFrControls({
   onFrameRateChange,
   onFrameStepChange,
   onPlayModeChange,
+  showFps = true,
+  showFr = true,
 }: CineFpsFrControlsProps) {
   const [localFps, setLocalFps] = useState(frameRate);
   const [localStep, setLocalStep] = useState(frameStep);
@@ -112,30 +118,38 @@ function CineFpsFrControls({
     onFrameStepChange(next);
   };
 
+  if (!showFps && !showFr) {
+    return null;
+  }
+
   return (
     <div className="flex shrink-0 items-center gap-0.5">
-      <div className={modeChipClass(cinePlayMode === 'fps')}>
-        <CompactStepper
-          value={localFps}
-          min={5}
-          max={90}
-          label="FPS"
-          isModeActive={cinePlayMode === 'fps'}
-          onChange={handleFpsChange}
-          onLabelClick={() => onPlayModeChange('fps')}
-        />
-      </div>
-      <div className={modeChipClass(cinePlayMode === 'step')}>
-        <CompactStepper
-          value={localStep}
-          min={1}
-          max={99}
-          label="fr"
-          isModeActive={cinePlayMode === 'step'}
-          onChange={handleStepChange}
-          onLabelClick={() => onPlayModeChange('step')}
-        />
-      </div>
+      {showFps ? (
+        <div className={modeChipClass(cinePlayMode === 'fps')}>
+          <CompactStepper
+            value={localFps}
+            min={5}
+            max={90}
+            label="FPS"
+            isModeActive={cinePlayMode === 'fps'}
+            onChange={handleFpsChange}
+            onLabelClick={() => onPlayModeChange('fps')}
+          />
+        </div>
+      ) : null}
+      {showFr ? (
+        <div className={modeChipClass(cinePlayMode === 'step')}>
+          <CompactStepper
+            value={localStep}
+            min={1}
+            max={99}
+            label="fr"
+            isModeActive={cinePlayMode === 'step'}
+            onChange={handleStepChange}
+            onLabelClick={() => onPlayModeChange('step')}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

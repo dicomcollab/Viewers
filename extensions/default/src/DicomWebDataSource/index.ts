@@ -186,22 +186,6 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
       getAuthorizationHeader = () => {
         const xhrRequestHeaders: HeadersInterface = {};
 
-        const demoBasic =
-          typeof window !== 'undefined' &&
-          (window as unknown as { getDemoEnvBasicAuthToken?: () => string | null })
-            .getDemoEnvBasicAuthToken &&
-          typeof (window as unknown as { getDemoEnvBasicAuthToken: () => string | null })
-            .getDemoEnvBasicAuthToken === 'function'
-            ? (
-                window as unknown as { getDemoEnvBasicAuthToken: () => string | null }
-              ).getDemoEnvBasicAuthToken()
-            : null;
-
-        if (demoBasic) {
-          xhrRequestHeaders.Authorization = `Basic ${demoBasic}`;
-          return xhrRequestHeaders;
-        }
-
         const viewerBearer =
           typeof window !== 'undefined' &&
           (window as unknown as { getViewerAccessBearerToken?: () => string | null })

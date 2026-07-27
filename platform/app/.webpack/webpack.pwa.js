@@ -1,6 +1,7 @@
 // https://developers.google.com/web/tools/workbox/guides/codelabs/webpack
 // ~~ WebPack
 const path = require('path');
+const fs = require('fs');
 const { merge } = require('webpack-merge');
 const webpack = require('webpack');
 const webpackBase = require('./../../../.webpack/webpack.base.js');
@@ -18,6 +19,13 @@ const PUBLIC_DIR = path.join(__dirname, '../public');
 const HTML_TEMPLATE = process.env.HTML_TEMPLATE || 'index.html';
 const PUBLIC_URL = process.env.PUBLIC_URL || '/';
 const APP_CONFIG = process.env.APP_CONFIG || 'config/default.js';
+const GENERATED_APP_CONFIG = path.join(PUBLIC_DIR, 'config', '.build-app-config.js');
+const usesDefaultAppConfig =
+  APP_CONFIG === 'config/default.js' || APP_CONFIG === 'config/.build-app-config.js';
+const APP_CONFIG_SOURCE =
+  usesDefaultAppConfig && fs.existsSync(GENERATED_APP_CONFIG)
+    ? GENERATED_APP_CONFIG
+    : path.join(PUBLIC_DIR, APP_CONFIG);
 
 // proxy settings
 const PROXY_TARGET = process.env.PROXY_TARGET;
@@ -111,15 +119,10 @@ module.exports = (env, argv) => {
             from: `${PUBLIC_DIR}/config/google.js`,
             to: `${DIST_DIR}/google.js`,
           },
-          // Copy over and rename our target app config file
+          // Copy generated app config (public env prepended by generate-app-config.mjs)
           {
-            from: `${PUBLIC_DIR}/${APP_CONFIG}`,
+            from: APP_CONFIG_SOURCE,
             to: `${DIST_DIR}/app-config.js`,
-          },
-          {
-            from: `${PUBLIC_DIR}/config/.build-env.js`,
-            to: `${DIST_DIR}/build-env.js`,
-            noErrorOnMissing: !isProdBuild,
           },
         ],
       }),

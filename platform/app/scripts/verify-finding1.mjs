@@ -16,7 +16,7 @@ const ingestUrl = 'http://127.0.0.1:7274/ingest/22d31b93-a5ea-47ab-a371-37f4f88f
 const sessionId = '7da908';
 
 const SECRET_PATTERNS = [
-  { id: 'A', name: 'DEMO_TOKEN', re: /DEMO_TOKEN\s*[=:]/i },
+  { id: 'A', name: 'DEMO_TOKEN_ASSIGN', re: /["']DEMO_TOKEN["']\s*:/ },
   { id: 'B', name: 'EXTERNAL_VIEWER_BASIC_TOKEN', re: /EXTERNAL_VIEWER_BASIC_TOKEN\s*[=:]/i },
   { id: 'C', name: 'SHARE_LINK_BASIC_TOKEN', re: /SHARE_LINK_BASIC_TOKEN\s*[=:]/i },
   { id: 'D', name: 'keyImagesBasicAuthToken', re: /keyImagesBasicAuthToken\s*[=:]/i },
@@ -54,29 +54,35 @@ function scanText(label, text, hypothesisId) {
   return hits;
 }
 
-// Generate fresh build-env from .env
 execSync('node scripts/generate-app-config.mjs', {
   cwd: appRoot,
   stdio: 'pipe',
 });
 
 const defaultJs = fs.readFileSync(path.join(appRoot, 'public/config/default.js'), 'utf8');
-const buildEnvJs = fs.readFileSync(path.join(appRoot, 'public/config/.build-env.js'), 'utf8');
+const buildAppConfigJs = fs.readFileSync(
+  path.join(appRoot, 'public/config/.build-app-config.js'),
+  'utf8'
+);
 
 scanText('default.js template', defaultJs, 'A');
-scanText('.build-env.js', buildEnvJs, 'B');
+scanText('.build-app-config.js', buildAppConfigJs, 'B');
 
-// app-config.js is a copy of default.js (no env substitution)
 const distDir = path.join(appRoot, 'dist');
 const distAppConfig = path.join(distDir, 'app-config.js');
-const distBuildEnv = path.join(distDir, 'build-env.js');
 fs.mkdirSync(distDir, { recursive: true });
-fs.copyFileSync(path.join(appRoot, 'public/config/default.js'), distAppConfig);
-fs.copyFileSync(path.join(appRoot, 'public/config/.build-env.js'), distBuildEnv);
+fs.copyFileSync(path.join(appRoot, 'public/config/.build-app-config.js'), distAppConfig);
 scanText('dist/app-config.js (deploy artifact)', fs.readFileSync(distAppConfig, 'utf8'), 'L');
-scanText('dist/build-env.js (deploy artifact)', fs.readFileSync(distBuildEnv, 'utf8'), 'M');
 
-// JWT flow checks (not secrets)
+const legacyBuildEnv = path.join(distDir, 'build-env.js');
+log({
+  hypothesisId: 'M',
+  location: 'verify-finding1.mjs:legacyBuildEnv',
+  message: 'legacy build-env.js must not exist',
+  data: { exists: fs.existsSync(legacyBuildEnv), pass: !fs.existsSync(legacyBuildEnv) },
+  runId: 'post-fix',
+});
+
 const jwtChecks = {
   fetchDemoAccessToken: /fetchDemoAccessToken/.test(defaultJs),
   getViewerAccessBearerToken: /getViewerAccessBearerToken/.test(defaultJs),
@@ -95,7 +101,6 @@ log({
   runId: 'post-fix',
 });
 
-// Production URL still in template? (recon risk, not credential)
 const hardcodedAzureInTemplate =
   /med-pacs-dev-dicomcloudwebapi/.test(defaultJs) || /med-pacs-dev-risapi/.test(defaultJs);
 log({
@@ -106,13 +111,17 @@ log({
   runId: 'post-fix',
 });
 
-// Try production app-config.js (runtime evidence)
 async function checkProduction() {
   try {
-    const res = await fetch('https://lens.med-pacs.com/app-config.js', {
-      signal: AbortSignal.timeout(15000),
-    });
-    const body = await res.text();
+    const [appConfigRes, buildEnvRes] = await Promise.all([
+      fetch('https://lens.med-pacs.com/app-config.js', {
+        signal: AbortSignal.timeout(15000),
+      }),
+      fetch('https://lens.med-pacs.com/build-env.js', {
+        signal: AbortSignal.timeout(15000),
+      }),
+    ]);
+    const body = await appConfigRes.text();
     const prodHits = [];
     for (const p of SECRET_PATTERNS) {
       if (p.re.test(body)) prodHits.push(p.name);
@@ -120,14 +129,19 @@ async function checkProduction() {
     log({
       hypothesisId: 'J',
       location: 'verify-finding1.mjs:production',
-      message: 'production lens.med-pacs.com app-config.js scan',
+      message: 'production lens.med-pacs.com scan',
       data: {
-        status: res.status,
+        appConfigStatus: appConfigRes.status,
+        buildEnvStatus: buildEnvRes.status,
         bodyLength: body.length,
         prodHits,
-        demoTokenPresent: /DEMO_TOKEN/.test(body),
+        demoTokenPresent: /["']DEMO_TOKEN["']\s*:/.test(body),
+        buildEnvGone: buildEnvRes.status === 404,
         pass: prodHits.length === 0,
-        actionRequired: prodHits.length > 0 ? 'deploy_this_branch_and_rotate_backend_token' : null,
+        actionRequired:
+          prodHits.length > 0 || buildEnvRes.status !== 404
+            ? 'deploy_this_branch_and_rotate_backend_token'
+            : null,
       },
       runId: 'post-fix',
     });

@@ -43,20 +43,27 @@ jobs:
           RIS_DEV_PORTAL_ORIGIN: ${{ secrets.RIS_DEV_PORTAL_ORIGIN }}
           RIS_DEV_API_BASE: ${{ secrets.RIS_DEV_API_BASE }}
           DEMO_STUDY_UID: ${{ secrets.DEMO_STUDY_UID }}
-          DEMO_TOKEN: ${{ secrets.DEMO_TOKEN }}
           CSP_FRAME_ANCESTORS: ${{ secrets.CSP_FRAME_ANCESTORS }}
 
-      - name: Verify build-env.js
+      - name: Verify app-config has public env and no credentials
         run: node platform/app/scripts/verify-build-env.mjs
 
       - name: Verify no inlined credentials in app-config.js
         run: |
+          if grep -F '"DEMO_TOKEN"' platform/app/dist/app-config.js; then
+            echo "DEMO_TOKEN must never appear in client app-config.js"
+            exit 1
+          fi
           if grep -iE 'YOUR_AZURE_DICOM_TOKEN_HERE' platform/app/dist/app-config.js; then
             echo "Placeholder credential values found in app-config.js"
             exit 1
           fi
           if grep -iE 'Authorization:\s*`Basic [A-Za-z0-9+/=]{20,}' platform/app/dist/app-config.js; then
             echo "Inlined Basic auth credential found in app-config.js"
+            exit 1
+          fi
+          if [ -f platform/app/dist/build-env.js ]; then
+            echo "Legacy build-env.js must not be deployed"
             exit 1
           fi
 

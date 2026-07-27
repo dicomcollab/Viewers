@@ -10,6 +10,7 @@ import {
   getCineCapableViewportIds,
   shouldShowStudyCineHeaderControls,
 } from '../../utils/cineSyncUtils';
+import { getCinePreferences } from '../../utils/cinePreferencesUtils';
 import { DEFAULT_US_FRAME_STEP } from '../../utils/usStackCineUtils';
 import { activeTransportClass, type CinePlayMode } from './usCineUiUtils';
 import CineFpsFrControls from './CineFpsFrControls';
@@ -46,6 +47,7 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
   const frameRate = referenceCine?.frameRate ?? 24;
   const frameStep = referenceCine?.frameStep ?? DEFAULT_US_FRAME_STEP;
   const cinePlayMode = (referenceCine?.cinePlayMode ?? 'fps') as CinePlayMode;
+  const cinePreferences = useMemo(() => getCinePreferences(), []);
 
   const isAnyPlaying = useMemo(() => {
     return cineCapableViewportIds.some(id => cines?.[id]?.isPlaying);
@@ -177,31 +179,36 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
         <Icons.ByName name={isAnyPlaying ? 'icon-pause' : 'icon-play'} />
       </Button>
 
-      <span
-        className="mx-px h-3.5 w-px bg-white/25"
-        aria-hidden
-      />
-
-      <CineFpsFrControls
-        frameRate={frameRate}
-        frameStep={frameStep}
-        cinePlayMode={cinePlayMode}
-        onFrameRateChange={nextFrameRate =>
-          applyCineSettingsToAllViewports(servicesManager, {
-            frameRate: nextFrameRate,
-            cinePlayMode: 'fps',
-          })
-        }
-        onFrameStepChange={nextFrameStep =>
-          applyCineSettingsToAllViewports(servicesManager, {
-            frameStep: nextFrameStep,
-            cinePlayMode: 'step',
-          })
-        }
-        onPlayModeChange={mode =>
-          applyCineSettingsToAllViewports(servicesManager, { cinePlayMode: mode })
-        }
-      />
+      {cinePreferences.showFps || cinePreferences.showFr ? (
+        <>
+          <span
+            className="mx-px h-3.5 w-px bg-white/25"
+            aria-hidden
+          />
+          <CineFpsFrControls
+            frameRate={frameRate}
+            frameStep={frameStep}
+            cinePlayMode={cinePlayMode}
+            showFps={cinePreferences.showFps}
+            showFr={cinePreferences.showFr}
+            onFrameRateChange={nextFrameRate =>
+              applyCineSettingsToAllViewports(servicesManager, {
+                frameRate: nextFrameRate,
+                cinePlayMode: 'fps',
+              })
+            }
+            onFrameStepChange={nextFrameStep =>
+              applyCineSettingsToAllViewports(servicesManager, {
+                frameStep: nextFrameStep,
+                cinePlayMode: 'step',
+              })
+            }
+            onPlayModeChange={mode =>
+              applyCineSettingsToAllViewports(servicesManager, { cinePlayMode: mode })
+            }
+          />
+        </>
+      ) : null}
     </div>
   );
 }

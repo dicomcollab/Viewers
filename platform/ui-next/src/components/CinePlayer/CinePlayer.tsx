@@ -45,6 +45,10 @@ export type CinePlayerProps = {
   };
   /** Hide current/total frame label when multiple viewports run in parallel with different lengths. */
   showStackFrameCounter?: boolean;
+  /** Doctor preference: show FPS control. */
+  showFps?: boolean;
+  /** Doctor preference: show fr (frame-step) control. */
+  showFr?: boolean;
   updateStackCineInfo?: (info: { currentFrame?: number }) => void;
   onAdvanceUsBatch?: () => void;
   onRetreatUsBatch?: () => void;
@@ -77,6 +81,8 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
   updateDynamicInfo,
   stackCineInfo,
   showStackFrameCounter = true,
+  showFps = true,
+  showFr = true,
   updateStackCineInfo,
   onAdvanceUsBatch,
   onRetreatUsBatch,
@@ -303,100 +309,104 @@ const CinePlayer: React.FC<CinePlayerProps> = ({
 
         {isStackCine ? (
           <>
-            <Popover
-              open={fpsPopoverOpen}
-              onOpenChange={open => {
-                if (!open) {
-                  if (document.activeElement instanceof HTMLElement) {
-                    document.activeElement.blur();
+            {showFps ? (
+              <Popover
+                open={fpsPopoverOpen}
+                onOpenChange={open => {
+                  if (!open) {
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                    flushCineSettings();
                   }
-                  flushCineSettings();
-                }
-                setFpsPopoverOpen(open);
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={modeChipClass(playMode === 'fps')}
-                  data-cy="cine-player-fps-trigger"
-                >
-                  {frameRate} FPS
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="bottom"
-                align="center"
-                className="z-50 w-auto p-2"
-                sideOffset={6}
+                  setFpsPopoverOpen(open);
+                }}
               >
-                <Numeric.Container
-                  mode="stepper"
-                  min={minFrameRate}
-                  max={maxFrameRate}
-                  step={stepFrameRate}
-                  value={frameRate}
-                  onChange={val => handleSetFrameRate(val as number)}
-                  className="border-0 bg-transparent"
-                >
-                  <Numeric.NumberStepper
-                    direction="horizontal"
-                    inputWidth="min-w-10 w-10"
-                    buttonColor="white"
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={modeChipClass(playMode === 'fps')}
+                    data-cy="cine-player-fps-trigger"
                   >
-                    <span className="text-muted-foreground text-[10px]">FPS</span>
-                  </Numeric.NumberStepper>
-                </Numeric.Container>
-              </PopoverContent>
-            </Popover>
-            <Popover
-              open={stepPopoverOpen}
-              onOpenChange={open => {
-                if (!open) {
-                  if (document.activeElement instanceof HTMLElement) {
-                    document.activeElement.blur();
+                    {frameRate} FPS
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="center"
+                  className="z-50 w-auto p-2"
+                  sideOffset={6}
+                >
+                  <Numeric.Container
+                    mode="stepper"
+                    min={minFrameRate}
+                    max={maxFrameRate}
+                    step={stepFrameRate}
+                    value={frameRate}
+                    onChange={val => handleSetFrameRate(val as number)}
+                    className="border-0 bg-transparent"
+                  >
+                    <Numeric.NumberStepper
+                      direction="horizontal"
+                      inputWidth="min-w-10 w-10"
+                      buttonColor="white"
+                    >
+                      <span className="text-muted-foreground text-[10px]">FPS</span>
+                    </Numeric.NumberStepper>
+                  </Numeric.Container>
+                </PopoverContent>
+              </Popover>
+            ) : null}
+            {showFr ? (
+              <Popover
+                open={stepPopoverOpen}
+                onOpenChange={open => {
+                  if (!open) {
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                    flushCineSettings();
                   }
-                  flushCineSettings();
-                }
-                setStepPopoverOpen(open);
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={modeChipClass(playMode === 'step')}
-                  data-cy="cine-player-step-trigger"
-                >
-                  {frameStep} fr
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="bottom"
-                align="center"
-                className="z-50 w-auto p-2"
-                sideOffset={6}
+                  setStepPopoverOpen(open);
+                }}
               >
-                <Numeric.Container
-                  mode="stepper"
-                  min={1}
-                  max={99}
-                  step={1}
-                  value={frameStep}
-                  onChange={val => handleSetFrameStep(val as number)}
-                  className="border-0 bg-transparent"
-                >
-                  <Numeric.NumberStepper
-                    direction="horizontal"
-                    inputWidth="min-w-10 w-10"
-                    buttonColor="white"
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={modeChipClass(playMode === 'step')}
+                    data-cy="cine-player-step-trigger"
                   >
-                    <span className="text-muted-foreground text-[10px]">Frames/step</span>
-                  </Numeric.NumberStepper>
-                </Numeric.Container>
-              </PopoverContent>
-            </Popover>
+                    {frameStep} fr
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="center"
+                  className="z-50 w-auto p-2"
+                  sideOffset={6}
+                >
+                  <Numeric.Container
+                    mode="stepper"
+                    min={1}
+                    max={99}
+                    step={1}
+                    value={frameStep}
+                    onChange={val => handleSetFrameStep(val as number)}
+                    className="border-0 bg-transparent"
+                  >
+                    <Numeric.NumberStepper
+                      direction="horizontal"
+                      inputWidth="min-w-10 w-10"
+                      buttonColor="white"
+                    >
+                      <span className="text-muted-foreground text-[10px]">Frames/step</span>
+                    </Numeric.NumberStepper>
+                  </Numeric.Container>
+                </PopoverContent>
+              </Popover>
+            ) : null}
             {batchLabel && (
               <span
                 className="text-muted-foreground px-1 text-[10px] leading-none whitespace-nowrap"

@@ -160,17 +160,7 @@ export default function ModeRoute({
         }
       }
 
-      const hasStaticDemoBasicAuth =
-        typeof window !== 'undefined' &&
-        window.isDemoRoute &&
-        typeof window.isDemoRoute === 'function' &&
-        window.isDemoRoute() &&
-        window.getDemoEnvBasicAuthToken &&
-        typeof window.getDemoEnvBasicAuthToken === 'function' &&
-        window.getDemoEnvBasicAuthToken();
-
       if (
-        !hasStaticDemoBasicAuth &&
         typeof window !== 'undefined' &&
         window.isDemoRoute &&
         typeof window.isDemoRoute === 'function' &&

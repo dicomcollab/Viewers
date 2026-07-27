@@ -126,6 +126,16 @@ declare global {
       allowMultiSelectExport?: boolean;
       activateViewportBeforeInteraction?: boolean;
       autoPlayCine?: boolean;
+      /**
+       * Ultrasound / multiframe cine player preferences.
+       * Prefer cookie userPreferences_cinePreferences from RIS when available.
+       * @example { showFps: true, showFr: false, autoPlay: true }
+       */
+      cinePreferences?: {
+        showFps?: boolean;
+        showFr?: boolean;
+        autoPlay?: boolean;
+      };
       showStudyList?: boolean;
       /** When true, RIS fallbacks use local dev portal (192.168.1.120:5173) and dev API. */
       isDev?: boolean;
