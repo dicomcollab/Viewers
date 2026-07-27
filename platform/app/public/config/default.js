@@ -1619,8 +1619,8 @@ window.config = {
   createReportAppBaseUrl: isDev ? RIS_DEV_PORTAL_ORIGIN : undefined,
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: false,
-  redirectToRisOn401: false,
+  redirectRootToRis: true,
+  redirectToRisOn401: true,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
