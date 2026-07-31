@@ -3,6 +3,7 @@ import { getActiveStudyInstanceUID } from './utils/getActiveStudyInstanceUID';
 import { getKeyImagesAuthHeader } from './utils/getKeyImagesAuthHeader';
 import { deleteKeyImageFromRis, uploadKeyImagesToRis } from './utils/keyImagesApi';
 import { captureKeyImage } from './utils/captureKeyImage';
+import { notifyRisKeyImagesUpdated } from './utils/notifyRisKeyImagesUpdated';
 
 function refreshAddKeyImageToolbar(servicesManager, viewportId?: string) {
   const { toolbarService } = servicesManager.services;
@@ -191,6 +192,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
 
         await uploadKeyImagesToRis([pendingKeyImage], extensionManager);
         await keyImagesService.loadKeyImagesForStudy(studyInstanceUID);
+        notifyRisKeyImagesUpdated(studyInstanceUID, 'add');
       })();
 
       try {
@@ -231,6 +233,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       const removePromise = (async () => {
         await deleteKeyImageFromRis(studyInstanceUID, s3Key);
         keyImagesService.removeKeyImage(keyImageId);
+        notifyRisKeyImagesUpdated(studyInstanceUID, 'remove');
       })();
 
       uiNotificationService.show({
