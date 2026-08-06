@@ -404,28 +404,33 @@ class MetadataProvider {
         break;
       case WADO_IMAGE_LOADER_TAGS.CALIBRATION_MODULE:
         // map the DICOM tags to the cornerstone tags since cornerstone tags
-        // are camelCase and instance tags are all caps
-        metadata = {
-          sequenceOfUltrasoundRegions: instance.SequenceOfUltrasoundRegions?.map(region => {
-            return {
-              regionSpatialFormat: region.RegionSpatialFormat,
-              regionDataType: region.RegionDataType,
-              regionFlags: region.RegionFlags,
-              regionLocationMinX0: region.RegionLocationMinX0,
-              regionLocationMinY0: region.RegionLocationMinY0,
-              regionLocationMaxX1: region.RegionLocationMaxX1,
-              regionLocationMaxY1: region.RegionLocationMaxY1,
-              referencePixelX0: region.ReferencePixelX0,
-              referencePixelY0: region.ReferencePixelY0,
-              referencePixelPhysicalValueX: region.ReferencePixelPhysicalValueX,
-              referencePixelPhysicalValueY: region.ReferencePixelPhysicalValueY,
-              physicalUnitsXDirection: region.PhysicalUnitsXDirection,
-              physicalUnitsYDirection: region.PhysicalUnitsYDirection,
-              physicalDeltaX: region.PhysicalDeltaX,
-              physicalDeltaY: region.PhysicalDeltaY,
-            };
-          }),
-        };
+        // are camelCase and instance tags are all caps.
+        // dcmjs may naturalize a single-item sequence as an object, not an array.
+        {
+          const regions = instance.SequenceOfUltrasoundRegions;
+          const regionList = !regions ? [] : Array.isArray(regions) ? regions : [regions];
+          metadata = {
+            sequenceOfUltrasoundRegions: regionList.map(region => {
+              return {
+                regionSpatialFormat: region.RegionSpatialFormat,
+                regionDataType: region.RegionDataType,
+                regionFlags: region.RegionFlags,
+                regionLocationMinX0: region.RegionLocationMinX0,
+                regionLocationMinY0: region.RegionLocationMinY0,
+                regionLocationMaxX1: region.RegionLocationMaxX1,
+                regionLocationMaxY1: region.RegionLocationMaxY1,
+                referencePixelX0: region.ReferencePixelX0,
+                referencePixelY0: region.ReferencePixelY0,
+                referencePixelPhysicalValueX: region.ReferencePixelPhysicalValueX,
+                referencePixelPhysicalValueY: region.ReferencePixelPhysicalValueY,
+                physicalUnitsXDirection: region.PhysicalUnitsXDirection,
+                physicalUnitsYDirection: region.PhysicalUnitsYDirection,
+                physicalDeltaX: region.PhysicalDeltaX,
+                physicalDeltaY: region.PhysicalDeltaY,
+              };
+            }),
+          };
+        }
         break;
 
       /**
@@ -523,6 +528,68 @@ const metadataProvider = new MetadataProvider();
 
 export default metadataProvider;
 
+/**
+ * Cornerstone's getPixelSpacingInformation maps SequenceOfUltrasoundRegions
+ * PhysicalDeltaX/Y onto whole-image PixelSpacing. That is unsafe for display when:
+ * - there are multiple regions (B-mode + M-mode),
+ * - X/Y physical units differ (e.g. seconds × cm for M-mode),
+ * - or deltas are highly anisotropic.
+ * StackViewport camera fit then collapses the raster into a thin strip.
+ * Region calibration remains available via calibrationModule for measurements.
+ */
+function normalizeUltrasoundRegions(regions) {
+  if (!regions) {
+    return [];
+  }
+  return Array.isArray(regions) ? regions : [regions];
+}
+
+function isUsRegionSpacingSafeForDisplay(instance) {
+  const regions = normalizeUltrasoundRegions(instance.SequenceOfUltrasoundRegions);
+  if (regions.length !== 1) {
+    return false;
+  }
+
+  const region = regions[0];
+  const { PhysicalDeltaX, PhysicalDeltaY, PhysicalUnitsXDirection, PhysicalUnitsYDirection } =
+    region;
+
+  if (PhysicalDeltaX == null || PhysicalDeltaY == null) {
+    return false;
+  }
+
+  // DICOM Physical Units X/Y Direction: both must match (typically 3 = cm).
+  if (
+    PhysicalUnitsXDirection != null &&
+    PhysicalUnitsYDirection != null &&
+    PhysicalUnitsXDirection !== PhysicalUnitsYDirection
+  ) {
+    return false;
+  }
+
+  const absX = Math.abs(PhysicalDeltaX);
+  const absY = Math.abs(PhysicalDeltaY);
+  const maxDelta = Math.max(absX, absY);
+  if (maxDelta === 0) {
+    return false;
+  }
+
+  // Reject highly anisotropic deltas (M-mode time vs depth, etc.).
+  const anisotropy = Math.abs(absX - absY) / maxDelta;
+  return anisotropy <= 0.25;
+}
+
+/**
+ * DICOM PixelSpacing is [row, column] = [ΔY, ΔX]. Cornerstone's US helper
+ * currently returns [ΔX, ΔY]; correct the axes when we keep US spacing.
+ */
+function correctUsPixelSpacingAxes(pixelSpacing) {
+  if (!pixelSpacing || pixelSpacing.length < 2) {
+    return pixelSpacing;
+  }
+  return [pixelSpacing[1], pixelSpacing[0]];
+}
+
 const WADO_IMAGE_LOADER = {
   imagePlaneModule: instance => {
     const { ImageOrientationPatient, ImagePositionPatient } = instance;
@@ -530,7 +597,17 @@ const WADO_IMAGE_LOADER = {
     // Fallback for DX images.
     // TODO: We should use the rest of the results of this function
     // to update the UI somehow
-    const { PixelSpacing, type } = getPixelSpacingInformation(instance) || {};
+    let { PixelSpacing, type } = getPixelSpacingInformation(instance) || {};
+
+    // Do not let unsafe US region deltas drive imagePlaneModule spacing.
+    if (instance.SequenceOfUltrasoundRegions) {
+      if (!isUsRegionSpacingSafeForDisplay(instance)) {
+        PixelSpacing = undefined;
+        type = undefined;
+      } else if (PixelSpacing) {
+        PixelSpacing = correctUsPixelSpacingAxes(PixelSpacing);
+      }
+    }
 
     let rowPixelSpacing;
     let columnPixelSpacing;
