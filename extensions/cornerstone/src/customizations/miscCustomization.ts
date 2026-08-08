@@ -5,11 +5,12 @@ import StudyCineHeaderControls from '../components/CinePlayer/StudyCineHeaderCon
 export default {
   cinePlayer: CinePlayer,
   'ohif.viewerHeaderCineControls': StudyCineHeaderControls,
-  autoCineModalities: ['OT', 'US', 'PT'],
+  /** Modalities that auto-enable the cine player (and thus allow autoplay). US only. */
+  autoCineModalities: ['US'],
   /**
    * Default cine UI preferences (overridden by cookie userPreferences_cinePreferences).
    * - showFps / showFr: which rate controls doctors see
-   * - autoPlay: play multiframe stacks when they load
+   * - autoPlay: play multiframe US stacks when they load
    */
   cinePreferences: {
     showFps: false,

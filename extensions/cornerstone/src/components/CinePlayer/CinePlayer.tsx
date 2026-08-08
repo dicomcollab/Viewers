@@ -9,6 +9,7 @@ import {
   getCineDisplaySetFromViewport,
   isMultiframeStackDisplaySet,
   isMultiSeriesInstanceLayout,
+  isUsMultiframeDisplaySet,
   shouldUsePerViewportCine,
   shouldUseUnifiedCineControl,
   viewportSupportsCine,
@@ -233,7 +234,7 @@ function WrappedCinePlayer({
     const { displaySetInstanceUIDs } = viewportState;
     const cinePreferences = getCinePreferences();
     const defaultPlayMode = getDefaultCinePlayMode(cinePreferences);
-    const autoPlay = shouldAutoPlayCine(cinePreferences, appConfig.autoPlayCine);
+    const autoPlayEnabled = shouldAutoPlayCine(cinePreferences, appConfig.autoPlayCine);
     let nextFrameRate = 24;
     let nextIsPlaying = cinesRef.current[viewportId]?.isPlaying || false;
     let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? defaultPlayMode;
@@ -320,7 +321,6 @@ function WrappedCinePlayer({
           nextFrameRate = resolved.frameRate;
           nextCinePlayMode = resolved.cinePlayMode;
           nextFrameStep = resolved.frameStep;
-          nextIsPlaying ||= autoPlay;
         }
       } else if (isMultiframeStackDisplaySet(displaySet)) {
         setDynamicInfo(null);
@@ -336,10 +336,11 @@ function WrappedCinePlayer({
         nextFrameRate = resolved.frameRate;
         nextCinePlayMode = resolved.cinePlayMode;
         nextFrameStep = resolved.frameStep;
-        nextIsPlaying ||= autoPlay;
+        // Autoplay is US-only; other modalities require manual play.
+        nextIsPlaying ||= autoPlayEnabled && isUsMultiframeDisplaySet(displaySet);
       } else if (displaySet.FrameRate) {
         nextFrameRate = Math.round(1000 / displaySet.FrameRate);
-        nextIsPlaying ||= autoPlay;
+        nextIsPlaying ||= autoPlayEnabled && displaySet.Modality === 'US';
       } else {
         setDynamicInfo(null);
         setStackCineInfo(null);
