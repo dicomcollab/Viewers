@@ -228,7 +228,6 @@ export function onModeExit({ servicesManager }: withAppTypes) {
 
 export const toolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
-    'HangingProtocol',
     'WindowLevelTools',
     'Pan',
     'ZoomTools',
@@ -244,6 +243,8 @@ export const toolbarSections = {
     'Reset',
     'MoreTools',
   ],
+
+  [TOOLBAR_SECTIONS.secondary]: ['HangingProtocol'],
 
   [TOOLBAR_SECTIONS.viewportActionMenu.topLeft]: ['orientationMenu', 'dataOverlayMenu'],
 
@@ -299,10 +300,9 @@ export const toolbarSections = {
   ],
 };
 
-// Iframe toolbar — compact primary bar; US video cine uses viewport bar + header transport
+// Iframe toolbar — compact primary bar; HP/cine live on the strip below the header
 export const iframeToolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
-    'HangingProtocol',
     'Zoom',
     'MeasurementTools',
     'WindowLevelTools',
@@ -315,6 +315,8 @@ export const iframeToolbarSections = {
     'Reset',
     'MoreTools',
   ],
+
+  [TOOLBAR_SECTIONS.secondary]: ['HangingProtocol'],
 
   [TOOLBAR_SECTIONS.viewportActionMenu.topLeft]: ['orientationMenu', 'dataOverlayMenu'],
 
@@ -354,7 +356,6 @@ export const iframeToolbarSections = {
     'LivewireContour',
   ],
 
-  // Secondary tools — custom selectors (HangingProtocol, Layout) stay on the primary bar
   MoreTools: [
     'ZoomIn',
     'ZoomOut',
@@ -455,8 +456,8 @@ export const modeInstance = {
   isValidMode,
   routes: [basicRoute],
   extensions: extensionDependencies,
-  // US → 2×2 grid; CT/MR compare → 2×1 when prior exists; all others → 1×1
-  hangingProtocol: ['allModalityCompare2x1', 'usModality1x4', 'allModality1x1'],
+  // Auto: 1×1 default; US with 2 series → 1×2; US with 3+ series → 2×2.
+  hangingProtocol: ['allModality2x2', 'allModality1x2', 'allModality1x1'],
   // Order is important in sop class handlers when two handlers both use
   // the same sop class under different situations.  In that case, the more
   // general handler needs to come last.  For this case, the dicomvideo must

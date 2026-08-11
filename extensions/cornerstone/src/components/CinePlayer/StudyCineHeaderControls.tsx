@@ -11,7 +11,7 @@ import {
   shouldShowStudyCineHeaderControls,
 } from '../../utils/cineSyncUtils';
 import { getCinePreferences } from '../../utils/cinePreferencesUtils';
-import { DEFAULT_US_FRAME_STEP } from '../../utils/usStackCineUtils';
+import { DEFAULT_US_FRAME_STEP, US_CINE_DEFAULT_FPS } from '../../utils/usStackCineUtils';
 import { activeTransportClass, type CinePlayMode } from './usCineUiUtils';
 import CineFpsFrControls from './CineFpsFrControls';
 
@@ -44,7 +44,7 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
       : (cineCapableViewportIds[0] ?? null);
 
   const referenceCine = referenceViewportId ? cines?.[referenceViewportId] : null;
-  const frameRate = referenceCine?.frameRate ?? 24;
+  const frameRate = referenceCine?.frameRate ?? US_CINE_DEFAULT_FPS;
   const frameStep = referenceCine?.frameStep ?? DEFAULT_US_FRAME_STEP;
   const cinePlayMode = (referenceCine?.cinePlayMode ?? 'fps') as CinePlayMode;
   const cinePreferences = useMemo(() => getCinePreferences(), []);

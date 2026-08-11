@@ -16,8 +16,11 @@ type UsStackCineInfo = {
   hasPrevBatch?: boolean;
 };
 
-const US_CINE_DEFAULT_FPS = 15;
+/** Used when the acquisition has no FrameTime / RecommendedDisplayFrameRate / CineRate. */
+const US_CINE_DEFAULT_FPS = 4;
 export const DEFAULT_US_FRAME_STEP = 4;
+const US_CINE_MIN_FPS = 1;
+const US_CINE_MAX_FPS = 90;
 
 function clampFrame(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(value)));
@@ -67,18 +70,58 @@ function buildUsStackCineInfo({
   };
 }
 
+function clampUsCineFps(value: number): number {
+  return Math.max(US_CINE_MIN_FPS, Math.min(US_CINE_MAX_FPS, Math.round(value)));
+}
+
+function firstFinitePositive(...values: unknown[]): number | null {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric;
+    }
+  }
+  return null;
+}
+
+/**
+ * Machine cine rate in frames per second.
+ * Prefers DICOM RecommendedDisplayFrameRate / CineRate (already FPS),
+ * then FrameTime / displaySet.FrameRate (milliseconds between frames).
+ * Falls back to 4 FPS when the acquisition does not provide a rate.
+ */
 function getUsCineFrameRate(displaySet, fallbackFps = US_CINE_DEFAULT_FPS): number {
-  const frameTimeMs = Number(displaySet?.FrameRate);
+  const recommendedFps = firstFinitePositive(
+    displaySet?.RecommendedDisplayFrameRate,
+    displaySet?.CineRate,
+    displaySet?.instances?.[0]?.RecommendedDisplayFrameRate,
+    displaySet?.instances?.[0]?.CineRate
+  );
 
-  if (Number.isFinite(frameTimeMs) && frameTimeMs > 0) {
-    const derivedFps = Math.round(1000 / frameTimeMs);
+  if (recommendedFps != null) {
+    return clampUsCineFps(recommendedFps);
+  }
 
-    if (derivedFps >= 5 && derivedFps <= 90) {
-      return derivedFps;
+  const frameTimeMs = firstFinitePositive(
+    displaySet?.FrameTime,
+    displaySet?.FrameRate,
+    displaySet?.instances?.[0]?.FrameTime
+  );
+
+  if (frameTimeMs != null) {
+    const derivedFps = 1000 / frameTimeMs;
+
+    if (derivedFps >= US_CINE_MIN_FPS && derivedFps <= US_CINE_MAX_FPS) {
+      return clampUsCineFps(derivedFps);
+    }
+
+    // Some sources store FPS in the FrameTime/FrameRate field instead of milliseconds.
+    if (frameTimeMs >= US_CINE_MIN_FPS && frameTimeMs <= US_CINE_MAX_FPS) {
+      return clampUsCineFps(frameTimeMs);
     }
   }
 
-  return fallbackFps;
+  return clampUsCineFps(fallbackFps);
 }
 
 export { buildUsStackCineInfo, getUsCineFrameRate, US_CINE_DEFAULT_FPS };

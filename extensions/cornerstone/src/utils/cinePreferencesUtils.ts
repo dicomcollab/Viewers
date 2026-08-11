@@ -8,9 +8,9 @@ import type { CinePlayMode } from '../components/CinePlayer/usCineUiUtils';
  *   {"showFps":true,"showFr":false,"autoPlay":true}
  *
  * Defaults:
- * - fr (frame-step) mode is primary
- * - FPS control is hidden unless enabled from preferences
- * - Auto-play multiframe stacks on load
+ * - fr (frame-step) is the default cine control
+ * - FPS is hidden unless enabled from preferences/settings
+ * - Auto-play multiframe ultrasound stacks on load
  */
 export type CinePreferences = {
   /** Show the FPS stepper / FPS play mode control. */
@@ -129,6 +129,7 @@ function getCinePreferences(): CinePreferences {
 
 /**
  * Default play mode from visibility: prefer fr (step) first.
+ * FPS is used only when the doctor enables it from settings.
  */
 function getDefaultCinePlayMode(prefs: CinePreferences = getCinePreferences()): CinePlayMode {
   if (prefs.showFr) {

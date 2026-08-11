@@ -19,7 +19,7 @@ type SharedStudyCineSettings = {
 };
 
 /**
- * Shared FPS / fr settings for multi-series layouts (e.g. US 1×4).
+ * Shared FPS / fr settings for multi-series layouts (e.g. US 2×2 / 2×4).
  * Prefers the active viewport, then the first cine-capable viewport with state.
  */
 function getSharedStudyCineSettings(
@@ -48,7 +48,7 @@ function getSharedStudyCineSettings(
 
     if (current.frameRate != null || current.cinePlayMode != null || current.frameStep != null) {
       return {
-        frameRate: current.frameRate ?? 24,
+        frameRate: current.frameRate ?? 4,
         cinePlayMode: (current.cinePlayMode ?? 'fps') as CinePlayMode,
         frameStep: current.frameStep ?? DEFAULT_FRAME_STEP,
       };

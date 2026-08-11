@@ -100,3 +100,69 @@ export function buildViewportsUpdateForDisplaySet(
     },
   ];
 }
+
+function assignStructuredReportToActiveViewport(displaySet, viewportGridService) {
+  const { viewports, activeViewportId } = viewportGridService.getState();
+  const viewportId = activeViewportId || [...viewports.keys()][0];
+
+  if (!viewportId || !displaySet?.displaySetInstanceUID) {
+    return;
+  }
+
+  viewportGridService.setDisplaySetsForViewports([
+    {
+      viewportId,
+      displaySetInstanceUIDs: [displaySet.displaySetInstanceUID],
+    },
+  ]);
+}
+
+/**
+ * SR documents need a full-screen 1×1 viewport. Switch hanging protocol, then
+ * put this SR in the single tile (HP may otherwise hang the first image series).
+ */
+export function presentStructuredReportInOneUp({ displaySet, commandsManager, servicesManager }) {
+  const { hangingProtocolService, viewportGridService } = servicesManager.services;
+  const { layout } = viewportGridService.getState();
+  const isOneUp = layout?.numRows === 1 && layout?.numCols === 1;
+
+  if (isOneUp) {
+    assignStructuredReportToActiveViewport(displaySet, viewportGridService);
+    return;
+  }
+
+  let assigned = false;
+  const assignSr = () => {
+    assigned = true;
+    assignStructuredReportToActiveViewport(displaySet, viewportGridService);
+  };
+
+  const subscription = hangingProtocolService.subscribe(
+    hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
+    () => {
+      if (typeof subscription?.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+      assignSr();
+      window.setTimeout(assignSr, 50);
+    }
+  );
+
+  commandsManager.run({
+    commandName: 'setHangingProtocol',
+    commandOptions: {
+      protocolId: 'allModality1x1',
+      stageId: '1x1',
+      reset: true,
+    },
+  });
+
+  window.setTimeout(() => {
+    if (!assigned) {
+      if (typeof subscription?.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+      assignSr();
+    }
+  }, 250);
+}

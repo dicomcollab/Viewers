@@ -103,7 +103,7 @@ function CineFpsFrControls({
   }, [frameStep]);
 
   const handleFpsChange = (val: number) => {
-    const next = Math.max(5, Math.min(90, Math.round(val)));
+    const next = Math.max(1, Math.min(90, Math.round(val)));
     fpsRef.current = next;
     setLocalFps(next);
     onPlayModeChange('fps');
@@ -128,7 +128,7 @@ function CineFpsFrControls({
         <div className={modeChipClass(cinePlayMode === 'fps')}>
           <CompactStepper
             value={localFps}
-            min={5}
+            min={1}
             max={90}
             label="FPS"
             isModeActive={cinePlayMode === 'fps'}

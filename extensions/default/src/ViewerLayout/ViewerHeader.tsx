@@ -233,10 +233,6 @@ function ViewerHeader({
     'ohif.userPreferencesModal'
   ) as Types.MenuComponentCustomization;
 
-  const ViewerHeaderCineControls = customizationService.getCustomization(
-    'ohif.viewerHeaderCineControls'
-  ) as React.ComponentType<{ servicesManager: typeof servicesManager }> | undefined;
-
   const menuOptions = [
     {
       title: AboutModal?.menuTitle ?? t('Header:About'),
@@ -287,13 +283,9 @@ function ViewerHeader({
       WhiteLabeling={appConfig.whiteLabeling}
       reportNavigationHref={isIframeMode ? undefined : reportNavigationHref}
       onReportNavigation={onReportNavigation}
-      Secondary={<Toolbar buttonSection="secondary" />}
+      Secondary={null}
       isIframeMode={isIframeMode}
-      HeaderActions={
-        ViewerHeaderCineControls ? (
-          <ViewerHeaderCineControls servicesManager={servicesManager} />
-        ) : null
-      }
+      HeaderActions={null}
       UndoRedo={
         <div className="text-primary flex cursor-pointer items-center">
           <Button
@@ -318,10 +310,10 @@ function ViewerHeader({
       }
     >
       <div
-        className={`relative flex justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact iframe-toolbar-row' : 'gap-[4px]'}`}
+        className={`relative flex w-full justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact iframe-toolbar-row' : 'gap-[4px]'}`}
       >
         <div
-          className={`flex items-center whitespace-nowrap ${isIframeMode ? 'iframe-toolbar-row gap-0.5' : 'justify-center gap-1'}`}
+          className={`flex w-full items-center whitespace-nowrap ${isIframeMode ? 'iframe-toolbar-row justify-center gap-2' : 'justify-center gap-1'}`}
         >
           <Toolbar buttonSection="primary" />
         </div>

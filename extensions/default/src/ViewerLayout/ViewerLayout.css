@@ -63,9 +63,9 @@ html.ohif-iframe-embed #root > * {
   height: 1rem !important;
 }
 
-/* Toolbar row: tight gaps between tool groups */
+/* Toolbar row: even spacing across the iframe header */
 .iframe-toolbar-row {
-  gap: 1px;
+  gap: 0.5rem;
 }
 
 /* Hide scrollbar but keep functionality */

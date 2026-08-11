@@ -9,6 +9,8 @@ import { CommandsManager } from '../../classes';
 import * as HangingProtocol from '../../types/HangingProtocol';
 import { isDisplaySetFromUrl, sopInstanceLocation } from './custom-attribute/isDisplaySetFromUrl';
 import numberOfDisplaySetsWithImages from './custom-attribute/numberOfDisplaySetsWithImages';
+import numberOfDisplaySets from './custom-attribute/numberOfDisplaySets';
+import isSrOnlyStudy from './custom-attribute/isSrOnlyStudy';
 import seriesDescriptionsFromDisplaySets from './custom-attribute/seriesDescriptionsFromDisplaySets';
 import uuidv4 from '../../utils/uuidv4';
 import { getUniqueAttributeFromList } from './lib/getUniqueAttributeFromList';
@@ -110,6 +112,16 @@ export default class HangingProtocolService extends PubSubService {
       name: 'numberOfDisplaySetsWithImages',
       description: 'Number of displays sets with images',
       callback: numberOfDisplaySetsWithImages,
+    },
+    numberOfDisplaySets: {
+      name: 'numberOfDisplaySets',
+      description: 'Number of display sets including SR and other non-image series',
+      callback: numberOfDisplaySets,
+    },
+    isSrOnlyStudy: {
+      name: 'isSrOnlyStudy',
+      description: 'True when the study contains only structured report series',
+      callback: isSrOnlyStudy,
     },
   };
   listeners = {};

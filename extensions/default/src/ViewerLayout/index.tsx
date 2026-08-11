@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import { HangingProtocolService, CommandsManager } from '@ohif/core';
 import { useAppConfig } from '@state';
 import ViewerHeader from './ViewerHeader';
+import ViewerHpCineBar from './ViewerHpCineBar';
 import SidePanelWithServices from '../Components/SidePanelWithServices';
 import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@ohif/ui-next';
 import useResizablePanels from './ResizablePanelsHook';
@@ -310,7 +311,8 @@ function ViewerLayout({
 
   const viewportComponents = viewports.map(getViewportComponentData);
 
-  const headerHeight = isIframeMode ? 40 : 48;
+  const headerHeight = isIframeMode ? 44 : 48;
+  const hpCineBarHeight = isIframeMode ? 28 : 32;
 
   return (
     <div
@@ -325,9 +327,17 @@ function ViewerLayout({
         appConfig={appConfig}
         isIframeMode={isIframeMode}
       />
+      <ViewerHpCineBar
+        servicesManager={servicesManager}
+        isIframeMode={isIframeMode}
+      />
       <div
         className="ohif-viewer-layout-main relative flex min-h-0 w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
-        style={isIframeMode ? undefined : { height: `calc(100vh - ${headerHeight}px)` }}
+        style={
+          isIframeMode
+            ? undefined
+            : { height: `calc(100vh - ${headerHeight + hpCineBarHeight}px)` }
+        }
       >
         <React.Fragment>
           {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-black" />}

@@ -6,8 +6,9 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  Button,
+  Icons,
 } from '@ohif/ui-next';
-import { useTranslation } from 'react-i18next';
 
 interface HangingProtocolSelectorProps {
   commandsManager: CommandsManager;
@@ -23,100 +24,78 @@ const isEmbeddedInIframe = () => {
   }
 };
 
+const protocolOptions = [
+  { id: 'allModality1x1', label: '1×1', protocolId: 'allModality1x1', stageId: '1x1' },
+  { id: 'allModality1x2', label: '1×2', protocolId: 'allModality1x2', stageId: '1x2' },
+  { id: 'allModality2x2', label: '2×2', protocolId: 'allModality2x2', stageId: '2x2' },
+  { id: 'allModality2x4', label: '2×4', protocolId: 'allModality2x4', stageId: '2x4' },
+];
+
+const LEGACY_PROTOCOL_ID_MAP: Record<string, string> = {
+  allModality1x4: 'allModality2x2',
+  usModality1x1: 'allModality1x1',
+  usModality1x4: 'allModality2x2',
+  usModality2x2: 'allModality2x2',
+  usModality2x4: 'allModality2x4',
+};
+
+function labelForLayout(numRows: number, numCols: number): { label: string; protocolId: string | null } {
+  if (numRows === 1 && numCols === 1) {
+    return { label: '1×1', protocolId: 'allModality1x1' };
+  }
+  if (numRows === 1 && numCols === 2) {
+    return { label: '1×2', protocolId: 'allModality1x2' };
+  }
+  if (numRows === 2 && numCols === 2) {
+    return { label: '2×2', protocolId: 'allModality2x2' };
+  }
+  if (numRows === 2 && numCols === 4) {
+    return { label: '2×4', protocolId: 'allModality2x4' };
+  }
+  return { label: '1×1', protocolId: null };
+}
+
 function HangingProtocolSelectorWithServices({
   commandsManager,
   servicesManager,
   isCompact = isEmbeddedInIframe(),
 }: HangingProtocolSelectorProps) {
   const { hangingProtocolService } = servicesManager.services;
-  const { t } = useTranslation('HangingProtocolSelector');
 
-  const [currentProtocol, setCurrentProtocol] = useState<string>('ALL | 1×1');
+  const [currentProtocol, setCurrentProtocol] = useState<string>('1×1');
   const [currentProtocolId, setCurrentProtocolId] = useState<string | null>(null);
 
-  // Define the protocol options
-  const protocolOptions = [
-    { id: 'allModality1x1', label: 'ALL | 1×1', protocolId: 'allModality1x1', stageId: '1x1' },
-    { id: 'allModality1x2', label: 'ALL | 1×2', protocolId: 'allModality1x2', stageId: '1x2' },
-    { id: 'allModality1x4', label: 'ALL | 1×4', protocolId: 'allModality1x4', stageId: '1x4' },
-    { id: 'usModality1x4', label: 'US | 1×4', protocolId: 'usModality1x4', stageId: '1x4' },
-    {
-      id: 'allModalityCompare2x1',
-      label: 'ALL | Compare 2×1',
-      protocolId: 'allModalityCompare2x1',
-      stageId: 'compare2x1',
-    },
-  ];
-
-  // Update current protocol based on hanging protocol service state
   useEffect(() => {
     const updateCurrentProtocol = () => {
       const hpState = hangingProtocolService.getState();
       const protocolId = hpState?.protocolId;
+      const mappedId = protocolId ? (LEGACY_PROTOCOL_ID_MAP[protocolId] ?? protocolId) : null;
 
-      if (protocolId) {
-        const option = protocolOptions.find(opt => opt.protocolId === protocolId);
+      if (mappedId) {
+        const option = protocolOptions.find(opt => opt.protocolId === mappedId);
         if (option) {
           setCurrentProtocol(option.label);
-          setCurrentProtocolId(protocolId);
-        } else {
-          // If it's not one of our protocols (e.g., 'default'),
-          // try to match by layout structure or default to 1×1
-          const { viewportGridService } = servicesManager.services;
-          if (viewportGridService) {
-            const gridState = viewportGridService.getState();
-            const layout = gridState?.layout;
-
-            // Try to match layout structure to our protocols
-            if (layout) {
-              const { numRows, numCols } = layout;
-              if (numRows === 1 && numCols === 1) {
-                setCurrentProtocol('ALL | 1×1');
-                setCurrentProtocolId('allModality1x1');
-              } else if (numRows === 1 && numCols === 2) {
-                setCurrentProtocol('ALL | 1×2');
-                setCurrentProtocolId('allModality1x2');
-              } else if (numRows === 2 && numCols === 2) {
-                const hpState = hangingProtocolService.getState();
-                const activeProtocolId = hpState?.protocolId;
-                if (activeProtocolId === 'usModality1x4') {
-                  setCurrentProtocol('US | 1×4');
-                  setCurrentProtocolId('usModality1x4');
-                } else {
-                  setCurrentProtocol('ALL | 1×4');
-                  setCurrentProtocolId('allModality1x4');
-                }
-              } else if (numRows === 2 && numCols === 1) {
-                setCurrentProtocol('ALL | Compare 2×1');
-                setCurrentProtocolId('allModalityCompare2x1');
-              } else {
-                // Default to 1×1 if layout doesn't match
-                setCurrentProtocol('ALL | 1×1');
-                setCurrentProtocolId(null);
-              }
-            } else {
-              // Default to 1×1 if no layout info
-              setCurrentProtocol('ALL | 1×1');
-              setCurrentProtocolId(null);
-            }
-          } else {
-            // Default to 1×1 if viewportGridService not available
-            setCurrentProtocol('ALL | 1×1');
-            setCurrentProtocolId(null);
-          }
+          setCurrentProtocolId(option.protocolId);
+          return;
         }
-      } else {
-        // No protocol set, default to 1×1
-        setCurrentProtocol('ALL | 1×1');
-        setCurrentProtocolId(null);
+
+        const { viewportGridService } = servicesManager.services;
+        const layout = viewportGridService?.getState()?.layout;
+        if (layout) {
+          const matched = labelForLayout(layout.numRows, layout.numCols);
+          setCurrentProtocol(matched.label);
+          setCurrentProtocolId(matched.protocolId);
+          return;
+        }
       }
+
+      setCurrentProtocol('1×1');
+      setCurrentProtocolId(null);
     };
 
-    // Initial update with a small delay to ensure services are ready
     const timeoutId = setTimeout(updateCurrentProtocol, 100);
     updateCurrentProtocol();
 
-    // Subscribe to protocol changes (service returns { unsubscribe } or cleanup may be called when service is reset)
     const subscription = hangingProtocolService.subscribe(
       hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
       updateCurrentProtocol
@@ -152,20 +131,44 @@ function HangingProtocolSelectorWithServices({
     [commandsManager]
   );
 
+  const cycleProtocol = useCallback(
+    (direction: 1 | -1) => {
+      const currentIndex = protocolOptions.findIndex(opt => opt.protocolId === currentProtocolId);
+      const fallbackIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex =
+        (fallbackIndex + direction + protocolOptions.length) % protocolOptions.length;
+      handleProtocolChange(protocolOptions[nextIndex]);
+    },
+    [currentProtocolId, handleProtocolChange]
+  );
+
+  const navBtnClass =
+    'h-6 w-6 shrink-0 p-0 text-white hover:bg-primary-active [&_svg]:h-3 [&_svg]:w-3';
+
   return (
     <div
-      className={`flex items-center ${isCompact ? 'iframe-hanging-protocol mr-0.5 gap-0.5' : 'mr-4 gap-2'}`}
+      className={`flex items-center ${isCompact ? 'iframe-hanging-protocol mr-0.5 gap-0.5' : 'gap-1'}`}
       id="HangingProtocol"
       data-cy="HangingProtocol"
     >
-      {!isCompact && <span className="whitespace-nowrap text-sm text-white">Hanging Protocol</span>}
+      {!isCompact && <span className="whitespace-nowrap text-sm text-white">HP</span>}
+      <Button
+        variant="ghost"
+        size="icon"
+        className={navBtnClass}
+        onClick={() => cycleProtocol(-1)}
+        title="Previous hanging protocol"
+        data-cy="hanging-protocol-prev"
+      >
+        <Icons.ChevronLeft />
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             className={`border-inputfield-main focus:border-inputfield-main flex items-center justify-between rounded border bg-black text-white hover:bg-gray-800 ${
               isCompact
                 ? 'h-[24px] min-w-[4.5rem] max-w-[5.75rem] px-1 text-[10px]'
-                : 'h-[26px] min-w-[120px] px-2 text-sm'
+                : 'h-[26px] min-w-[88px] px-2 text-sm'
             }`}
             data-cy="hanging-protocol-dropdown-trigger"
           >
@@ -177,7 +180,7 @@ function HangingProtocolSelectorWithServices({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
-          className="bg-popover min-w-[120px]"
+          className="bg-popover min-w-[88px]"
         >
           {protocolOptions.map(option => {
             const isActive = currentProtocolId === option.protocolId;
@@ -196,6 +199,16 @@ function HangingProtocolSelectorWithServices({
           })}
         </DropdownMenuContent>
       </DropdownMenu>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={navBtnClass}
+        onClick={() => cycleProtocol(1)}
+        title="Next hanging protocol"
+        data-cy="hanging-protocol-next"
+      >
+        <Icons.ChevronRight />
+      </Button>
     </div>
   );
 }

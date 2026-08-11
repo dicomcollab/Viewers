@@ -15,13 +15,14 @@ import {
   viewportSupportsCine,
 } from '../../utils/cineSyncUtils';
 import UsViewportCineBar from './UsViewportCineBar';
-import { advanceUsBatch } from '../../utils/usBatchNavigationUtils';
+import { advanceUsBatch, shouldSuppressCineAutoplay } from '../../utils/usBatchNavigationUtils';
 import { getSharedStudyCineSettings } from '../../utils/usCinePlaybackUtils';
 import { getUsCineCapableLayoutViewportIds } from '../../utils/usGridViewportUtils';
 import {
   buildUsStackCineInfo,
   getUsCineFrameRate,
   DEFAULT_US_FRAME_STEP,
+  US_CINE_DEFAULT_FPS,
 } from '../../utils/usStackCineUtils';
 import {
   getCinePreferences,
@@ -99,7 +100,7 @@ function WrappedCinePlayer({
     cornerstoneViewportService,
   } = servicesManager.services;
   const [{ isCineEnabled, cines }, cineService] = useCine();
-  const [newStackFrameRate, setNewStackFrameRate] = useState(24);
+  const [newStackFrameRate, setNewStackFrameRate] = useState(US_CINE_DEFAULT_FPS);
   const [dynamicInfo, setDynamicInfo] = useState(null);
   const [stackCineInfo, setStackCineInfo] = useState(null);
   const [appConfig] = useAppConfig();
@@ -122,7 +123,7 @@ function WrappedCinePlayer({
   enabledVPElementRef.current = enabledVPElement;
 
   const isPlaying = cines?.[viewportId]?.isPlaying ?? false;
-  const frameRate = cines?.[viewportId]?.frameRate ?? 24;
+  const frameRate = cines?.[viewportId]?.frameRate ?? US_CINE_DEFAULT_FPS;
   const cinePlayMode = cines?.[viewportId]?.cinePlayMode ?? 'fps';
   const frameStep = cines?.[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
 
@@ -145,6 +146,16 @@ function WrappedCinePlayer({
       const validFrameRate = Math.max(fps, 1);
       const last = lastPlaybackRef.current;
 
+      const enabledElement = getEnabledElement(element);
+      const viewport = enabledElement?.viewport;
+      const imageIdCount =
+        typeof viewport?.getImageIds === 'function' ? (viewport.getImageIds()?.length ?? 0) : 0;
+      const currentIndex =
+        typeof viewport?.getCurrentImageIdIndex === 'function'
+          ? viewport.getCurrentImageIdIndex()
+          : null;
+      const canPlay = !!enabledElement && imageIdCount > 1;
+
       if (
         last?.isPlaying === playing &&
         last?.frameRate === validFrameRate &&
@@ -159,22 +170,6 @@ function WrappedCinePlayer({
         return;
       }
 
-      lastPlaybackRef.current = {
-        isPlaying: playing,
-        frameRate: validFrameRate,
-        cinePlayMode,
-        frameStep,
-      };
-
-      const enabledElement = getEnabledElement(element);
-      const viewport = enabledElement?.viewport;
-      const imageIdCount =
-        typeof viewport?.getImageIds === 'function' ? (viewport.getImageIds()?.length ?? 0) : 0;
-      const currentIndex =
-        typeof viewport?.getCurrentImageIdIndex === 'function'
-          ? viewport.getCurrentImageIdIndex()
-          : null;
-
       if (playing) {
         cineDebug('CinePlayer', 'applyPlayback → playClip', {
           viewportId,
@@ -185,20 +180,22 @@ function WrappedCinePlayer({
           currentIndex,
         });
 
-        if (!enabledElement) {
-          cineDebugWarn('CinePlayer', 'Cannot play — viewport element not enabled yet', {
+        if (!canPlay) {
+          lastPlaybackRef.current = null;
+          cineDebugWarn('CinePlayer', 'Cannot play — viewport not ready or single frame', {
             viewportId,
+            imageIdCount,
+            hasEnabledElement: !!enabledElement,
           });
           return;
         }
 
-        if (imageIdCount <= 1) {
-          cineDebugWarn('CinePlayer', 'Cannot play — only one frame in stack', {
-            viewportId,
-            imageIdCount,
-          });
-          return;
-        }
+        lastPlaybackRef.current = {
+          isPlaying: playing,
+          frameRate: validFrameRate,
+          cinePlayMode,
+          frameStep,
+        };
 
         service.playClip(element, {
           framesPerSecond: validFrameRate,
@@ -207,6 +204,12 @@ function WrappedCinePlayer({
           frameStep,
         });
       } else {
+        lastPlaybackRef.current = {
+          isPlaying: playing,
+          frameRate: validFrameRate,
+          cinePlayMode,
+          frameStep,
+        };
         cineDebug('CinePlayer', 'applyPlayback → stopClip', {
           viewportId,
           imageIdCount,
@@ -235,8 +238,13 @@ function WrappedCinePlayer({
     const cinePreferences = getCinePreferences();
     const defaultPlayMode = getDefaultCinePlayMode(cinePreferences);
     const autoPlayEnabled = shouldAutoPlayCine(cinePreferences, appConfig.autoPlayCine);
-    let nextFrameRate = 24;
-    let nextIsPlaying = cinesRef.current[viewportId]?.isPlaying || false;
+    // Force playClip after a display-set swap; stopClip from paging can leave
+    // lastPlaybackRef looking "unchanged" while the interval is already dead.
+    lastPlaybackRef.current = null;
+    let nextFrameRate = US_CINE_DEFAULT_FPS;
+    const existingCine = cinesRef.current[viewportId];
+    const hasExplicitPlayState = typeof existingCine?.isPlaying === 'boolean';
+    let nextIsPlaying = hasExplicitPlayState ? !!existingCine.isPlaying : false;
     let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? defaultPlayMode;
     let nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
     let nextStackCineInfo = null;
@@ -246,7 +254,6 @@ function WrappedCinePlayer({
       : null;
 
     // First load of a multi-series grid: seed one shared rate from the first tile.
-    // Default play mode is FPS using machine FrameTime (doctors usually need this).
     if (isMultiSeriesLayout && !sharedCineSettings) {
       const layoutViewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
       const { viewports: layoutViewports } = viewportGridService.getState();
@@ -265,7 +272,7 @@ function WrappedCinePlayer({
     }
 
     const resolveMultiframeRate = (displaySet) => {
-      // Keep one shared FPS/fr across US 1×4 (and similar) so paging does not
+      // Keep one shared FPS/fr across US multi-viewport layouts so paging does not
       // re-derive mismatched rates from each series' FrameTime.
       if (sharedCineSettings) {
         return {
@@ -336,11 +343,25 @@ function WrappedCinePlayer({
         nextFrameRate = resolved.frameRate;
         nextCinePlayMode = resolved.cinePlayMode;
         nextFrameStep = resolved.frameStep;
-        // Autoplay is US-only; other modalities require manual play.
-        nextIsPlaying ||= autoPlayEnabled && isUsMultiframeDisplaySet(displaySet);
-      } else if (displaySet.FrameRate) {
-        nextFrameRate = Math.round(1000 / displaySet.FrameRate);
-        nextIsPlaying ||= autoPlayEnabled && displaySet.Modality === 'US';
+        // Autoplay US on first load. Next/prev must not start cine if the user paused.
+        if (
+          autoPlayEnabled &&
+          isUsMultiframeDisplaySet(displaySet) &&
+          !shouldSuppressCineAutoplay() &&
+          (!hasExplicitPlayState || existingCine.isPlaying)
+        ) {
+          nextIsPlaying = true;
+        }
+      } else if (displaySet.FrameRate || displaySet.FrameTime || displaySet.RecommendedDisplayFrameRate) {
+        nextFrameRate = getUsCineFrameRate(displaySet);
+        if (
+          autoPlayEnabled &&
+          displaySet.Modality === 'US' &&
+          !shouldSuppressCineAutoplay() &&
+          (!hasExplicitPlayState || existingCine.isPlaying)
+        ) {
+          nextIsPlaying = true;
+        }
       } else {
         setDynamicInfo(null);
         setStackCineInfo(null);
@@ -426,7 +447,7 @@ function WrappedCinePlayer({
     }
 
     applyPlayback(isPlaying, frameRate);
-  }, [isCineEnabled, isPlaying, frameRate, cinePlayMode, frameStep, applyPlayback]);
+  }, [isCineEnabled, isPlaying, frameRate, cinePlayMode, frameStep, applyPlayback, enabledVPElement]);
 
   useEffect(() => {
     if (!enabledVPElement) {

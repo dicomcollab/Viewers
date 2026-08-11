@@ -65,7 +65,7 @@ function Header({
 
   return (
     <IconPresentationProvider
-      size={isIframeMode ? 22 : 'large'}
+      size={isIframeMode ? 24 : 'large'}
       IconContainer={ToolButton}
     >
       <NavBar
@@ -73,7 +73,7 @@ function Header({
         {...props}
       >
         <div
-          className={`relative flex items-center overflow-hidden ${isIframeMode ? 'iframe-toolbar-compact h-[40px]' : 'h-[48px]'}`}
+          className={`relative flex items-center overflow-hidden ${isIframeMode ? 'iframe-toolbar-compact h-[44px]' : 'h-[48px]'}`}
         >
           {/* Left section: Logo and return button */}
           <div
@@ -127,10 +127,10 @@ function Header({
           {/* Center section: Toolbar with horizontal scroll */}
           <div className="scrollbar-hide min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
             <div
-              className={`flex h-full items-center ${isIframeMode ? 'justify-start px-0.5' : 'justify-center px-2'}`}
+              className={`flex h-full w-full items-center ${isIframeMode ? 'justify-center px-2' : 'justify-center px-2'}`}
             >
               <div
-                className={`flex items-center whitespace-nowrap ${isIframeMode ? 'gap-0.5' : 'justify-center space-x-2'}`}
+                className={`flex items-center whitespace-nowrap ${isIframeMode ? 'justify-center gap-2' : 'justify-center space-x-2'}`}
               >
                 {children}
               </div>
@@ -156,7 +156,7 @@ function Header({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className={`iframe-header-settings-btn hover:bg-primary-active text-white ${isIframeMode ? 'h-7 w-7' : 'h-full w-full'}`}
+                    className={`iframe-header-settings-btn hover:bg-primary-active text-white ${isIframeMode ? 'h-9 w-9' : 'h-full w-full'}`}
                   >
                     <HeaderSettingsGearIcon />
                   </Button>

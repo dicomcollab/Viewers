@@ -391,6 +391,8 @@ class MetadataProvider {
       case WADO_IMAGE_LOADER_TAGS.CINE_MODULE:
         metadata = {
           frameTime: instance.FrameTime,
+          recommendedDisplayFrameRate: instance.RecommendedDisplayFrameRate,
+          cineRate: instance.CineRate,
           numberOfFrames: instance.NumberOfFrames ? Number(instance.NumberOfFrames) : 1,
         };
 

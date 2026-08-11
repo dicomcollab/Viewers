@@ -3,6 +3,7 @@ import { ensureStructuredReportDisplaySet } from '@ohif/extension-default/src/ut
 import {
   buildViewportsUpdateForDisplaySet,
   isStructuredReportDisplaySet,
+  presentStructuredReportInOneUp,
   resolveViewportIdForStructuredReport,
 } from '@ohif/extension-default/src/utils/openStructuredReportInViewport';
 
@@ -61,6 +62,15 @@ const onDoubleClickHandler = {
           }
         }
 
+        if (isStructuredReportDisplaySet(displaySet)) {
+          presentStructuredReportInOneUp({
+            displaySet,
+            commandsManager,
+            servicesManager,
+          });
+          return;
+        }
+
         const viewportId = resolveViewportIdForStructuredReport(displaySet, {
           activeViewportId,
           viewportGridService,
@@ -91,7 +101,24 @@ const onDoubleClickHandler = {
 
 const customOnDropHandlerCallback = async props => {
   const handled = checkHasDirtyAndSimplifiedMode(props);
-  return Promise.resolve({ handled });
+  if (handled) {
+    return { handled: true };
+  }
+
+  const { servicesManager, commandsManager, displaySetInstanceUID } = props;
+  const displaySet =
+    servicesManager?.services?.displaySetService?.getDisplaySetByUID(displaySetInstanceUID);
+
+  if (isStructuredReportDisplaySet(displaySet)) {
+    presentStructuredReportInOneUp({
+      displaySet,
+      commandsManager,
+      servicesManager,
+    });
+    return { handled: true };
+  }
+
+  return { handled: false };
 };
 
 const checkHasDirtyAndSimplifiedMode = (props: CheckHasDirtyAndSimplifiedModeProps) => {

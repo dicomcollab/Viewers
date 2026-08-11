@@ -8,8 +8,16 @@ import {
 import {
   applyCineSettingsToAllViewports,
   getSharedStudyCineSettings,
+  playAllUsViewports,
 } from './usCinePlaybackUtils';
 import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUtils';
+
+/** While paging, CinePlayer must not force autoplay; resume only if play was already on. */
+let suppressCineAutoplayUntil = 0;
+
+function shouldSuppressCineAutoplay(): boolean {
+  return Date.now() < suppressCineAutoplayUntil;
+}
 
 type UsBatchNavigationInfo = {
   batchSize: number;
@@ -393,6 +401,10 @@ function advanceUsBatch(
 
   // Capture shared FPS/fr before paging so new series do not reset to per-series FrameTime.
   const sharedCineSettings = getSharedStudyCineSettings(servicesManager);
+  const { cineService } = servicesManager.services;
+  const { cines } = cineService.getState();
+  const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
+  suppressCineAutoplayUntil = Date.now() + 700;
 
   stopCineOnViewports(servicesManager, layoutViewportIds);
 
@@ -403,16 +415,26 @@ function advanceUsBatch(
   );
 
   const reapplySharedCineSettings = () => {
-    if (!sharedCineSettings) {
-      return;
+    if (wasPlaying) {
+      cineService.setIsCineEnabled(true);
     }
 
-    applyCineSettingsToAllViewports(servicesManager, {
-      frameRate: sharedCineSettings.frameRate,
-      cinePlayMode: sharedCineSettings.cinePlayMode,
-      frameStep: sharedCineSettings.frameStep,
-      isPlaying: false,
-    });
+    if (sharedCineSettings) {
+      applyCineSettingsToAllViewports(servicesManager, {
+        frameRate: sharedCineSettings.frameRate,
+        cinePlayMode: sharedCineSettings.cinePlayMode,
+        frameStep: sharedCineSettings.frameStep,
+        isPlaying: wasPlaying,
+      });
+    } else if (wasPlaying) {
+      playAllUsViewports(servicesManager);
+    }
+  };
+
+  const scheduleCineResume = () => {
+    // Let React process the pause from stopCine before restarting playback.
+    window.setTimeout(reapplySharedCineSettings, 50);
+    window.setTimeout(reapplySharedCineSettings, 450);
   };
 
   if (target.type === 'instance') {
@@ -427,17 +449,12 @@ function advanceUsBatch(
       batchInfo.batchSize
     );
 
-    // Win race against CinePlayer.newDisplaySetHandler per-series FrameTime init.
-    window.setTimeout(reapplySharedCineSettings, 0);
-    window.setTimeout(reapplySharedCineSettings, 450);
-
+    scheduleCineResume();
     return buildUsBatchNavigationInfo(servicesManager);
   }
 
   if (batchInfo.mode === 'instances') {
     applyInstanceBatch(servicesManager, layoutViewportIds, target.batchStart, studyDisplaySets);
-    window.setTimeout(reapplySharedCineSettings, 0);
-    window.setTimeout(reapplySharedCineSettings, 450);
   } else {
     applyFrameBatch(
       servicesManager,
@@ -446,6 +463,8 @@ function advanceUsBatch(
       batchInfo.totalCount
     );
   }
+
+  scheduleCineResume();
 
   return buildUsBatchNavigationInfo(servicesManager);
 }
@@ -484,5 +503,6 @@ export {
   getAllUsStudyDisplaySets,
   getLayoutBatchSize,
   getUsSeriesPositionInStudy,
+  shouldSuppressCineAutoplay,
 };
 export type { UsBatchNavigationInfo };

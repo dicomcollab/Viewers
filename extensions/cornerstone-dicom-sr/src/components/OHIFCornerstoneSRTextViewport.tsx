@@ -1,11 +1,15 @@
 import PropTypes from 'prop-types';
 import React, { useEffect, useState } from 'react';
-import { ExtensionManager } from '@ohif/core';
+import { ExtensionManager, useSystem } from '@ohif/core';
+import { useViewportGrid } from '@ohif/ui-next';
 import { OHIFCornerstoneSRContainer } from './OHIFCornerstoneSRContainer';
 import { utils } from '@ohif/core';
 
 function OHIFCornerstoneSRTextViewport(props: withAppTypes) {
-  const { displaySets } = props;
+  const { displaySets, viewportId, viewportOptions } = props;
+  const { commandsManager } = useSystem();
+  const [, viewportGridService] = useViewportGrid();
+  const resolvedViewportId = viewportId || viewportOptions?.viewportId;
   const displaySet = displaySets[0];
   const [instance, setInstance] = useState(
     displaySet.instance || displaySet.instances[displaySet.instances.length - 1]
@@ -71,8 +75,22 @@ function OHIFCornerstoneSRTextViewport(props: withAppTypes) {
     .join(' ');
   const contentDateTimeLine = [formattedContentDate, formattedContentTime].filter(Boolean).join(' ');
 
+  const handleDoubleClick = event => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (resolvedViewportId) {
+      viewportGridService.setActiveViewportId(resolvedViewportId);
+    }
+
+    commandsManager.run('toggleOneUp');
+  };
+
   return (
-    <div className="relative flex h-full w-full flex-col overflow-auto p-4 text-white">
+    <div
+      className="relative flex h-full w-full flex-col overflow-auto p-4 text-white"
+      onDoubleClick={handleDoubleClick}
+    >
       <div>
         <div className="mb-3 text-sm">
           {patientLine ? (

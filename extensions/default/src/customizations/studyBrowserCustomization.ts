@@ -4,6 +4,7 @@ import { ensureStructuredReportDisplaySet } from '../utils/ensureStructuredRepor
 import {
   buildViewportsUpdateForDisplaySet,
   isStructuredReportDisplaySet,
+  presentStructuredReportInOneUp,
   resolveViewportIdForStructuredReport,
 } from '../utils/openStructuredReportInViewport';
 
@@ -111,6 +112,15 @@ export default {
             } catch (error) {
               console.warn('[SR] Unable to load structured report', error);
             }
+          }
+
+          if (isStructuredReportDisplaySet(displaySet)) {
+            presentStructuredReportInOneUp({
+              displaySet,
+              commandsManager,
+              servicesManager,
+            });
+            return;
           }
 
           const viewportId = resolveViewportIdForStructuredReport(displaySet, {
