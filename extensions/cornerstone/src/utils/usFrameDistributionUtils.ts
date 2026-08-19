@@ -237,11 +237,12 @@ function applyUsFrameDistribution(
   );
 
   setUsFrameDistributionBatchStart(batchStart);
-  pauseAllUsViewports(servicesManager);
 
   const { viewportGridService } = servicesManager.services;
+  const slotsAlreadyMatch = slotsMatchViewports(servicesManager, slots);
 
-  if (!slotsMatchViewports(servicesManager, slots)) {
+  if (!slotsAlreadyMatch) {
+    pauseAllUsViewports(servicesManager);
     applyInFlight = true;
     cancelOffsetRetry();
 

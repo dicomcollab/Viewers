@@ -12,6 +12,7 @@ import {
   startSyncStartDriver,
   stopSyncPlaybackDriver,
 } from './usCineSyncPlaybackDriver';
+import { getStudyCineWantsPlaying, setStudyCineWantsPlaying } from './cinePlaybackIntent';
 import {
   getUsFrameDistributionBatchStart,
   isUsFrameDistributionEnabled,
@@ -97,6 +98,40 @@ function applyCineSettingsToAllViewports(
 }
 
 /**
+ * Restart native clips for viewports that are already playing so FPS / FR
+ * changes take effect without requiring pause then play.
+ */
+function restartPlayingCineClips(
+  servicesManager: AppTypes.ServicesManager,
+  viewportIds?: string[]
+): void {
+  const { cineService, cornerstoneViewportService } = servicesManager.services;
+  const ids = viewportIds ?? getUsCineCapableLayoutViewportIds(servicesManager);
+
+  ids.forEach(viewportId => {
+    const current = cineService.getState().cines?.[viewportId];
+
+    if (!current?.isPlaying) {
+      return;
+    }
+
+    const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+    const element = viewport?.element;
+
+    if (!element) {
+      return;
+    }
+
+    cineService.playClip(element, {
+      framesPerSecond: Math.max(1, Number(current.frameRate) || 1),
+      viewportId,
+      cinePlayMode: current.cinePlayMode ?? 'fps',
+      frameStep: current.frameStep,
+    });
+  });
+}
+
+/**
  * Rewind the given viewports to their first frame so synced playback starts aligned.
  * In Frame Distribution the "start" is the current group offset (N, N+1, N+2, …).
  */
@@ -151,6 +186,9 @@ function setSingleViewportPlayState(
 
   if (playing) {
     cineService.setIsCineEnabled(true);
+    setStudyCineWantsPlaying(true);
+  } else {
+    setStudyCineWantsPlaying(false);
   }
 
   cineService.setCine({
@@ -194,6 +232,7 @@ function requestCinePlayPause(
   }
 
   if (!playing) {
+    setStudyCineWantsPlaying(false);
     pauseAllUsViewports(servicesManager);
     return;
   }
@@ -204,6 +243,7 @@ function requestCinePlayPause(
     return;
   }
 
+  setStudyCineWantsPlaying(true);
   stopSyncPlaybackDriver();
   cineService.setIsCineEnabled(true);
 
@@ -239,13 +279,19 @@ function applyCineFrameRate(
   mode: CineSyncMode = getCineSyncMode()
 ): void {
   const { cineService } = servicesManager.services;
+  const validFrameRate = Math.max(1, Math.round(Number(frameRate) || 1));
 
   if (mode === 'syncPlayback') {
-    applyCineSettingsToAllViewports(servicesManager, { frameRate, cinePlayMode: 'fps' });
+    applyCineSettingsToAllViewports(servicesManager, {
+      frameRate: validFrameRate,
+      cinePlayMode: 'fps',
+    });
+    restartPlayingCineClips(servicesManager);
     return;
   }
 
-  cineService.setCine({ id: srcViewportId, frameRate, cinePlayMode: 'fps' });
+  cineService.setCine({ id: srcViewportId, frameRate: validFrameRate, cinePlayMode: 'fps' });
+  restartPlayingCineClips(servicesManager, [srcViewportId]);
 }
 
 /**
@@ -347,9 +393,17 @@ function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
   });
 }
 
+function getAllKnownCineViewportIds(servicesManager: AppTypes.ServicesManager): string[] {
+  const { cineService } = servicesManager.services;
+  const layoutIds = getUsCineCapableLayoutViewportIds(servicesManager);
+  const stateIds = Object.keys(cineService.getState().cines || {});
+
+  return Array.from(new Set([...layoutIds, ...stateIds]));
+}
+
 function pauseAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
   const { cineService, cornerstoneViewportService } = servicesManager.services;
-  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+  const viewportIds = getAllKnownCineViewportIds(servicesManager);
 
   stopSyncPlaybackDriver();
 
@@ -362,6 +416,51 @@ function pauseAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
       cineService.stopClip(element, { viewportId });
     }
   });
+}
+
+/**
+ * After a hanging-protocol / grid resize, copy study play intent onto every
+ * cine tile and let CinePlayer start live clips. Play on 1×1 then 2×2 used to
+ * leave the new tiles showing pause while only the reused first tile moved.
+ * Returns true when every cine tile is already marked playing.
+ */
+function ensureLayoutCinePlayback(servicesManager: AppTypes.ServicesManager): boolean {
+  if (getCineSyncMode() === 'none' || !getStudyCineWantsPlaying()) {
+    return true;
+  }
+
+  if (isUsFrameDistributionEnabled()) {
+    return true;
+  }
+
+  const { cineService } = servicesManager.services;
+  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  if (!viewportIds.length) {
+    return false;
+  }
+
+  cineService.setIsCineEnabled(true);
+
+  viewportIds.forEach(viewportId => {
+    const current = cineService.getState().cines?.[viewportId] ?? {};
+
+    if (current.isPlaying) {
+      return;
+    }
+
+    cineService.setCine({
+      id: viewportId,
+      isPlaying: true,
+      frameRate: current.frameRate,
+      cinePlayMode: current.cinePlayMode ?? 'fps',
+      frameStep: current.frameStep,
+    });
+  });
+
+  return viewportIds.every(
+    viewportId => cineService.getState().cines?.[viewportId]?.isPlaying
+  );
 }
 
 function stopAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
@@ -419,6 +518,7 @@ export {
   applyCineFrameRate,
   applyCineSettingsToAllViewports,
   applyCineSyncMode,
+  ensureLayoutCinePlayback,
   getSharedStudyCineSettings,
   mirrorCineFrameToPeers,
   pauseAllUsViewports,

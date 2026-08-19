@@ -72,7 +72,20 @@ function setViewportFrameIndex(viewport, imageIndex: number): boolean {
   const clamped = Math.max(0, Math.min(frameCount - 1, Math.round(imageIndex)));
 
   try {
+    const current = getViewportFrameIndex(viewport);
+
+    // Repeating setImageIdIndex on the same frame can cancel an in-flight
+    // first render and leave a black canvas (reload then shows the image).
+    if (current === clamped) {
+      return true;
+    }
+
     viewport.setImageIdIndex(clamped);
+
+    if (typeof viewport.render === 'function') {
+      viewport.render();
+    }
+
     return true;
   } catch {
     return false;
@@ -87,11 +100,39 @@ function setViewportFrameIndexById(
   return setViewportFrameIndex(getAliveViewport(cornerstoneViewportService, viewportId), imageIndex);
 }
 
+function recoverBlankStackViewport(cornerstoneViewportService, viewportId: string): boolean {
+  const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+
+  if (!viewport || getViewportFrameCount(viewport) < 1) {
+    return false;
+  }
+
+  try {
+    if (typeof cornerstoneViewportService.resize === 'function') {
+      cornerstoneViewportService.resize();
+    }
+
+    if (typeof viewport.resize === 'function') {
+      viewport.resize();
+    }
+
+    if (typeof viewport.render === 'function') {
+      viewport.render();
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export {
   getAliveViewport,
   getViewportFrameCount,
   getViewportFrameIndex,
   isViewportAlive,
+  recoverBlankStackViewport,
   setViewportFrameIndex,
   setViewportFrameIndexById,
 };
+

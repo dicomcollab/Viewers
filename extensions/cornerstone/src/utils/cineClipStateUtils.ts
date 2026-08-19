@@ -2,15 +2,43 @@ import { utilities as csToolsUtils } from '@cornerstonejs/tools';
 
 type CustomClipState = {
   intervalId: ReturnType<typeof setInterval>;
+  element: HTMLElement;
+  viewportId?: string;
 };
 
-const customClips = new Map<HTMLElement, CustomClipState>();
+const clipsByElement = new Map<HTMLElement, CustomClipState>();
+const clipsByViewportId = new Map<string, CustomClipState>();
+
+function clearClipState(clip: CustomClipState | undefined): void {
+  if (!clip) {
+    return;
+  }
+
+  clearInterval(clip.intervalId);
+  clipsByElement.delete(clip.element);
+
+  if (clip.viewportId) {
+    clipsByViewportId.delete(clip.viewportId);
+  }
+}
 
 function setCustomClip(
   element: HTMLElement,
-  intervalId: ReturnType<typeof setInterval>
+  intervalId: ReturnType<typeof setInterval>,
+  viewportId?: string
 ): void {
-  customClips.set(element, { intervalId });
+  if (viewportId) {
+    clearCustomClipByViewportId(viewportId);
+  }
+
+  clearCustomClip(element);
+
+  const clip: CustomClipState = { intervalId, element, viewportId };
+  clipsByElement.set(element, clip);
+
+  if (viewportId) {
+    clipsByViewportId.set(viewportId, clip);
+  }
 }
 
 function clearCustomClip(element: HTMLElement | null | undefined): void {
@@ -18,30 +46,33 @@ function clearCustomClip(element: HTMLElement | null | undefined): void {
     return;
   }
 
-  const clip = customClips.get(element);
+  clearClipState(clipsByElement.get(element));
+}
 
-  if (!clip) {
+function clearCustomClipByViewportId(viewportId?: string): void {
+  if (!viewportId) {
     return;
   }
 
-  clearInterval(clip.intervalId);
-  customClips.delete(element);
+  clearClipState(clipsByViewportId.get(viewportId));
 }
 
-function hasCustomClip(element: HTMLElement | null | undefined): boolean {
-  return Boolean(element && customClips.has(element));
+function hasCustomClip(element: HTMLElement | null | undefined, viewportId?: string): boolean {
+  if (viewportId && clipsByViewportId.has(viewportId)) {
+    return true;
+  }
+
+  return Boolean(element && clipsByElement.has(element));
 }
 
 /**
- * True when Cornerstone cine (or the FR-step interval) is actually ticking.
- * `cines[id].isPlaying` can stay true after a layout swap even though the clip
- * died with the old viewport instance.
+ * True when our live stack cine (or Cornerstone cine) is actually ticking.
  */
 function isCineClipRunning(
   element: HTMLElement | null | undefined,
   viewportId?: string
 ): boolean {
-  if (hasCustomClip(element)) {
+  if (hasCustomClip(element, viewportId)) {
     return true;
   }
 
@@ -66,4 +97,9 @@ function isCineClipRunning(
   }
 }
 
-export { clearCustomClip, isCineClipRunning, setCustomClip };
+export {
+  clearCustomClip,
+  clearCustomClipByViewportId,
+  isCineClipRunning,
+  setCustomClip,
+};

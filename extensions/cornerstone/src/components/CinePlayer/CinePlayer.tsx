@@ -31,6 +31,7 @@ import {
   requestCineFrameChange,
   requestCinePlayPause,
 } from '../../utils/usCinePlaybackUtils';
+import { getStudyCineWantsPlaying, setStudyCineWantsPlaying } from '../../utils/cinePlaybackIntent';
 import {
   isCinePlaybackManaged,
   startSyncStartDriver,
@@ -42,6 +43,7 @@ import {
   getAliveViewport,
   getViewportFrameCount,
   getViewportFrameIndex,
+  isViewportAlive,
 } from '../../utils/safeViewportFrameUtils';
 
 function getPetFrameReferenceTimeFromImageId(imageId: string) {
@@ -168,7 +170,7 @@ function WrappedCinePlayer({
       const enabledElement = getEnabledElement(element);
       const viewport = liveViewport ?? enabledElement?.viewport;
       const imageIdCount = getViewportFrameCount(viewport);
-      const canPlay = imageIdCount > 1;
+      const canPlay = isViewportAlive(viewport);
 
       // Layout reuse keeps isPlaying + FPS the same while the CS clip is dead.
       // `force` is required because cine tool state can still hold a stale intervalId.
@@ -200,7 +202,7 @@ function WrappedCinePlayer({
 
         if (!canPlay) {
           lastPlaybackRef.current = null;
-          cineDebugWarn('CinePlayer', 'Cannot play — viewport not ready or single frame', {
+          cineDebugWarn('CinePlayer', 'Cannot play — viewport not ready', {
             viewportId,
             imageIdCount,
             hasEnabledElement: !!enabledElement,
@@ -304,6 +306,7 @@ function WrappedCinePlayer({
     let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? defaultPlayMode;
     let nextFrameStep = cinesRef.current[viewportId]?.frameStep ?? DEFAULT_US_FRAME_STEP;
     let nextStackCineInfo = null;
+    const studyWantsPlaying = getStudyCineWantsPlaying();
 
     // Each multiframe instance keeps its own DICOM-derived FPS.
     // If the doctor changes FPS on this tile, keep that value until the instance changes.
@@ -383,32 +386,39 @@ function WrappedCinePlayer({
         nextFrameRate = resolved.frameRate;
         nextCinePlayMode = resolved.cinePlayMode;
         nextFrameStep = resolved.frameStep;
-        // Autoplay US on first load. Next/prev must not start cine if the user paused.
+        // Autoplay US on first load. Honour study play intent so 1×1 play
+        // then 2×2 starts every new tile, and a pause stays paused.
         if (
-          autoPlayEnabled &&
+          studyWantsPlaying &&
           isUsMultiframeDisplaySet(displaySet) &&
           !shouldSuppressCineAutoplay() &&
           !isUsFrameDistributionEnabled() &&
-          (!hasExplicitPlayState || existingCine.isPlaying)
+          (getCineSyncMode() !== 'none' || autoPlayEnabled)
         ) {
           nextIsPlaying = true;
+          setStudyCineWantsPlaying(true);
         }
       } else if (displaySet.FrameRate || displaySet.FrameTime || displaySet.RecommendedDisplayFrameRate) {
         nextFrameRate = getUsCineFrameRate(displaySet);
         if (
-          autoPlayEnabled &&
+          studyWantsPlaying &&
           displaySet.Modality === 'US' &&
           !shouldSuppressCineAutoplay() &&
           !isUsFrameDistributionEnabled() &&
-          (!hasExplicitPlayState || existingCine.isPlaying)
+          (getCineSyncMode() !== 'none' || autoPlayEnabled)
         ) {
           nextIsPlaying = true;
+          setStudyCineWantsPlaying(true);
         }
       } else {
         setDynamicInfo(null);
         setStackCineInfo(null);
       }
     });
+
+    if (!studyWantsPlaying && getCineSyncMode() !== 'none') {
+      nextIsPlaying = false;
+    }
 
     cineDebug('CinePlayer', 'newDisplaySetHandler', {
       viewportId,

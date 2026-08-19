@@ -14,6 +14,7 @@ import type { Types } from '@ohif/core';
 
 import OHIFViewportActionCorners from '../components/OHIFViewportActionCorners';
 import { getViewportPresentations } from '../utils/presentations/getViewportPresentations';
+import { recoverBlankStackViewport } from '../utils/safeViewportFrameUtils';
 import { useSynchronizersStore } from '../stores/useSynchronizersStore';
 import ActiveViewportBehavior from '../utils/ActiveViewportBehavior';
 import { WITH_NAVIGATION } from '../services/ViewportService/CornerstoneViewportService';
@@ -306,9 +307,19 @@ const OHIFCornerstoneViewport = React.memo(
       const resizeTimers = [0, 100, 400].map(ms =>
         window.setTimeout(() => cornerstoneViewportService.resize(), ms)
       );
+      const blankRecoverTimers = [700, 1400, 2400].map(ms =>
+        window.setTimeout(() => {
+          if (hasReportedFirstImageRef.current) {
+            return;
+          }
+
+          recoverBlankStackViewport(cornerstoneViewportService, viewportId);
+        }, ms)
+      );
 
       return () => {
         resizeTimers.forEach(clearTimeout);
+        blankRecoverTimers.forEach(clearTimeout);
         if (imageRenderedCleanupRef.current) {
           imageRenderedCleanupRef.current();
           imageRenderedCleanupRef.current = null;
