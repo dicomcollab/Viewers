@@ -296,19 +296,14 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
 
   const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
   const batchSize = getLayoutBatchSize(servicesManager);
-  const viewportDisplaySets = layoutViewportIds
-    .map(viewportId => getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId)))
-    .filter(Boolean);
-
-  const uniqueDisplaySetUIDs = new Set(viewportDisplaySets.map(ds => ds.displaySetInstanceUID));
   const studyDisplaySets = getAllCineCapableStudyDisplaySets(
     displaySetService,
     controlDisplaySet.StudyInstanceUID
   );
   const numFrames = Number(controlDisplaySet.numImageFrames) || 0;
-  const isFrameViewMode =
-    uniqueDisplaySetUIDs.size === 1 && numFrames > 1 && layoutViewportIds.length > 1;
-  const isInstanceBatchMode = studyDisplaySets.length > 1 && !isFrameViewMode;
+  // Page by instance for every grid size (1×1, 1×2, 2×2, 2×4). Last pages with
+  // empty leftover tiles must stay in this mode or the HP pager is hidden.
+  const isInstanceBatchMode = studyDisplaySets.length > 1;
 
   if (isInstanceBatchMode) {
     const indices = layoutViewportIds
