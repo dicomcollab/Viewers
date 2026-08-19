@@ -1,8 +1,11 @@
 import {
   canUseUsFrameDistribution,
+  captureFrameDistributionLayoutSnapshot,
+  consumeFrameDistributionLayoutSnapshot,
   getSingleUsMultiframeDisplaySet,
   getSrDisplaySets,
   getUsFrameDistributionBatchStart,
+  getUsImageDisplaySets,
   isUsFrameDistributionEnabled,
   setUsFrameDistributionBatchStart,
   setUsFrameDistributionEnabled,
@@ -320,16 +323,82 @@ function restoreHangingProtocol(
   commandsManager: AppTypes.CommandsManager,
   servicesManager: AppTypes.ServicesManager
 ): void {
+  const snapshot = consumeFrameDistributionLayoutSnapshot();
   const hpState = servicesManager.services.hangingProtocolService.getState();
+  const singleUs = getUsImageDisplaySets(servicesManager.services.displaySetService).length === 1;
+  const snapshotIs1x1 =
+    snapshot?.protocolId === 'allModality1x1' ||
+    snapshot?.stageId === '1x1' ||
+    snapshot?.protocolId === 'usModality1x1';
+
+  // A single US instance always hangs 1×1. Do not keep a 2×2 that Frame Dist
+  // or unmatched HP fill applied on top of that study.
+  const use1x1 = singleUs && (snapshotIs1x1 || !snapshot?.protocolId);
 
   commandsManager.run({
     commandName: 'setHangingProtocol',
-    commandOptions: {
-      protocolId: hpState?.protocolId,
-      stageIndex: hpState?.stageIndex,
-      reset: true,
-    },
+    commandOptions: use1x1
+      ? {
+          protocolId: 'allModality1x1',
+          stageId: '1x1',
+          stageIndex: 0,
+          reset: true,
+        }
+      : {
+          protocolId: snapshot?.protocolId ?? hpState?.protocolId,
+          stageId: snapshot?.stageId ?? hpState?.stageId,
+          stageIndex: snapshot?.stageIndex ?? hpState?.stageIndex,
+          reset: true,
+        },
   });
+
+  window.setTimeout(() => clearDuplicateSingleUsViewports(servicesManager), 80);
+  window.setTimeout(() => clearDuplicateSingleUsViewports(servicesManager), 300);
+}
+
+/**
+ * 2×2 (and larger) hanging protocols use allowUnmatchedView, so leftover Frame
+ * Dist tiles keep showing the same US instance. Keep it only in the first tile.
+ */
+function clearDuplicateSingleUsViewports(servicesManager: AppTypes.ServicesManager): void {
+  const { displaySetService, viewportGridService } = servicesManager.services;
+  const usSets = getUsImageDisplaySets(displaySetService);
+
+  if (usSets.length !== 1) {
+    return;
+  }
+
+  const usUid = usSets[0].displaySetInstanceUID;
+  const viewportIds = getUsLayoutViewportIds(servicesManager);
+  const { viewports } = viewportGridService.getState();
+  let keptFirst = false;
+  const updates = [];
+
+  viewportIds.forEach(viewportId => {
+    const uids = viewports.get(viewportId)?.displaySetInstanceUIDs ?? [];
+
+    if (!uids.includes(usUid)) {
+      return;
+    }
+
+    if (!keptFirst) {
+      keptFirst = true;
+      return;
+    }
+
+    updates.push({
+      viewportId,
+      displaySetInstanceUIDs: [],
+      viewportOptions: {
+        viewportType: 'stack',
+        toolGroupId: 'default',
+      },
+    });
+  });
+
+  if (updates.length) {
+    viewportGridService.setDisplaySetsForViewports(updates);
+  }
 }
 
 function setUsFrameDistribution(
@@ -337,11 +406,20 @@ function setUsFrameDistribution(
   commandsManager: AppTypes.CommandsManager,
   enabled: boolean
 ): void {
-  const { displaySetService } = servicesManager.services;
+  const { displaySetService, hangingProtocolService } = servicesManager.services;
 
   if (enabled && !canUseUsFrameDistribution(displaySetService)) {
     setUsFrameDistributionEnabled(false);
     return;
+  }
+
+  if (enabled && !isUsFrameDistributionEnabled()) {
+    const hpState = hangingProtocolService.getState();
+    captureFrameDistributionLayoutSnapshot({
+      protocolId: hpState?.protocolId,
+      stageId: hpState?.stageId,
+      stageIndex: hpState?.stageIndex,
+    });
   }
 
   setUsFrameDistributionEnabled(enabled);

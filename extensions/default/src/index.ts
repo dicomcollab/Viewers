@@ -49,6 +49,8 @@ import {
   getSingleUsMultiframeDisplaySet,
   getUsImageDisplaySets,
   getSrDisplaySets,
+  captureFrameDistributionLayoutSnapshot,
+  consumeFrameDistributionLayoutSnapshot,
 } from './utils/usFrameDistributionStore';
 
 const defaultExtension: Types.Extensions.Extension = {
@@ -129,4 +131,6 @@ export {
   getSingleUsMultiframeDisplaySet,
   getUsImageDisplaySets,
   getSrDisplaySets,
+  captureFrameDistributionLayoutSnapshot,
+  consumeFrameDistributionLayoutSnapshot,
 };

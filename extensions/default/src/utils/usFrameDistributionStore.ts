@@ -11,6 +11,14 @@ const listeners = new Set<(enabled: boolean) => void>();
 let enabled = false;
 let batchStart = 0;
 
+type FrameDistributionLayoutSnapshot = {
+  protocolId?: string;
+  stageId?: string;
+  stageIndex?: number;
+};
+
+let layoutSnapshot: FrameDistributionLayoutSnapshot | null = null;
+
 export function isUsFrameDistributionEnabled(): boolean {
   return enabled;
 }
@@ -21,6 +29,22 @@ export function getUsFrameDistributionBatchStart(): number {
 
 export function setUsFrameDistributionBatchStart(nextBatchStart: number): void {
   batchStart = Math.max(0, Math.round(nextBatchStart) || 0);
+}
+
+export function captureFrameDistributionLayoutSnapshot(
+  snapshot: FrameDistributionLayoutSnapshot
+): void {
+  layoutSnapshot = {
+    protocolId: snapshot?.protocolId,
+    stageId: snapshot?.stageId,
+    stageIndex: snapshot?.stageIndex,
+  };
+}
+
+export function consumeFrameDistributionLayoutSnapshot(): FrameDistributionLayoutSnapshot | null {
+  const snapshot = layoutSnapshot;
+  layoutSnapshot = null;
+  return snapshot;
 }
 
 export function setUsFrameDistributionEnabled(nextEnabled: boolean): void {
@@ -47,6 +71,7 @@ export function subscribeUsFrameDistribution(listener: (enabled: boolean) => voi
 
 export function resetUsFrameDistribution(): void {
   batchStart = 0;
+  layoutSnapshot = null;
 
   if (!enabled) {
     return;
