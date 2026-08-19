@@ -171,6 +171,10 @@ function applyFrameOffsetsWhenReady(
   slots: DistributionSlot[],
   attempt = 0
 ): void {
+  if (!isUsFrameDistributionEnabled()) {
+    applyInFlight = false;
+    return;
+  }
   const { cornerstoneViewportService } = servicesManager.services;
   const frameViewportIds = viewportIds.filter((_, index) => slots[index]?.kind === 'frame');
   const ready =
@@ -352,16 +356,24 @@ function restoreHangingProtocol(
         },
   });
 
-  window.setTimeout(() => clearDuplicateSingleUsViewports(servicesManager), 80);
-  window.setTimeout(() => clearDuplicateSingleUsViewports(servicesManager), 300);
+  window.setTimeout(() => sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager), 80);
+  window.setTimeout(() => sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager), 300);
+  window.setTimeout(() => sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager), 700);
 }
 
 /**
- * 2×2 (and larger) hanging protocols use allowUnmatchedView, so leftover Frame
- * Dist tiles keep showing the same US instance. Keep it only in the first tile.
+ * Frame Dist off: a single US instance must occupy only one tile. Hanging
+ * protocols use allowUnmatchedView, so 2×2 / 2×4 reuse leftover Frame Dist
+ * stacks (and their frame offsets). Clear those copies and rewind the kept
+ * loop to frame 1 so layout changes do not look like Frame Dist is still on.
  */
-function clearDuplicateSingleUsViewports(servicesManager: AppTypes.ServicesManager): void {
-  const { displaySetService, viewportGridService } = servicesManager.services;
+function sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager: AppTypes.ServicesManager): void {
+  if (isUsFrameDistributionEnabled()) {
+    return;
+  }
+
+  const { displaySetService, viewportGridService, cornerstoneViewportService } =
+    servicesManager.services;
   const usSets = getUsImageDisplaySets(displaySetService);
 
   if (usSets.length !== 1) {
@@ -371,34 +383,56 @@ function clearDuplicateSingleUsViewports(servicesManager: AppTypes.ServicesManag
   const usUid = usSets[0].displaySetInstanceUID;
   const viewportIds = getUsLayoutViewportIds(servicesManager);
   const { viewports } = viewportGridService.getState();
-  let keptFirst = false;
+  const keepId =
+    viewportIds.find(viewportId =>
+      (viewports.get(viewportId)?.displaySetInstanceUIDs ?? []).includes(usUid)
+    ) ?? viewportIds[0];
+
+  if (!keepId) {
+    return;
+  }
+
   const updates = [];
 
   viewportIds.forEach(viewportId => {
-    const uids = viewports.get(viewportId)?.displaySetInstanceUIDs ?? [];
+    const viewportState = viewports.get(viewportId);
+    const uids = viewportState?.displaySetInstanceUIDs ?? [];
+    const hasUs = uids.includes(usUid);
 
-    if (!uids.includes(usUid)) {
+    if (viewportId === keepId) {
+      const frameHint = viewportState?.viewportOptions?.initialImageOptions?.index;
+
+      if (!hasUs || uids.length !== 1 || frameHint != null) {
+        updates.push({
+          viewportId,
+          displaySetInstanceUIDs: [usUid],
+          viewportOptions: {
+            viewportType: 'stack',
+            toolGroupId: 'default',
+          },
+        });
+      }
+
       return;
     }
 
-    if (!keptFirst) {
-      keptFirst = true;
-      return;
+    if (hasUs) {
+      updates.push({
+        viewportId,
+        displaySetInstanceUIDs: [],
+        viewportOptions: {
+          viewportType: 'stack',
+          toolGroupId: 'default',
+        },
+      });
     }
-
-    updates.push({
-      viewportId,
-      displaySetInstanceUIDs: [],
-      viewportOptions: {
-        viewportType: 'stack',
-        toolGroupId: 'default',
-      },
-    });
   });
 
   if (updates.length) {
     viewportGridService.setDisplaySetsForViewports(updates);
   }
+
+  setViewportFrameIndexById(cornerstoneViewportService, keepId, 0);
 }
 
 function setUsFrameDistribution(
@@ -461,6 +495,7 @@ function initUsFrameDistribution(servicesManager: AppTypes.ServicesManager): voi
 
   let reapplyHandle: number | null = null;
   let lastGridSize = getUsLayoutGridSize(servicesManager);
+  let pendingProtocolChange = false;
 
   const scheduleReapply = () => {
     if (reapplyHandle != null) {
@@ -470,19 +505,24 @@ function initUsFrameDistribution(servicesManager: AppTypes.ServicesManager): voi
     reapplyHandle = window.setTimeout(() => {
       reapplyHandle = null;
 
+      const gridSize = getUsLayoutGridSize(servicesManager);
+      const gridSizeChanged = gridSize !== lastGridSize;
+      const protocolChanged = pendingProtocolChange;
+      pendingProtocolChange = false;
+      lastGridSize = gridSize;
+
       if (!isUsFrameDistributionEnabled()) {
+        if (protocolChanged || gridSizeChanged) {
+          sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager);
+        }
         return;
       }
 
       if (!canUseUsFrameDistribution(displaySetService)) {
         setUsFrameDistributionEnabled(false);
+        sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager);
         return;
       }
-
-      const gridSize = getUsLayoutGridSize(servicesManager);
-      const gridSizeChanged = gridSize !== lastGridSize;
-
-      lastGridSize = gridSize;
 
       if (gridSizeChanged) {
         snapBatchStartToLayout(servicesManager, gridSize);
@@ -497,7 +537,10 @@ function initUsFrameDistribution(servicesManager: AppTypes.ServicesManager): voi
   };
 
   viewportGridService.subscribe(viewportGridService.EVENTS.GRID_STATE_CHANGED, scheduleReapply);
-  hangingProtocolService.subscribe(hangingProtocolService.EVENTS.PROTOCOL_CHANGED, scheduleReapply);
+  hangingProtocolService.subscribe(hangingProtocolService.EVENTS.PROTOCOL_CHANGED, () => {
+    pendingProtocolChange = true;
+    scheduleReapply();
+  });
   displaySetService.subscribe(displaySetService.EVENTS.DISPLAY_SETS_CHANGED, scheduleReapply);
 }
 
