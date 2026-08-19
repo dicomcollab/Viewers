@@ -1646,13 +1646,15 @@ window.config = {
   /**
    * Ultrasound / multiframe cine player defaults.
    * RIS can override per doctor via cookie: userPreferences_cinePreferences
-   * e.g. {"showFps":true,"showFr":true,"autoPlay":true}
-   * Default behavior is fr mode; enable FPS from preference when needed.
+   * e.g. {"showFps":true,"showFr":false,"autoPlay":true,"syncMode":"syncPlayback"}
+   * Default cine uses per-instance DICOM FPS. Enable fr (frame-step) from doctor preferences when needed.
+   * syncMode: 'none' (independent), 'syncStart' (start together, own FPS) or 'syncPlayback' (shared play/pause).
    */
   cinePreferences: {
-    showFps: false,
-    showFr: true,
+    showFps: true,
+    showFr: false,
     autoPlay: true,
+    syncMode: 'syncPlayback',
   },
   // Load only first series metadata on init; load other series when user clicks (requires enableStudyLazyLoad on data source).
   loadSeriesMetadataOnDemand: true,

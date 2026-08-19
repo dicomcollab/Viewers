@@ -38,6 +38,18 @@ import { Toolbox } from './utils';
 import MoreDropdownMenu from './Components/MoreDropdownMenu';
 import requestDisplaySetCreationForStudy from './Panels/requestDisplaySetCreationForStudy';
 import { Toolbar } from './Toolbar/Toolbar';
+import {
+  resetUsFrameDistribution,
+  isUsFrameDistributionEnabled,
+  setUsFrameDistributionEnabled,
+  getUsFrameDistributionBatchStart,
+  setUsFrameDistributionBatchStart,
+  subscribeUsFrameDistribution,
+  canUseUsFrameDistribution,
+  getSingleUsMultiframeDisplaySet,
+  getUsImageDisplaySets,
+  getSrDisplaySets,
+} from './utils/usFrameDistributionStore';
 
 const defaultExtension: Types.Extensions.Extension = {
   /**
@@ -52,6 +64,7 @@ const defaultExtension: Types.Extensions.Extension = {
     useHangingProtocolStageIndexStore.getState().clearHangingProtocolStageIndexMap();
     useToggleHangingProtocolStore.getState().clearToggleHangingProtocol();
     useViewportsByPositionStore.getState().clearViewportsByPosition();
+    resetUsFrameDistribution();
   },
   getDataSourcesModule,
   getViewportModule,
@@ -106,4 +119,14 @@ export {
   callInputDialog,
   createReportDialogPrompt,
   Toolbar,
+  resetUsFrameDistribution,
+  isUsFrameDistributionEnabled,
+  setUsFrameDistributionEnabled,
+  getUsFrameDistributionBatchStart,
+  setUsFrameDistributionBatchStart,
+  subscribeUsFrameDistribution,
+  canUseUsFrameDistribution,
+  getSingleUsMultiframeDisplaySet,
+  getUsImageDisplaySets,
+  getSrDisplaySets,
 };

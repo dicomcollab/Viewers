@@ -129,6 +129,26 @@ const allModality1x1Protocol = createAllModalityGridProtocol({
   columns: 1,
   extraMatchingRules: [
     {
+      // Force single-image-set ultrasound studies (even with SR reports)
+      // to start in 1×1 on first load.
+      id: 'SingleUltrasoundImageDisplaySet',
+      weight: 4000,
+      required: true,
+      attribute: 'ModalitiesInStudy',
+      constraint: {
+        contains: ['US'],
+      },
+    },
+    {
+      id: 'ExactlyOneImageDisplaySet',
+      weight: 3500,
+      required: true,
+      attribute: 'numberOfDisplaySetsWithImages',
+      constraint: {
+        equals: { value: 1 },
+      },
+    },
+    {
       id: 'SrOnlyStudy',
       weight: 5000,
       attribute: 'isSrOnlyStudy',
@@ -142,7 +162,7 @@ const allModality1x1Protocol = createAllModalityGridProtocol({
 const allModality1x2Protocol = createAllModalityGridProtocol({
   id: 'allModality1x2',
   name: '1×2',
-  description: '1×2 grid — default for ultrasound with two series',
+  description: '1×2 grid — default for ultrasound with two image series',
   stageId: '1x2',
   rows: 1,
   columns: 2,
@@ -157,12 +177,14 @@ const allModality1x2Protocol = createAllModalityGridProtocol({
       },
     },
     {
-      id: 'TwoOrMoreDisplaySets',
+      // Count image series only so a single US instance plus SR reports
+      // still hangs 1×1 (Frame Distribution is an explicit HP option).
+      id: 'TwoOrMoreImageDisplaySets',
       weight: 200,
       required: true,
-      attribute: 'numberOfDisplaySets',
+      attribute: 'numberOfDisplaySetsWithImages',
       constraint: {
-        greaterThan: { value: 2 },
+        greaterThan: { value: 1 },
       },
     },
   ],
@@ -171,7 +193,7 @@ const allModality1x2Protocol = createAllModalityGridProtocol({
 const allModality2x2Protocol = createAllModalityGridProtocol({
   id: 'allModality2x2',
   name: '2×2',
-  description: '2×2 grid — default for ultrasound with three or more series',
+  description: '2×2 grid — default for ultrasound with three or more image series',
   stageId: '2x2',
   rows: 2,
   columns: 2,
@@ -186,12 +208,12 @@ const allModality2x2Protocol = createAllModalityGridProtocol({
       },
     },
     {
-      id: 'ThreeOrMoreDisplaySets',
+      id: 'ThreeOrMoreImageDisplaySets',
       weight: 300,
       required: true,
-      attribute: 'numberOfDisplaySets',
+      attribute: 'numberOfDisplaySetsWithImages',
       constraint: {
-        greaterThan: { value: 3 },
+        greaterThan: { value: 2 },
       },
     },
   ],

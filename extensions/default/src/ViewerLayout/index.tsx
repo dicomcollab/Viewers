@@ -312,7 +312,6 @@ function ViewerLayout({
   const viewportComponents = viewports.map(getViewportComponentData);
 
   const headerHeight = isIframeMode ? 44 : 48;
-  const hpCineBarHeight = isIframeMode ? 28 : 32;
 
   return (
     <div
@@ -327,17 +326,9 @@ function ViewerLayout({
         appConfig={appConfig}
         isIframeMode={isIframeMode}
       />
-      <ViewerHpCineBar
-        servicesManager={servicesManager}
-        isIframeMode={isIframeMode}
-      />
       <div
         className="ohif-viewer-layout-main relative flex min-h-0 w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
-        style={
-          isIframeMode
-            ? undefined
-            : { height: `calc(100vh - ${headerHeight + hpCineBarHeight}px)` }
-        }
+        style={isIframeMode ? undefined : { height: `calc(100vh - ${headerHeight}px)` }}
       >
         <React.Fragment>
           {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-black" />}
@@ -345,7 +336,7 @@ function ViewerLayout({
             {...resizablePanelGroupProps}
             className="h-full min-h-0"
           >
-            {/* LEFT SIDEPANELS */}
+            {/* LEFT SIDEPANELS — full height under header */}
             {hasLeftPanels ? (
               <>
                 <ResizablePanel {...resizableLeftPanelProps}>
@@ -363,11 +354,16 @@ function ViewerLayout({
                 />
               </>
             ) : null}
-            {/* TOOLBAR + GRID */}
+            {/* HP/cine strip + viewport grid — strip matches viewport column width only */}
             <ResizablePanel {...resizableViewportGridPanelProps}>
               <div className={`flex h-full flex-1 flex-col ${isIframeMode ? 'iframe-mode' : ''}`}>
+                <ViewerHpCineBar
+                  servicesManager={servicesManager}
+                  commandsManager={commandsManager}
+                  isIframeMode={isIframeMode}
+                />
                 <div
-                  className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-black"
+                  className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black"
                   onMouseEnter={handleMouseEnter}
                 >
                   <ViewportGridComp

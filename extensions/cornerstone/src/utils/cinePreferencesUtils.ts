@@ -1,16 +1,22 @@
 import type { CinePlayMode } from '../components/CinePlayer/usCineUiUtils';
+import {
+  DEFAULT_CINE_SYNC_MODE,
+  normalizeCineSyncMode,
+  type CineSyncMode,
+} from './cineSyncModeStore';
 
 /**
  * Doctor/RIS cine player preferences.
  *
  * Cookie: userPreferences_cinePreferences
  * Example:
- *   {"showFps":true,"showFr":false,"autoPlay":true}
+ *   {"showFps":true,"showFr":false,"autoPlay":true,"syncMode":"syncStart"}
  *
  * Defaults:
- * - fr (frame-step) is the default cine control
- * - FPS is hidden unless enabled from preferences/settings
+ * - FPS is the default cine control (per-instance DICOM rate)
+ * - fr (frame-step) is hidden unless enabled from preferences/settings
  * - Auto-play multiframe ultrasound stacks on load
+ * - Default sync mode is syncPlayback so auto-play starts every cine together
  */
 export type CinePreferences = {
   /** Show the FPS stepper / FPS play mode control. */
@@ -19,22 +25,27 @@ export type CinePreferences = {
   showFr: boolean;
   /** Auto-start cine when multiframe ultrasound (and similar) loads. */
   autoPlay: boolean;
+  /** Default cine sync mode for multi-viewport layouts. */
+  syncMode: CineSyncMode;
 };
 
 export const DEFAULT_CINE_PREFERENCES: CinePreferences = {
-  showFps: false,
-  showFr: true,
+  showFps: true,
+  showFr: false,
   autoPlay: true,
+  syncMode: DEFAULT_CINE_SYNC_MODE,
 };
 
 type RawCinePreferences = Partial<{
   showFps: unknown;
   showFr: unknown;
   autoPlay: unknown;
+  syncMode: unknown;
   /** Aliases some RIS payloads may use */
   showFPS: unknown;
   showFrameStep: unknown;
   autoPlayCine: unknown;
+  cineSyncMode: unknown;
 }>;
 
 function toBool(value: unknown, fallback: boolean): boolean {
@@ -87,6 +98,7 @@ function normalizeCinePreferences(raw: RawCinePreferences | null): CinePreferenc
     showFps: toBool(raw.showFps ?? raw.showFPS, defaults.showFps),
     showFr: toBool(raw.showFr ?? raw.showFrameStep, defaults.showFr),
     autoPlay: toBool(raw.autoPlay ?? raw.autoPlayCine, defaults.autoPlay),
+    syncMode: normalizeCineSyncMode(raw.syncMode ?? raw.cineSyncMode, defaults.syncMode),
   };
 }
 
@@ -128,15 +140,15 @@ function getCinePreferences(): CinePreferences {
 }
 
 /**
- * Default play mode from visibility: prefer fr (step) first.
- * FPS is used only when the doctor enables it from settings.
+ * Default play mode from visibility: prefer FPS first.
+ * Step (fr) is used only when the doctor enables it from settings.
  */
 function getDefaultCinePlayMode(prefs: CinePreferences = getCinePreferences()): CinePlayMode {
-  if (prefs.showFr) {
-    return 'step';
-  }
   if (prefs.showFps) {
     return 'fps';
+  }
+  if (prefs.showFr) {
+    return 'step';
   }
   return 'fps';
 }

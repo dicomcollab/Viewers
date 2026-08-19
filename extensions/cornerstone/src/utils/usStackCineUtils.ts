@@ -1,3 +1,7 @@
+import {
+  getAliveViewport,
+  getViewportFrameIndex,
+} from './safeViewportFrameUtils';
 import { buildUsBatchNavigationInfo, getUsSeriesPositionInStudy } from './usBatchNavigationUtils';
 import { isMultiframeStackDisplaySet } from './cineSyncUtils';
 
@@ -44,8 +48,8 @@ function buildUsStackCineInfo({
   }
 
   const numFrames = Number(displaySet.numImageFrames) || 0;
-  const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
-  const currentIndex = viewport?.getCurrentImageIdIndex?.() ?? 0;
+  const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+  const currentIndex = getViewportFrameIndex(viewport);
 
   const batchInfo = servicesManager ? buildUsBatchNavigationInfo(servicesManager) : null;
   const seriesPosition = servicesManager
@@ -85,9 +89,27 @@ function firstFinitePositive(...values: unknown[]): number | null {
 }
 
 /**
+ * Derive FPS from a millisecond interval (FrameTime / ActualFrameDuration).
+ * Some sources store FPS directly in those fields instead of milliseconds.
+ */
+function fpsFromIntervalMs(intervalMs: number): number | null {
+  const derivedFps = 1000 / intervalMs;
+
+  if (derivedFps >= US_CINE_MIN_FPS && derivedFps <= US_CINE_MAX_FPS) {
+    return clampUsCineFps(derivedFps);
+  }
+
+  if (intervalMs >= US_CINE_MIN_FPS && intervalMs <= US_CINE_MAX_FPS) {
+    return clampUsCineFps(intervalMs);
+  }
+
+  return null;
+}
+
+/**
  * Machine cine rate in frames per second.
  * Prefers DICOM RecommendedDisplayFrameRate / CineRate (already FPS),
- * then FrameTime / displaySet.FrameRate (milliseconds between frames).
+ * then FrameTime / displaySet.FrameRate (ms), then ActualFrameDuration (ms).
  * Falls back to 4 FPS when the acquisition does not provide a rate.
  */
 function getUsCineFrameRate(displaySet, fallbackFps = US_CINE_DEFAULT_FPS): number {
@@ -109,15 +131,21 @@ function getUsCineFrameRate(displaySet, fallbackFps = US_CINE_DEFAULT_FPS): numb
   );
 
   if (frameTimeMs != null) {
-    const derivedFps = 1000 / frameTimeMs;
-
-    if (derivedFps >= US_CINE_MIN_FPS && derivedFps <= US_CINE_MAX_FPS) {
-      return clampUsCineFps(derivedFps);
+    const fromFrameTime = fpsFromIntervalMs(frameTimeMs);
+    if (fromFrameTime != null) {
+      return fromFrameTime;
     }
+  }
 
-    // Some sources store FPS in the FrameTime/FrameRate field instead of milliseconds.
-    if (frameTimeMs >= US_CINE_MIN_FPS && frameTimeMs <= US_CINE_MAX_FPS) {
-      return clampUsCineFps(frameTimeMs);
+  const actualFrameDurationMs = firstFinitePositive(
+    displaySet?.ActualFrameDuration,
+    displaySet?.instances?.[0]?.ActualFrameDuration
+  );
+
+  if (actualFrameDurationMs != null) {
+    const fromActualDuration = fpsFromIntervalMs(actualFrameDurationMs);
+    if (fromActualDuration != null) {
+      return fromActualDuration;
     }
   }
 

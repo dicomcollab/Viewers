@@ -37,6 +37,8 @@ try {
 
 import { connectToolsToMeasurementService } from './initMeasurementService';
 import initCineService from './initCineService';
+import { initUsFrameDistribution } from './utils/usFrameDistributionUtils';
+import patchStackViewportDestroyedGuard from './utils/patchStackViewportDestroyedGuard';
 import initStudyPrefetcherService from './initStudyPrefetcherService';
 import interleaveCenterLoader from './utils/interleaveCenterLoader';
 import nthLoader from './utils/nthLoader';
@@ -78,6 +80,8 @@ export default async function init({
   await cs3DInit({
     peerImport: appConfig.peerImport,
   });
+
+  patchStackViewportDestroyedGuard();
 
   // For debugging e2e tests that are failing on CI
   cornerstone.setUseCPURendering(Boolean(appConfig.useCPURendering));
@@ -231,6 +235,7 @@ export default async function init({
   });
 
   initCineService(servicesManager);
+  initUsFrameDistribution(servicesManager);
   initStudyPrefetcherService(servicesManager);
 
   measurementService.subscribe(measurementService.EVENTS.JUMP_TO_MEASUREMENT, evt => {

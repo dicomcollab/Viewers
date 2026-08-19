@@ -281,6 +281,43 @@ function _getSharedSyncGroupIds(viewportState) {
 }
 
 /**
+ * Viewports rendering the same dynamic (4D) volume — these always share cine state.
+ */
+function _getDynamicVolumePeerIds(
+  servicesManager: AppTypes.ServicesManager,
+  srcViewportId: string
+): string[] {
+  const { viewportGridService, cornerstoneViewportService } = servicesManager.services;
+  const { viewports: viewportsStates } = viewportGridService.getState();
+  const srcViewportState = viewportsStates.get(srcViewportId);
+
+  if (srcViewportState?.viewportOptions?.viewportType !== 'volume') {
+    return [];
+  }
+
+  const srcViewport = cornerstoneViewportService.getCornerstoneViewport(srcViewportId);
+  const srcVolume = srcViewport ? _getVolumeFromViewport(srcViewport) : null;
+
+  if (!srcVolume?.isDynamicVolume()) {
+    return [];
+  }
+
+  const { volumeId: srcVolumeId } = srcVolume;
+
+  return Array.from(viewportsStates.values())
+    .map(({ viewportId }) => viewportId)
+    .filter(viewportId => {
+      if (viewportId === srcViewportId) {
+        return false;
+      }
+
+      return !!cornerstoneViewportService
+        .getCornerstoneViewport(viewportId)
+        ?.hasVolumeId?.(srcVolumeId);
+    });
+}
+
+/**
  * Return viewport ids that should share play/pause and frame-rate when cine changes.
  */
 export function getSyncedCineViewportIds(
@@ -291,8 +328,7 @@ export function getSyncedCineViewportIds(
     return [];
   }
 
-  const { viewportGridService, cornerstoneViewportService, displaySetService } =
-    servicesManager.services;
+  const { viewportGridService, displaySetService } = servicesManager.services;
 
   const { viewports: viewportsStates } = viewportGridService.getState();
   const srcViewportState = viewportsStates.get(srcViewportId);
@@ -301,32 +337,12 @@ export function getSyncedCineViewportIds(
     return [];
   }
 
-  const syncedViewportIds = new Set<string>();
+  const syncedViewportIds = new Set<string>(
+    _getDynamicVolumePeerIds(servicesManager, srcViewportId)
+  );
   const allViewportStates = Array.from(viewportsStates.values());
   const srcDisplaySetUIDs = srcViewportState.displaySetInstanceUIDs || [];
   const srcSyncGroupIds = _getSharedSyncGroupIds(srcViewportState);
-
-  // Dynamic volumes sharing the same volume id (existing behaviour).
-  if (srcViewportState.viewportOptions?.viewportType === 'volume') {
-    const srcViewport = cornerstoneViewportService.getCornerstoneViewport(srcViewportId);
-    const srcVolume = srcViewport ? _getVolumeFromViewport(srcViewport) : null;
-
-    if (srcVolume?.isDynamicVolume()) {
-      const { volumeId: srcVolumeId } = srcVolume;
-
-      allViewportStates.forEach(({ viewportId }) => {
-        if (viewportId === srcViewportId) {
-          return;
-        }
-
-        const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
-
-        if (viewport?.hasVolumeId?.(srcVolumeId)) {
-          syncedViewportIds.add(viewportId);
-        }
-      });
-    }
-  }
 
   // Same display set (e.g. frame view hanging protocol).
   allViewportStates.forEach(viewportState => {
@@ -376,11 +392,26 @@ export function getSyncedCineViewportIds(
   return Array.from(syncedViewportIds);
 }
 
+/**
+ * Viewport ids that must receive cine state changes automatically.
+ *
+ * Only dynamic (4D) volumes qualify, since those viewports render one series
+ * split across the layout. Cine sync between separate series is applied
+ * explicitly by the sync modes in usCinePlaybackUtils, which keeps play state
+ * predictable — in sync playback just one viewport drives the others.
+ */
+export function getCineSyncPeerIds(
+  servicesManager: AppTypes.ServicesManager,
+  srcViewportId: string
+): string[] {
+  return _getDynamicVolumePeerIds(servicesManager, srcViewportId);
+}
+
 export function getSyncedViewports(
   servicesManager: AppTypes.ServicesManager,
   srcViewportId: string
 ) {
-  return getSyncedCineViewportIds(servicesManager, srcViewportId).map(viewportId => ({
+  return getCineSyncPeerIds(servicesManager, srcViewportId).map(viewportId => ({
     viewportId,
   }));
 }
@@ -389,9 +420,17 @@ export function getViewportEnabledElement(
   cornerstoneViewportService,
   viewportId: string
 ): HTMLElement | null {
-  const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+  try {
+    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
 
-  return viewport?.element ?? null;
+    if (!viewport || viewport.isDisabled) {
+      return null;
+    }
+
+    return viewport.element ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function getElementsForCinePlayback(

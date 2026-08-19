@@ -166,6 +166,17 @@ export function ViewportGridProvider({ children, service }: ViewportGridProvider
 
           const previousViewport = viewports.get(viewportId);
 
+          // The grid may have been re-laid out (e.g. a hanging protocol was applied) between the
+          // caller reading the state and this dispatch, in which case the viewport id no longer
+          // exists. Adding it back would create a viewport without a position in the layout.
+          if (!previousViewport) {
+            console.warn(
+              'Ignoring display set update for a viewport that is no longer in the grid',
+              viewportId
+            );
+            return;
+          }
+
           // remove options that were meant for one time usage
           if (previousViewport?.viewportOptions?.initialImageOptions) {
             const { useOnce } = previousViewport.viewportOptions.initialImageOptions;
@@ -179,7 +190,7 @@ export function ViewportGridProvider({ children, service }: ViewportGridProvider
           // That allows for easy updates of just the display set.
           let viewportOptions = merge(
             {},
-            previousViewport?.viewportOptions,
+            previousViewport.viewportOptions,
             updatedViewport?.viewportOptions
           );
 

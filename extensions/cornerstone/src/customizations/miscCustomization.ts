@@ -11,11 +11,13 @@ export default {
    * Default cine UI preferences (overridden by cookie userPreferences_cinePreferences).
    * - showFps / showFr: which rate controls doctors see
    * - autoPlay: play multiframe US stacks when they load
+   * - syncMode: none | syncStart | syncPlayback for multi-viewport layouts
    */
   cinePreferences: {
-    showFps: false,
-    showFr: true,
+    showFps: true,
+    showFr: false,
     autoPlay: true,
+    syncMode: 'syncPlayback',
   },
   'panelMeasurement.disableEditing': false,
   onBeforeSRAddMeasurement: ({ measurement, StudyInstanceUID, SeriesInstanceUID }) => {

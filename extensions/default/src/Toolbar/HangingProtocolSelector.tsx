@@ -60,12 +60,12 @@ function HangingProtocolSelectorWithServices({
   servicesManager,
   isCompact = isEmbeddedInIframe(),
 }: HangingProtocolSelectorProps) {
-  const { hangingProtocolService } = servicesManager.services;
-
   const [currentProtocol, setCurrentProtocol] = useState<string>('1×1');
   const [currentProtocolId, setCurrentProtocolId] = useState<string | null>(null);
 
   useEffect(() => {
+    const { hangingProtocolService, viewportGridService } = servicesManager.services;
+
     const updateCurrentProtocol = () => {
       const hpState = hangingProtocolService.getState();
       const protocolId = hpState?.protocolId;
@@ -79,7 +79,6 @@ function HangingProtocolSelectorWithServices({
           return;
         }
 
-        const { viewportGridService } = servicesManager.services;
         const layout = viewportGridService?.getState()?.layout;
         if (layout) {
           const matched = labelForLayout(layout.numRows, layout.numCols);
@@ -96,24 +95,30 @@ function HangingProtocolSelectorWithServices({
     const timeoutId = setTimeout(updateCurrentProtocol, 100);
     updateCurrentProtocol();
 
-    const subscription = hangingProtocolService.subscribe(
+    const hpSubscription = hangingProtocolService.subscribe(
       hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
       updateCurrentProtocol
     );
-    const unsubscribeFn =
-      typeof subscription?.unsubscribe === 'function'
-        ? subscription.unsubscribe
-        : typeof subscription === 'function'
-          ? subscription
+    const gridSub = viewportGridService.subscribe(
+      viewportGridService.EVENTS.GRID_STATE_CHANGED,
+      updateCurrentProtocol
+    );
+
+    const unsubscribeHp =
+      typeof hpSubscription?.unsubscribe === 'function'
+        ? hpSubscription.unsubscribe
+        : typeof hpSubscription === 'function'
+          ? hpSubscription
           : undefined;
 
     return () => {
       clearTimeout(timeoutId);
-      if (typeof unsubscribeFn === 'function') {
-        unsubscribeFn();
+      if (typeof unsubscribeHp === 'function') {
+        unsubscribeHp();
       }
+      gridSub.unsubscribe();
     };
-  }, [hangingProtocolService, servicesManager]);
+  }, [servicesManager]);
 
   const handleProtocolChange = useCallback(
     (option: (typeof protocolOptions)[0]) => {
@@ -171,6 +176,7 @@ function HangingProtocolSelectorWithServices({
                 : 'h-[26px] min-w-[88px] px-2 text-sm'
             }`}
             data-cy="hanging-protocol-dropdown-trigger"
+            title="Hanging protocol"
           >
             <span className="truncate">{currentProtocol}</span>
             <span className={`text-white/70 ${isCompact ? 'ml-1 text-[8px]' : 'ml-2 text-xs'}`}>

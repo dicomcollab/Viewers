@@ -100,6 +100,7 @@ const makeDisplaySet = instances => {
     FrameTime: instance.FrameTime,
     RecommendedDisplayFrameRate: instance.RecommendedDisplayFrameRate,
     CineRate: instance.CineRate,
+    ActualFrameDuration: instance.ActualFrameDuration,
     SOPClassUID: instance.SOPClassUID,
     SeriesDescription: instance.SeriesDescription || '',
     Modality: instance.Modality,

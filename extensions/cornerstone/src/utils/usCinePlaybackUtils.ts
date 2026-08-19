@@ -1,5 +1,21 @@
 import { getViewportEnabledElement } from './cineSyncUtils';
-import { getUsCineCapableLayoutViewportIds } from './usGridViewportUtils';
+import {
+  getAliveViewport,
+  getViewportFrameCount,
+  getViewportFrameIndex,
+  setViewportFrameIndex,
+} from './safeViewportFrameUtils';
+import { getUsCineCapableLayoutViewportIds, getUsLayoutViewportIds } from './usGridViewportUtils';
+import { getCineSyncMode, type CineSyncMode } from './cineSyncModeStore';
+import {
+  alignFollowersToFrame,
+  startSyncStartDriver,
+  stopSyncPlaybackDriver,
+} from './usCineSyncPlaybackDriver';
+import {
+  getUsFrameDistributionBatchStart,
+  isUsFrameDistributionEnabled,
+} from '@ohif/extension-default';
 import type { CinePlayMode } from '../components/CinePlayer/usCineUiUtils';
 
 // Keep in sync with DEFAULT_US_FRAME_STEP in usStackCineUtils (avoid circular import).
@@ -19,8 +35,9 @@ type SharedStudyCineSettings = {
 };
 
 /**
- * Shared FPS / fr settings for multi-series layouts (e.g. US 2×2 / 2×4).
+ * Shared play-mode / frame-step for multi-series layouts (e.g. US 2×2 / 2×4).
  * Prefers the active viewport, then the first cine-capable viewport with state.
+ * Does not share frameRate — each instance keeps its DICOM-derived FPS.
  */
 function getSharedStudyCineSettings(
   servicesManager: AppTypes.ServicesManager
@@ -46,7 +63,7 @@ function getSharedStudyCineSettings(
       continue;
     }
 
-    if (current.frameRate != null || current.cinePlayMode != null || current.frameStep != null) {
+    if (current.cinePlayMode != null || current.frameStep != null) {
       return {
         frameRate: current.frameRate ?? 4,
         cinePlayMode: (current.cinePlayMode ?? 'fps') as CinePlayMode,
@@ -79,28 +96,253 @@ function applyCineSettingsToAllViewports(
   });
 }
 
-function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
+/**
+ * Rewind the given viewports to their first frame so synced playback starts aligned.
+ * In Frame Distribution the "start" is the current group offset (N, N+1, N+2, …).
+ */
+function resetCineFramesToStart(
+  servicesManager: AppTypes.ServicesManager,
+  viewportIds: string[]
+): void {
+  const { cornerstoneViewportService } = servicesManager.services;
+  const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
+  const distributed = isUsFrameDistributionEnabled() && layoutViewportIds.length > 1;
+  const batchStart = distributed ? getUsFrameDistributionBatchStart() : 0;
+
+  viewportIds.forEach(viewportId => {
+    const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+    const imageIdCount = getViewportFrameCount(viewport);
+
+    if (imageIdCount <= 1) {
+      return;
+    }
+
+    const layoutIndex = layoutViewportIds.indexOf(viewportId);
+    const targetIndex = distributed
+      ? Math.min(batchStart + Math.max(0, layoutIndex), imageIdCount - 1)
+      : 0;
+    setViewportFrameIndex(viewport, targetIndex);
+  });
+}
+
+/**
+ * Move the other cine viewports to the frame matching this viewport's position
+ * (sync playback only). Loops of different lengths are matched relatively.
+ */
+function mirrorCineFrameToPeers(
+  servicesManager: AppTypes.ServicesManager,
+  srcViewportId: string,
+  frameIndex: number
+): void {
+  const { cornerstoneViewportService } = servicesManager.services;
+  const frameCount =
+    cornerstoneViewportService.getCornerstoneViewport(srcViewportId)?.getImageIds?.()?.length ?? 0;
+
+  alignFollowersToFrame(servicesManager, srcViewportId, frameIndex, frameCount);
+}
+
+function setSingleViewportPlayState(
+  servicesManager: AppTypes.ServicesManager,
+  viewportId: string,
+  playing: boolean
+): void {
+  const { cineService, cornerstoneViewportService } = servicesManager.services;
+  const current = cineService.getState().cines?.[viewportId] ?? {};
+
+  if (playing) {
+    cineService.setIsCineEnabled(true);
+  }
+
+  cineService.setCine({
+    id: viewportId,
+    isPlaying: playing,
+    frameRate: current.frameRate,
+    cinePlayMode: current.cinePlayMode ?? 'fps',
+    frameStep: current.frameStep,
+  });
+
+  if (!playing) {
+    const element = getViewportEnabledElement(cornerstoneViewportService, viewportId);
+
+    if (element) {
+      cineService.stopClip(element, { viewportId });
+    }
+  }
+}
+
+/**
+ * Play/pause requested from a single viewport, honouring the active sync mode.
+ *
+ * - none: only this viewport starts or stops.
+ * - syncStart: every cine viewport in the layout starts from its first frame and
+ *   runs its own clip at its own DICOM rate; play/pause covers all of them.
+ * - syncPlayback: play/pause is shared across the layout, matching the study
+ *   header control; each loop otherwise keeps its normal playback.
+ */
+function requestCinePlayPause(
+  servicesManager: AppTypes.ServicesManager,
+  srcViewportId: string,
+  playing: boolean,
+  mode: CineSyncMode = getCineSyncMode()
+): void {
   const { cineService } = servicesManager.services;
+
+  if (mode === 'none') {
+    stopSyncPlaybackDriver();
+    setSingleViewportPlayState(servicesManager, srcViewportId, playing);
+    return;
+  }
+
+  if (!playing) {
+    pauseAllUsViewports(servicesManager);
+    return;
+  }
+
   const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
 
   if (!viewportIds.length) {
     return;
   }
 
+  stopSyncPlaybackDriver();
   cineService.setIsCineEnabled(true);
 
-  const shared = getSharedStudyCineSettings(servicesManager);
+  if (mode === 'syncStart') {
+    // Sync start means every loop begins at its first frame, together.
+    resetCineFramesToStart(servicesManager, viewportIds);
+  }
+
+  viewportIds.forEach(viewportId => {
+    const current = cineService.getState().cines?.[viewportId] ?? {};
+
+    cineService.setCine({
+      id: viewportId,
+      isPlaying: true,
+      frameRate: current.frameRate,
+      cinePlayMode: current.cinePlayMode ?? 'fps',
+      frameStep: current.frameStep,
+    });
+  });
+
+  if (mode === 'syncStart') {
+    startSyncStartDriver(servicesManager);
+  }
+}
+
+/**
+ * FPS changed from a single viewport: shared in sync playback, local otherwise.
+ */
+function applyCineFrameRate(
+  servicesManager: AppTypes.ServicesManager,
+  srcViewportId: string,
+  frameRate: number,
+  mode: CineSyncMode = getCineSyncMode()
+): void {
+  const { cineService } = servicesManager.services;
+
+  if (mode === 'syncPlayback') {
+    applyCineSettingsToAllViewports(servicesManager, { frameRate, cinePlayMode: 'fps' });
+    return;
+  }
+
+  cineService.setCine({ id: srcViewportId, frameRate, cinePlayMode: 'fps' });
+}
+
+/**
+ * Scrub/step to a frame (1-based). Any sync mode pauses the whole layout so play
+ * state stays consistent, but the requested frame belongs to this viewport.
+ */
+function requestCineFrameChange(
+  servicesManager: AppTypes.ServicesManager,
+  srcViewportId: string,
+  frame: number,
+  mode: CineSyncMode = getCineSyncMode()
+): void {
+  const { cineService, cornerstoneViewportService } = servicesManager.services;
+  const viewport = getAliveViewport(cornerstoneViewportService, srcViewportId);
+  const imageIdCount = getViewportFrameCount(viewport);
+  const frameIndex = Math.max(0, Math.min(Math.max(0, imageIdCount - 1), frame - 1));
+
+  if (mode === 'none') {
+    cineService.setCine({ id: srcViewportId, isPlaying: false });
+  } else {
+    pauseAllUsViewports(servicesManager);
+  }
+
+  setViewportFrameIndex(viewport, frameIndex);
+}
+
+/**
+ * Bring viewports in line with a freshly picked sync mode so the change is
+ * visible right away instead of on the next play press.
+ */
+function applyCineSyncMode(
+  servicesManager: AppTypes.ServicesManager,
+  mode: CineSyncMode
+): void {
+  stopSyncPlaybackDriver();
+
+  const { cineService, viewportGridService } = servicesManager.services;
+  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  if (!viewportIds.length) {
+    return;
+  }
+
+  const { cines } = cineService.getState();
+  const { activeViewportId } = viewportGridService.getState();
+  const referenceViewportId =
+    (activeViewportId && viewportIds.includes(activeViewportId) ? activeViewportId : null) ??
+    viewportIds.find(viewportId => cines?.[viewportId]?.isPlaying) ??
+    viewportIds[0];
+  const isAnyPlaying = viewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
+
+  if (isAnyPlaying) {
+    // Force the old playback implementation to stop before the new mode takes
+    // over. The next task lets React apply the paused state first.
+    pauseAllUsViewports(servicesManager);
+
+    if (mode !== 'none') {
+      window.setTimeout(
+        () => requestCinePlayPause(servicesManager, referenceViewportId, true, mode),
+        0
+      );
+    }
+  }
+}
+
+function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
+  const { cineService, viewportGridService } = servicesManager.services;
+  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  if (!viewportIds.length) {
+    return;
+  }
+
+  const mode = getCineSyncMode();
+
+  if (mode !== 'none') {
+    const { activeViewportId } = viewportGridService.getState();
+    const master =
+      activeViewportId && viewportIds.includes(activeViewportId) ? activeViewportId : viewportIds[0];
+
+    requestCinePlayPause(servicesManager, master, true, mode);
+    return;
+  }
+
+  cineService.setIsCineEnabled(true);
 
   viewportIds.forEach(viewportId => {
     const { cines } = cineService.getState();
     const current = cines?.[viewportId] ?? {};
 
+    // Sync play state only — keep each viewport's own DICOM-derived frameRate.
     cineService.setCine({
       id: viewportId,
       isPlaying: true,
-      frameRate: shared?.frameRate ?? current.frameRate,
-      cinePlayMode: shared?.cinePlayMode ?? current.cinePlayMode,
-      frameStep: shared?.frameStep ?? current.frameStep,
+      frameRate: current.frameRate,
+      cinePlayMode: current.cinePlayMode ?? 'fps',
+      frameStep: current.frameStep,
     });
   });
 }
@@ -108,6 +350,8 @@ function playAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
 function pauseAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
   const { cineService, cornerstoneViewportService } = servicesManager.services;
   const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  stopSyncPlaybackDriver();
 
   viewportIds.forEach(viewportId => {
     cineService.setCine({ id: viewportId, isPlaying: false });
@@ -124,6 +368,8 @@ function stopAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
   const { cineService, cornerstoneViewportService } = servicesManager.services;
   const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
 
+  stopSyncPlaybackDriver();
+
   viewportIds.forEach(viewportId => {
     cineService.setCine({ id: viewportId, isPlaying: false });
 
@@ -132,10 +378,9 @@ function stopAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
     if (element) {
       cineService.stopClip(element, { viewportId });
     }
-
-    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
-    viewport?.setImageIdIndex?.(0);
   });
+
+  resetCineFramesToStart(servicesManager, viewportIds);
 }
 
 function stepUsViewportFrame(
@@ -144,13 +389,13 @@ function stepUsViewportFrame(
   direction: 1 | -1
 ): void {
   const { cineService, cornerstoneViewportService } = servicesManager.services;
-  const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+  const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
 
   if (!viewport) {
     return;
   }
 
-  const imageIdCount = viewport.getImageIds?.()?.length ?? 0;
+  const imageIdCount = getViewportFrameCount(viewport);
 
   if (imageIdCount <= 1) {
     return;
@@ -158,7 +403,7 @@ function stepUsViewportFrame(
 
   cineService.setCine({ id: viewportId, isPlaying: false });
 
-  const currentIndex = viewport.getCurrentImageIdIndex?.() ?? 0;
+  const currentIndex = getViewportFrameIndex(viewport);
   let nextIndex = currentIndex + direction;
 
   if (nextIndex < 0) {
@@ -167,14 +412,20 @@ function stepUsViewportFrame(
     nextIndex = 0;
   }
 
-  viewport.setImageIdIndex?.(nextIndex);
+  setViewportFrameIndex(viewport, nextIndex);
 }
 
 export {
+  applyCineFrameRate,
   applyCineSettingsToAllViewports,
+  applyCineSyncMode,
   getSharedStudyCineSettings,
+  mirrorCineFrameToPeers,
   pauseAllUsViewports,
   playAllUsViewports,
+  requestCineFrameChange,
+  requestCinePlayPause,
+  resetCineFramesToStart,
   stepUsViewportFrame,
   stopAllUsViewports,
 };

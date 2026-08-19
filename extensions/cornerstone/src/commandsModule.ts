@@ -43,6 +43,7 @@ import {
   shouldUseUnifiedCineControl,
 } from './utils/cineSyncUtils';
 import { advanceUsBatch as advanceUsBatchNavigation } from './utils/usBatchNavigationUtils';
+import { setUsFrameDistribution as applyUsFrameDistributionMode } from './utils/usFrameDistributionUtils';
 import toggleVOISliceSync from './utils/toggleVOISliceSync';
 import {
   usePositionPresentationStore,
@@ -868,6 +869,10 @@ function commandsModule({
 
     advanceUsBatch: ({ direction = 1 } = {}) => {
       advanceUsBatchNavigation(servicesManager, direction === -1 ? -1 : 1);
+    },
+
+    setUsFrameDistribution: ({ enabled }: { enabled?: boolean } = {}) => {
+      applyUsFrameDistributionMode(servicesManager, commandsManager, Boolean(enabled));
     },
 
     setViewportWindowLevel({
@@ -2833,6 +2838,9 @@ function commandsModule({
     },
     advanceUsBatch: {
       commandFn: actions.advanceUsBatch,
+    },
+    setUsFrameDistribution: {
+      commandFn: actions.setUsFrameDistribution,
     },
     arrowTextCallback: {
       commandFn: actions.arrowTextCallback,

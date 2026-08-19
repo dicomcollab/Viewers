@@ -4,6 +4,7 @@ import { Toolbox } from '@ohif/extension-default';
 import PanelSegmentation from './panels/PanelSegmentation';
 import ActiveViewportWindowLevel from './components/ActiveViewportWindowLevel';
 import PanelMeasurement from './panels/PanelMeasurement';
+import PanelCineSettings from './panels/PanelCineSettings';
 import { SegmentationRepresentations } from '@cornerstonejs/tools/enums';
 import i18n from '@ohif/i18n';
 
@@ -73,6 +74,13 @@ const getPanelModule = ({ commandsManager, servicesManager, extensionManager }: 
       component: () => {
         return <ActiveViewportWindowLevel servicesManager={servicesManager} />;
       },
+    },
+    {
+      name: 'panelCineSettings',
+      iconName: 'tool-cine',
+      iconLabel: 'Cine',
+      label: 'Cine',
+      component: () => <PanelCineSettings servicesManager={servicesManager} />,
     },
     {
       name: 'panelMeasurement',

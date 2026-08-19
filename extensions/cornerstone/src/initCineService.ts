@@ -1,27 +1,13 @@
-import { getEnabledElement, utilities as csUtils } from '@cornerstonejs/core';
+import { getEnabledElement } from '@cornerstonejs/core';
 import { utilities } from '@cornerstonejs/tools';
 import { getSyncedViewports } from './utils/cineSyncUtils';
+import { validateSyncPlaybackDriver } from './utils/usCineSyncPlaybackDriver';
+import { isViewportAlive } from './utils/safeViewportFrameUtils';
 import { cineDebug, cineDebugError, cineDebugWarn } from './utils/cineDebug';
-
-type CustomClipState = {
-  intervalId: ReturnType<typeof setInterval>;
-};
-
-const customClips = new Map<HTMLElement, CustomClipState>();
+import { clearCustomClip, setCustomClip } from './utils/cineClipStateUtils';
 
 export const DEFAULT_FRAME_STEP = 4;
 export const STEP_INTERVAL_MS = 400;
-
-function clearCustomClip(element: HTMLElement) {
-  const clip = customClips.get(element);
-
-  if (!clip) {
-    return;
-  }
-
-  clearInterval(clip.intervalId);
-  customClips.delete(element);
-}
 
 function playStepStackClip(
   element: HTMLElement,
@@ -49,19 +35,45 @@ function playStepStackClip(
   const frameStep = Math.max(1, Math.round(playClipOptions.frameStep ?? DEFAULT_FRAME_STEP));
 
   const intervalId = window.setInterval(() => {
-    const index =
-      typeof viewport.getCurrentImageIdIndex === 'function' ? viewport.getCurrentImageIdIndex() : 0;
-    const nextIndex = (index + frameStep) % imageIdCount;
+    const enabledElement = getEnabledElement(element);
+    const liveViewport = enabledElement?.viewport;
+
+    if (!isViewportAlive(liveViewport)) {
+      clearCustomClip(element);
+      return;
+    }
+
+    const liveCount =
+      typeof liveViewport.getImageIds === 'function' ? (liveViewport.getImageIds()?.length ?? 0) : 0;
+
+    if (liveCount <= 1) {
+      return;
+    }
+
+    let index = 0;
+
+    try {
+      index =
+        typeof liveViewport.getCurrentImageIdIndex === 'function'
+          ? liveViewport.getCurrentImageIdIndex()
+          : 0;
+    } catch {
+      clearCustomClip(element);
+      return;
+    }
+
+    const nextIndex = (index + frameStep) % liveCount;
 
     if (nextIndex !== index) {
-      csUtils.jumpToSlice(viewport.element, {
-        imageIndex: nextIndex,
-        debounceLoading: true,
-      });
+      try {
+        liveViewport.setImageIdIndex(nextIndex);
+      } catch {
+        clearCustomClip(element);
+      }
     }
   }, STEP_INTERVAL_MS);
 
-  customClips.set(element, { intervalId });
+  setCustomClip(element, intervalId);
 }
 
 function initCineService(servicesManager: AppTypes.ServicesManager) {
@@ -97,8 +109,17 @@ function initCineService(servicesManager: AppTypes.ServicesManager) {
       }
 
       const viewport = enabledElement.viewport;
-      const numScrollSteps =
-        typeof viewport?.getImageIds === 'function' ? (viewport.getImageIds()?.length ?? 0) : 0;
+      let numScrollSteps = 0;
+
+      try {
+        numScrollSteps =
+          typeof viewport?.getImageIds === 'function' ? (viewport.getImageIds()?.length ?? 0) : 0;
+      } catch {
+        cineDebugWarn('initCineService', 'playClip skipped — viewport is no longer usable', {
+          viewportId,
+        });
+        return;
+      }
 
       cineDebug('initCineService', 'playClip', {
         viewportId,
@@ -133,7 +154,6 @@ function initCineService(servicesManager: AppTypes.ServicesManager) {
       return utilities.cine.playClip(element, playClipOptions);
     } catch (error) {
       cineDebugError('initCineService', 'playClip failed', error);
-      throw error;
     }
   };
 
@@ -147,7 +167,6 @@ function initCineService(servicesManager: AppTypes.ServicesManager) {
       return utilities.cine.stopClip(element, stopClipOptions);
     } catch (error) {
       cineDebugError('initCineService', 'stopClip failed', error);
-      throw error;
     }
   };
 
@@ -156,6 +175,12 @@ function initCineService(servicesManager: AppTypes.ServicesManager) {
     playClip,
     stopClip,
   });
+
+  const { viewportGridService } = servicesManager.services;
+
+  viewportGridService.subscribe(viewportGridService.EVENTS.GRID_STATE_CHANGED, () =>
+    validateSyncPlaybackDriver(servicesManager)
+  );
 
   cineDebug('initCineService', 'Cine service implementation registered');
 }

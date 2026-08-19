@@ -20,6 +20,11 @@ interface PanelEvent {
 
 interface ActivatePanelEvent extends PanelEvent {
   forceActive: boolean;
+  /**
+   * Expands the side panel even when the user collapsed it manually. Only set
+   * this for panels opened by an explicit user action.
+   */
+  forceExpand?: boolean;
 }
 
 export type { ActivatePanelEvent, ActivatePanelTriggers, Panel, PanelEvent };

@@ -189,9 +189,12 @@ export default class PanelService extends PubSubService {
    * Note that this method simply fires a broadcast event: ActivatePanelEvent.
    * @param panelId the panel's id
    * @param forceActive optional flag indicating if the panel should be forced to be activated or not
+   * @param forceExpand optional flag indicating that the side panel must expand
+   *        even when the user previously collapsed it, e.g. when the panel is
+   *        opened by an explicit user action
    */
-  public activatePanel(panelId: string, forceActive = false): void {
-    this._broadcastEvent(EVENTS.ACTIVATE_PANEL, { panelId, forceActive });
+  public activatePanel(panelId: string, forceActive = false, forceExpand = false): void {
+    this._broadcastEvent(EVENTS.ACTIVATE_PANEL, { panelId, forceActive, forceExpand });
   }
 
   /**

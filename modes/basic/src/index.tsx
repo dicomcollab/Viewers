@@ -28,6 +28,7 @@ export const ohif = {
 export const cornerstone = {
   measurements: '@ohif/extension-cornerstone.panelModule.panelMeasurement',
   segmentation: '@ohif/extension-cornerstone.panelModule.panelSegmentation',
+  cineSettings: '@ohif/extension-cornerstone.panelModule.panelCineSettings',
   viewport: '@ohif/extension-cornerstone.viewportModule.cornerstone',
 };
 
@@ -383,7 +384,11 @@ export const basicLayout = {
   props: {
     leftPanels: [ohif.thumbnailList],
     leftPanelResizable: true,
-    rightPanels: [keyimages.panel, cornerstone.segmentation, cornerstone.measurements],
+    rightPanels: [
+      keyimages.panel,
+      cornerstone.segmentation,
+      cornerstone.measurements,
+    ],
     // Key Images are a primary workflow; keep the right panel open by default
     rightPanelClosed: false,
     rightPanelResizable: true,
@@ -456,7 +461,8 @@ export const modeInstance = {
   isValidMode,
   routes: [basicRoute],
   extensions: extensionDependencies,
-  // Auto: 1×1 default; US with 2 series → 1×2; US with 3+ series → 2×2.
+  // Auto: 1×1 default; US with 2 image series → 1×2; US with 3+ image series → 2×2.
+  // A single US instance (even with SR reports) stays 1×1 unless Frame Distribution is enabled.
   hangingProtocol: ['allModality2x2', 'allModality1x2', 'allModality1x1'],
   // Order is important in sop class handlers when two handlers both use
   // the same sop class under different situations.  In that case, the more

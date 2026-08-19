@@ -1,16 +1,20 @@
-import { utilities as csUtils } from '@cornerstonejs/core';
 import {
   getCineControlViewportId,
   getCineDisplaySetFromViewport,
   getViewportEnabledElement,
   isCineCapableDisplaySet,
 } from './cineSyncUtils';
-import {
-  applyCineSettingsToAllViewports,
-  getSharedStudyCineSettings,
-  playAllUsViewports,
-} from './usCinePlaybackUtils';
+import { getAliveViewport, getViewportFrameIndex, setViewportFrameIndexById } from './safeViewportFrameUtils';
+import { playAllUsViewports } from './usCinePlaybackUtils';
 import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUtils';
+import {
+  isUsFrameDistributionEnabled,
+  setUsFrameDistributionBatchStart,
+} from '@ohif/extension-default';
+import {
+  applyUsFrameDistribution,
+  getUsFrameDistributionPageInfo,
+} from './usFrameDistributionUtils';
 
 /** While paging, CinePlayer must not force autoplay; resume only if play was already on. */
 let suppressCineAutoplayUntil = 0;
@@ -182,17 +186,7 @@ function applyFrameBatch(
   orderedViewportIds.forEach((viewportId, index) => {
     const frameViewIndex = getFrameViewIndex(viewports.get(viewportId)) ?? index;
     const targetIndex = Math.min(batchStart + frameViewIndex, totalCount - 1);
-    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
-    const element = viewport?.element;
-
-    if (!element) {
-      return;
-    }
-
-    csUtils.jumpToSlice(element, {
-      imageIndex: targetIndex,
-      debounceLoading: false,
-    });
+    setViewportFrameIndexById(cornerstoneViewportService, viewportId, targetIndex);
   });
 }
 
@@ -279,6 +273,10 @@ function navigateToAdjacentInstance(
 }
 
 function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): UsBatchNavigationInfo | null {
+  if (isUsFrameDistributionEnabled()) {
+    return getUsFrameDistributionPageInfo(servicesManager);
+  }
+
   const { displaySetService, viewportGridService, cornerstoneViewportService } =
     servicesManager.services;
 
@@ -354,10 +352,11 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
     return frameViewIndex ?? layoutViewportIds.indexOf(viewportId);
   });
   const sourceViewportId = layoutViewportIds[0];
-  const sourceViewport = cornerstoneViewportService.getCornerstoneViewport(sourceViewportId);
-  const sourceFrameIndex = sourceViewport?.getCurrentImageIdIndex?.() ?? 0;
+  const sourceViewport = getAliveViewport(cornerstoneViewportService, sourceViewportId);
+  const sourceFrameIndex = getViewportFrameIndex(sourceViewport);
   const sourceFrameViewIndex = frameViewIndices[0] ?? 0;
-  const batchStart = Math.max(0, sourceFrameIndex - sourceFrameViewIndex);
+  const inferredBatchStart = Math.max(0, sourceFrameIndex - sourceFrameViewIndex);
+  const batchStart = inferredBatchStart;
   const batchEnd = Math.min(batchStart + batchSize, numFrames);
   const pageInfo = getPageInfo(batchStart, batchSize, numFrames);
 
@@ -375,6 +374,35 @@ function advanceUsBatch(
   servicesManager: AppTypes.ServicesManager,
   direction: 1 | -1 = 1
 ): UsBatchNavigationInfo | null {
+  if (isUsFrameDistributionEnabled()) {
+    const batchInfo = getUsFrameDistributionPageInfo(servicesManager);
+
+    if (!batchInfo) {
+      return null;
+    }
+
+    const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
+    const { cineService } = servicesManager.services;
+    const { cines } = cineService.getState();
+    const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
+    suppressCineAutoplayUntil = Date.now() + 700;
+    stopCineOnViewports(servicesManager, layoutViewportIds);
+
+    const target = resolveNavigationTarget(batchInfo, direction);
+
+    if (target.type === 'batch') {
+      setUsFrameDistributionBatchStart(target.batchStart);
+      applyUsFrameDistribution(servicesManager, { force: true });
+    }
+
+    if (wasPlaying) {
+      window.setTimeout(() => playAllUsViewports(servicesManager), 50);
+      window.setTimeout(() => playAllUsViewports(servicesManager), 450);
+    }
+
+    return getUsFrameDistributionPageInfo(servicesManager);
+  }
+
   const batchInfo = buildUsBatchNavigationInfo(servicesManager);
 
   if (!batchInfo) {
@@ -399,8 +427,7 @@ function advanceUsBatch(
     return null;
   }
 
-  // Capture shared FPS/fr before paging so new series do not reset to per-series FrameTime.
-  const sharedCineSettings = getSharedStudyCineSettings(servicesManager);
+  // Resume play state after paging; each new display set re-derives its own FPS on load.
   const { cineService } = servicesManager.services;
   const { cines } = cineService.getState();
   const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
@@ -414,27 +441,19 @@ function advanceUsBatch(
     controlDisplaySet.StudyInstanceUID
   );
 
-  const reapplySharedCineSettings = () => {
-    if (wasPlaying) {
-      cineService.setIsCineEnabled(true);
+  const resumePlayIfNeeded = () => {
+    if (!wasPlaying) {
+      return;
     }
 
-    if (sharedCineSettings) {
-      applyCineSettingsToAllViewports(servicesManager, {
-        frameRate: sharedCineSettings.frameRate,
-        cinePlayMode: sharedCineSettings.cinePlayMode,
-        frameStep: sharedCineSettings.frameStep,
-        isPlaying: wasPlaying,
-      });
-    } else if (wasPlaying) {
-      playAllUsViewports(servicesManager);
-    }
+    cineService.setIsCineEnabled(true);
+    playAllUsViewports(servicesManager);
   };
 
   const scheduleCineResume = () => {
-    // Let React process the pause from stopCine before restarting playback.
-    window.setTimeout(reapplySharedCineSettings, 50);
-    window.setTimeout(reapplySharedCineSettings, 450);
+    // Let React process the pause from stopCine / display-set swap before restarting.
+    window.setTimeout(resumePlayIfNeeded, 50);
+    window.setTimeout(resumePlayIfNeeded, 450);
   };
 
   if (target.type === 'instance') {
@@ -499,6 +518,7 @@ function getUsSeriesPositionInStudy(
 
 export {
   advanceUsBatch,
+  applyFrameBatch,
   buildUsBatchNavigationInfo,
   getAllUsStudyDisplaySets,
   getLayoutBatchSize,

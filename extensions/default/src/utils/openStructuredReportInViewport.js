@@ -101,20 +101,65 @@ export function buildViewportsUpdateForDisplaySet(
   ];
 }
 
-function assignStructuredReportToActiveViewport(displaySet, viewportGridService) {
-  const { viewports, activeViewportId } = viewportGridService.getState();
-  const viewportId = activeViewportId || [...viewports.keys()][0];
+const ONE_UP_POLL_INTERVAL_MS = 50;
+const ONE_UP_MAX_POLLS = 20;
+const PROTOCOL_CHANGE_FALLBACK_MS = 500;
 
-  if (!viewportId || !displaySet?.displaySetInstanceUID) {
+function isOneUpGridState({ layout, viewports }) {
+  return layout?.numRows === 1 && layout?.numCols === 1 && viewports?.size === 1;
+}
+
+/**
+ * Assign to a viewport that exists in the *current* grid. A viewport id read before a hanging
+ * protocol change is stale — the layout rebuilds the viewport map with new ids, and dispatching
+ * an unknown id leaves the grid without a matching viewport.
+ */
+function assignStructuredReportToActiveViewport(displaySet, viewportGridService) {
+  const displaySetInstanceUID = displaySet?.displaySetInstanceUID;
+  const { viewports, activeViewportId } = viewportGridService.getState();
+
+  if (!displaySetInstanceUID || !viewports?.size) {
+    return;
+  }
+
+  const alreadyDisplayed = [...viewports.values()].some(viewport =>
+    viewport?.displaySetInstanceUIDs?.includes(displaySetInstanceUID)
+  );
+
+  if (alreadyDisplayed) {
+    return;
+  }
+
+  const viewportId = viewports.has(activeViewportId)
+    ? activeViewportId
+    : viewports.keys().next().value;
+
+  if (!viewportId) {
     return;
   }
 
   viewportGridService.setDisplaySetsForViewports([
     {
       viewportId,
-      displaySetInstanceUIDs: [displaySet.displaySetInstanceUID],
+      displaySetInstanceUIDs: [displaySetInstanceUID],
     },
   ]);
+}
+
+/**
+ * The grid applies a protocol change through a React reducer, so the state read synchronously
+ * from PROTOCOL_CHANGED still describes the previous layout. Poll until the 1×1 grid is in place.
+ */
+function assignWhenOneUpApplied(displaySet, viewportGridService, attempt = 0) {
+  if (isOneUpGridState(viewportGridService.getState()) || attempt >= ONE_UP_MAX_POLLS) {
+    assignStructuredReportToActiveViewport(displaySet, viewportGridService);
+    return;
+  }
+
+  window.setTimeout(
+    () => assignWhenOneUpApplied(displaySet, viewportGridService, attempt + 1),
+    ONE_UP_POLL_INTERVAL_MS
+  );
 }
 
 /**
@@ -123,18 +168,19 @@ function assignStructuredReportToActiveViewport(displaySet, viewportGridService)
  */
 export function presentStructuredReportInOneUp({ displaySet, commandsManager, servicesManager }) {
   const { hangingProtocolService, viewportGridService } = servicesManager.services;
-  const { layout } = viewportGridService.getState();
-  const isOneUp = layout?.numRows === 1 && layout?.numCols === 1;
 
-  if (isOneUp) {
+  if (isOneUpGridState(viewportGridService.getState())) {
     assignStructuredReportToActiveViewport(displaySet, viewportGridService);
     return;
   }
 
-  let assigned = false;
-  const assignSr = () => {
-    assigned = true;
-    assignStructuredReportToActiveViewport(displaySet, viewportGridService);
+  let started = false;
+  const startAssigning = () => {
+    if (started) {
+      return;
+    }
+    started = true;
+    assignWhenOneUpApplied(displaySet, viewportGridService);
   };
 
   const subscription = hangingProtocolService.subscribe(
@@ -143,8 +189,7 @@ export function presentStructuredReportInOneUp({ displaySet, commandsManager, se
       if (typeof subscription?.unsubscribe === 'function') {
         subscription.unsubscribe();
       }
-      assignSr();
-      window.setTimeout(assignSr, 50);
+      startAssigning();
     }
   );
 
@@ -158,11 +203,9 @@ export function presentStructuredReportInOneUp({ displaySet, commandsManager, se
   });
 
   window.setTimeout(() => {
-    if (!assigned) {
-      if (typeof subscription?.unsubscribe === 'function') {
-        subscription.unsubscribe();
-      }
-      assignSr();
+    if (typeof subscription?.unsubscribe === 'function') {
+      subscription.unsubscribe();
     }
-  }, 250);
+    startAssigning();
+  }, PROTOCOL_CHANGE_FALLBACK_MS);
 }
