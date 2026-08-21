@@ -1,4 +1,7 @@
-import { viewportSupportsCine } from './cineSyncUtils';
+import {
+  getCineDisplaySetFromViewport,
+  isUsMultiframeDisplaySet,
+} from './cineSyncUtils';
 
 /**
  * All viewport ids in the current grid, sorted top-to-bottom then left-to-right.
@@ -25,12 +28,20 @@ function getUsLayoutGridSize(servicesManager: AppTypes.ServicesManager): number 
   return Math.max(1, (layout?.numRows ?? 1) * (layout?.numCols ?? 1));
 }
 
+/**
+ * Cine-capable viewports that are ultrasound multiframe only.
+ * CT/MR multi-slice stacks must not be treated as US cine (no autoplay / sync).
+ */
 function getUsCineCapableLayoutViewportIds(servicesManager: AppTypes.ServicesManager): string[] {
-  const { displaySetService } = servicesManager.services;
+  const { displaySetService, viewportGridService } = servicesManager.services;
+  const { viewports } = viewportGridService.getState();
 
   return getUsLayoutViewportIds(servicesManager).filter(viewportId => {
-    const { viewports } = servicesManager.services.viewportGridService.getState();
-    return viewportSupportsCine(displaySetService, viewports.get(viewportId));
+    const displaySet = getCineDisplaySetFromViewport(
+      displaySetService,
+      viewports.get(viewportId)
+    );
+    return isUsMultiframeDisplaySet(displaySet);
   });
 }
 

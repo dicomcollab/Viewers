@@ -20,14 +20,35 @@ type UsStackCineInfo = {
   hasPrevBatch?: boolean;
 };
 
-/** Used when the acquisition has no FrameTime / RecommendedDisplayFrameRate / CineRate. */
+/** Used when ultrasound has no FrameTime / RecommendedDisplayFrameRate / CineRate. */
 const US_CINE_DEFAULT_FPS = 4;
+/** Typical CT/MR stack-review cine rate when DICOM provides no recommended FPS. */
+const CT_CINE_DEFAULT_FPS = 15;
+const MR_CINE_DEFAULT_FPS = 15;
+/** Generic multi-slice fallback (XA, OT, etc.) when no DICOM rate is present. */
+const STACK_CINE_DEFAULT_FPS = 10;
 export const DEFAULT_US_FRAME_STEP = 4;
 const US_CINE_MIN_FPS = 1;
 const US_CINE_MAX_FPS = 90;
 
 function clampFrame(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function getDefaultCineFrameRateForModality(modality?: string): number {
+  const mod = (modality || '').toUpperCase();
+
+  if (mod === 'US') {
+    return US_CINE_DEFAULT_FPS;
+  }
+  if (mod === 'CT') {
+    return CT_CINE_DEFAULT_FPS;
+  }
+  if (mod === 'MR' || mod === 'PT') {
+    return MR_CINE_DEFAULT_FPS;
+  }
+
+  return STACK_CINE_DEFAULT_FPS;
 }
 
 function buildUsStackCineInfo({
@@ -110,9 +131,10 @@ function fpsFromIntervalMs(intervalMs: number): number | null {
  * Machine cine rate in frames per second.
  * Prefers DICOM RecommendedDisplayFrameRate / CineRate (already FPS),
  * then FrameTime / displaySet.FrameRate (ms), then ActualFrameDuration (ms).
- * Falls back to 4 FPS when the acquisition does not provide a rate.
+ * When the acquisition does not provide a rate, uses a modality-aware default
+ * (US 4, CT/MR 15, other stacks 10).
  */
-function getUsCineFrameRate(displaySet, fallbackFps = US_CINE_DEFAULT_FPS): number {
+function getUsCineFrameRate(displaySet, fallbackFps?: number): number {
   const recommendedFps = firstFinitePositive(
     displaySet?.RecommendedDisplayFrameRate,
     displaySet?.CineRate,
@@ -149,8 +171,15 @@ function getUsCineFrameRate(displaySet, fallbackFps = US_CINE_DEFAULT_FPS): numb
     }
   }
 
-  return clampUsCineFps(fallbackFps);
+  const modalityDefault = getDefaultCineFrameRateForModality(displaySet?.Modality);
+  return clampUsCineFps(fallbackFps ?? modalityDefault);
 }
 
-export { buildUsStackCineInfo, getUsCineFrameRate, US_CINE_DEFAULT_FPS };
+export {
+  buildUsStackCineInfo,
+  getDefaultCineFrameRateForModality,
+  getUsCineFrameRate,
+  CT_CINE_DEFAULT_FPS,
+  US_CINE_DEFAULT_FPS,
+};
 export type { UsStackCineInfo };

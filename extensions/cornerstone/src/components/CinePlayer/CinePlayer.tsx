@@ -386,8 +386,9 @@ function WrappedCinePlayer({
         nextFrameRate = resolved.frameRate;
         nextCinePlayMode = resolved.cinePlayMode;
         nextFrameStep = resolved.frameStep;
-        // Autoplay US on first load. Honour study play intent so 1×1 play
-        // then 2×2 starts every new tile, and a pause stays paused.
+        // Autoplay ultrasound only. Honour study play intent so 1×1 play
+        // then 2×2 starts every new US tile, and a pause stays paused.
+        // Never apply this to CT/MR multi-slice stacks.
         if (
           studyWantsPlaying &&
           isUsMultiframeDisplaySet(displaySet) &&
@@ -415,6 +416,16 @@ function WrappedCinePlayer({
         setStackCineInfo(null);
       }
     });
+
+    const hasUsDisplaySet = displaySetInstanceUIDs.some(
+      uid => displaySetService.getDisplaySetByUID(uid)?.Modality === 'US'
+    );
+
+    // CT/MR: never autoplay. Keep play state only when the doctor already pressed play
+    // (explicit isPlaying on this viewport). Opening the cine tool alone stays paused.
+    if (!hasUsDisplaySet) {
+      nextIsPlaying = hasExplicitPlayState ? !!existingCine.isPlaying : false;
+    }
 
     if (!studyWantsPlaying && getCineSyncMode() !== 'none') {
       nextIsPlaying = false;

@@ -123,32 +123,13 @@ function createAllModalityGridProtocol({
 const allModality1x1Protocol = createAllModalityGridProtocol({
   id: 'allModality1x1',
   name: '1×1',
-  description: '1×1 grid for all modalities',
+  description: '1×1 grid — default for all modalities (CT/MR/etc and single-series US)',
   stageId: '1x1',
   rows: 1,
   columns: 1,
   extraMatchingRules: [
     {
-      // Force single-image-set ultrasound studies (even with SR reports)
-      // to start in 1×1 on first load.
-      id: 'SingleUltrasoundImageDisplaySet',
-      weight: 4000,
-      required: true,
-      attribute: 'ModalitiesInStudy',
-      constraint: {
-        contains: ['US'],
-      },
-    },
-    {
-      id: 'ExactlyOneImageDisplaySet',
-      weight: 3500,
-      required: true,
-      attribute: 'numberOfDisplaySetsWithImages',
-      constraint: {
-        equals: { value: 1 },
-      },
-    },
-    {
+      // Prefer 1×1 for SR-only studies (no image series to hang).
       id: 'SrOnlyStudy',
       weight: 5000,
       attribute: 'isSrOnlyStudy',
@@ -222,7 +203,7 @@ const allModality2x2Protocol = createAllModalityGridProtocol({
 const allModality2x4Protocol = createAllModalityGridProtocol({
   id: 'allModality2x4',
   name: '2×4',
-  description: '2×4 grid for all modalities (manual selection)',
+  description: '2×4 grid (manual selection; not auto for any modality)',
   stageId: '2x4',
   rows: 2,
   columns: 4,

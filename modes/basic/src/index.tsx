@@ -461,9 +461,10 @@ export const modeInstance = {
   isValidMode,
   routes: [basicRoute],
   extensions: extensionDependencies,
-  // Auto: 1×1 default; US with 2 image series → 1×2; US with 3+ image series → 2×2.
+  // Auto: 1×1 default for all modalities; US with 2 image series → 1×2; US with 3+ → 2×2.
   // A single US instance (even with SR reports) stays 1×1 unless Frame Distribution is enabled.
-  hangingProtocol: ['allModality2x2', 'allModality1x2', 'allModality1x1'],
+  // allModality1x1 must be first so non-US studies fall back to 1×1 (not 2×2) when no protocol matches.
+  hangingProtocol: ['allModality1x1', 'allModality1x2', 'allModality2x2'],
   // Order is important in sop class handlers when two handlers both use
   // the same sop class under different situations.  In that case, the more
   // general handler needs to come last.  For this case, the dicomvideo must

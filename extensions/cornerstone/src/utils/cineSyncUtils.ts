@@ -20,6 +20,7 @@ export function isInIframeEmbed(): boolean {
 
 /**
  * Stack-based cine (play/pause, FPS, frame step) for any modality with multiple frames.
+ * Callers that autoplay or show US-specific UI must also check isUsMultiframeDisplaySet.
  */
 export function isMultiframeStackDisplaySet(displaySet) {
   if (!displaySet || displaySet.unsupported || displaySet.isDynamicVolume) {
@@ -29,6 +30,7 @@ export function isMultiframeStackDisplaySet(displaySet) {
   return (displaySet.numImageFrames ?? 0) > 1;
 }
 
+/** Ultrasound multiframe (or multi-instance) stack eligible for US cine autoplay/UI. */
 export function isUsMultiframeDisplaySet(displaySet) {
   return displaySet?.Modality === 'US' && isMultiframeStackDisplaySet(displaySet);
 }
@@ -138,7 +140,8 @@ export function isUsMultiSeriesInstanceLayout(servicesManager: AppTypes.Services
 }
 
 /**
- * Per-viewport cine bar for multiframe stacks (any modality / grid layout).
+ * Per-viewport slider cine bar for multiframe stacks (US, CT, MR, …).
+ * Same bottom-of-viewport UI for all modalities; autoplay stays US-only.
  */
 export function shouldUsePerViewportCine(servicesManager: AppTypes.ServicesManager): boolean {
   const { viewportGridService, displaySetService } = servicesManager.services;
@@ -162,29 +165,16 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
 }
 
 /**
- * Show study-level cine controls in the viewer header (page nav + play/pause all + FPS/fr).
- * Shown whenever multiframe cine is present so rate controls stay available after
- * removing per-viewport FPS/fr UI.
+ * Show study-level US cine controls in the viewer header (page nav + sync + FPS/fr).
+ * Ultrasound only — CT/MR multi-slice must not show US header cine chrome.
  */
 export function shouldShowStudyCineHeaderControls(
   servicesManager: AppTypes.ServicesManager
 ): boolean {
-  const capableIds = getCineCapableViewportIds(servicesManager);
-
-  if (!capableIds.length) {
-    return false;
-  }
-
   const { displaySetService } = servicesManager.services;
-  const cineStudySets = displaySetService.activeDisplaySets.filter(isCineCapableDisplaySet);
-  const multiframeStackSets = displaySetService.activeDisplaySets.filter(isMultiframeStackDisplaySet);
+  const usMultiframeSets = displaySetService.activeDisplaySets.filter(isUsMultiframeDisplaySet);
 
-  // Per-viewport bars no longer include FPS/fr; header is the shared rate control.
-  if (multiframeStackSets.length > 0) {
-    return true;
-  }
-
-  return cineStudySets.length > 1 || capableIds.length > 1;
+  return usMultiframeSets.length > 0;
 }
 
 export function activeViewportUsesMultiframeCine(

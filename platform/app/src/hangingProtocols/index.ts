@@ -7,7 +7,8 @@ import {
 
 /**
  * Registers hanging protocols for the application.
- * Layouts are modality-agnostic: 1×1, 1×2, 2×2, 2×4.
+ * 1×1 is the default for all modalities. 1×2 / 2×2 auto-apply only for ultrasound
+ * (see protocolMatchingRules on those protocols). 2×4 is manual selection.
  */
 export default function getHangingProtocolModule() {
   return [

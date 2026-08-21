@@ -49,15 +49,25 @@ function UsViewportCineBar({
 
   // With sync playback only the master viewport runs a clip, so the transport
   // state of every bar follows the layout instead of this viewport alone.
+  // CT/MR have no US layout peers — fall back to this viewport's play state.
   const isLayoutPlaying = useMemo(() => {
     if (syncMode === 'none') {
       return isPlaying;
     }
 
-    return getUsCineCapableLayoutViewportIds(servicesManager).some(
-      id => cines?.[id]?.isPlaying
-    );
+    const usLayoutIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+    if (!usLayoutIds.length) {
+      return isPlaying;
+    }
+
+    return usLayoutIds.some(id => cines?.[id]?.isPlaying);
   }, [cines, isPlaying, servicesManager, syncMode]);
+
+  const showSyncControl = useMemo(
+    () => getUsCineCapableLayoutViewportIds(servicesManager).length > 0,
+    [cines, servicesManager]
+  );
 
   const { cornerstoneViewportService } = servicesManager.services;
 
@@ -242,7 +252,7 @@ function UsViewportCineBar({
         </Numeric.Container>
       </div>
 
-      <CineSyncModeControl servicesManager={servicesManager} />
+      {showSyncControl ? <CineSyncModeControl servicesManager={servicesManager} /> : null}
     </div>
   );
 }

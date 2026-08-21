@@ -212,10 +212,12 @@ function setSingleViewportPlayState(
  * Play/pause requested from a single viewport, honouring the active sync mode.
  *
  * - none: only this viewport starts or stops.
- * - syncStart: every cine viewport in the layout starts from its first frame and
+ * - syncStart: every US cine viewport in the layout starts from its first frame and
  *   runs its own clip at its own DICOM rate; play/pause covers all of them.
- * - syncPlayback: play/pause is shared across the layout, matching the study
- *   header control; each loop otherwise keeps its normal playback.
+ * - syncPlayback: play/pause is shared across US cine viewports in the layout.
+ *
+ * Non-US modalities (CT/MR, etc.) always use single-viewport play — sync/autoplay
+ * apply to ultrasound only.
  */
 function requestCinePlayPause(
   servicesManager: AppTypes.ServicesManager,
@@ -224,6 +226,14 @@ function requestCinePlayPause(
   mode: CineSyncMode = getCineSyncMode()
 ): void {
   const { cineService } = servicesManager.services;
+  const usViewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
+
+  // CT/MR multi-slice (or any non-US): never sync-play the layout; toggle this tile only.
+  if (!usViewportIds.length || !usViewportIds.includes(srcViewportId)) {
+    stopSyncPlaybackDriver();
+    setSingleViewportPlayState(servicesManager, srcViewportId, playing);
+    return;
+  }
 
   if (mode === 'none') {
     stopSyncPlaybackDriver();
@@ -237,22 +247,16 @@ function requestCinePlayPause(
     return;
   }
 
-  const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
-
-  if (!viewportIds.length) {
-    return;
-  }
-
   setStudyCineWantsPlaying(true);
   stopSyncPlaybackDriver();
   cineService.setIsCineEnabled(true);
 
   if (mode === 'syncStart') {
     // Sync start means every loop begins at its first frame, together.
-    resetCineFramesToStart(servicesManager, viewportIds);
+    resetCineFramesToStart(servicesManager, usViewportIds);
   }
 
-  viewportIds.forEach(viewportId => {
+  usViewportIds.forEach(viewportId => {
     const current = cineService.getState().cines?.[viewportId] ?? {};
 
     cineService.setCine({
@@ -280,8 +284,9 @@ function applyCineFrameRate(
 ): void {
   const { cineService } = servicesManager.services;
   const validFrameRate = Math.max(1, Math.round(Number(frameRate) || 1));
+  const usViewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
 
-  if (mode === 'syncPlayback') {
+  if (mode === 'syncPlayback' && usViewportIds.length > 0) {
     applyCineSettingsToAllViewports(servicesManager, {
       frameRate: validFrameRate,
       cinePlayMode: 'fps',
@@ -420,9 +425,11 @@ function pauseAllUsViewports(servicesManager: AppTypes.ServicesManager): void {
 
 /**
  * After a hanging-protocol / grid resize, copy study play intent onto every
- * cine tile and let CinePlayer start live clips. Play on 1×1 then 2×2 used to
- * leave the new tiles showing pause while only the reused first tile moved.
- * Returns true when every cine tile is already marked playing.
+ * ultrasound cine tile and let CinePlayer start live clips. Play on 1×1 then 2×2
+ * used to leave the new tiles showing pause while only the reused first tile moved.
+ * Returns true when settled (nothing to do, or every US cine tile is playing).
+ *
+ * Must never autoplay CT/MR multi-slice stacks — those are not US cine.
  */
 function ensureLayoutCinePlayback(servicesManager: AppTypes.ServicesManager): boolean {
   if (getCineSyncMode() === 'none' || !getStudyCineWantsPlaying()) {
@@ -436,8 +443,9 @@ function ensureLayoutCinePlayback(servicesManager: AppTypes.ServicesManager): bo
   const { cineService } = servicesManager.services;
   const viewportIds = getUsCineCapableLayoutViewportIds(servicesManager);
 
+  // No US multiframe tiles (e.g. CT/MR study) — do not enable or play cine.
   if (!viewportIds.length) {
-    return false;
+    return true;
   }
 
   cineService.setIsCineEnabled(true);

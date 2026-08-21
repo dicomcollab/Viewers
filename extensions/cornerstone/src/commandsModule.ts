@@ -42,6 +42,7 @@ import {
   shouldUsePerViewportCine,
   shouldUseUnifiedCineControl,
 } from './utils/cineSyncUtils';
+import { requestCinePlayPause } from './utils/usCinePlaybackUtils';
 import { advanceUsBatch as advanceUsBatchNavigation } from './utils/usBatchNavigationUtils';
 import { setUsFrameDistribution as applyUsFrameDistributionMode } from './utils/usFrameDistributionUtils';
 import toggleVOISliceSync from './utils/toggleVOISliceSync';
@@ -841,23 +842,32 @@ function commandsModule({
     toggleCine: () => {
       const { viewports, activeViewportId } = viewportGridService.getState();
       const { isCineEnabled, cines } = cineService.getState();
-
-      if (!isCineEnabled) {
-        cineService.setIsCineEnabled(true);
-        return;
-      }
-
       const controlViewportId =
         getCineControlViewportId(servicesManager) || activeViewportId;
       const isUnified = shouldUseUnifiedCineControl(servicesManager);
       const isPerViewportCine = shouldUsePerViewportCine(servicesManager);
 
-      if ((isUnified || isPerViewportCine) && controlViewportId) {
+      // Viewport slider bar (US/CT/MR): toolbar toggles play/pause.
+      // Autoplay on load remains US-only (CinePlayer); CT starts paused.
+      if (isPerViewportCine || isUnified) {
+        if (!controlViewportId) {
+          cineService.setIsCineEnabled(!isCineEnabled);
+          return;
+        }
+
         const isPlaying = cines?.[controlViewportId]?.isPlaying ?? false;
-        cineService.setCine({
-          id: controlViewportId,
-          isPlaying: !isPlaying,
-        });
+
+        if (!isCineEnabled) {
+          cineService.setIsCineEnabled(true);
+        }
+
+        requestCinePlayPause(servicesManager, controlViewportId, !isPlaying);
+        return;
+      }
+
+      // Fallback floating cine UI (rare): open/close the panel.
+      if (!isCineEnabled) {
+        cineService.setIsCineEnabled(true);
         return;
       }
 
