@@ -18,8 +18,9 @@ interface HotkeyDefinitions {
 }
 
 function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
-  const { hotkeysManager } = useSystem();
+  const { hotkeysManager, servicesManager } = useSystem();
   const { t } = useTranslation('UserPreferencesModal');
+  const uiNotificationService = servicesManager?.services?.uiNotificationService;
 
   const { hotkeyDefinitions = {}, hotkeyDefaults = {} } = hotkeysManager;
 
@@ -65,7 +66,22 @@ function UserPreferencesModalDefault({ hide }: { hide: () => void }) {
       hotkeyDefinitions: hotkeyDefaults as HotkeyDefinitions,
     }));
 
-    await hotkeysManager.restoreDefaultBindings();
+    try {
+      await hotkeysManager.restoreDefaultBindings(true);
+      uiNotificationService?.show?.({
+        title: t('User Preferences'),
+        message: 'Viewer preferences were reset to defaults in RIS.',
+        type: 'success',
+      });
+    } catch (error) {
+      console.error('[UserPreferencesModal] Failed to reset viewer preferences in RIS', error);
+      await hotkeysManager.restoreDefaultBindings(false);
+      uiNotificationService?.show?.({
+        title: t('User Preferences'),
+        message: 'Failed to reset viewer preferences in RIS.',
+        type: 'error',
+      });
+    }
   };
 
   return (

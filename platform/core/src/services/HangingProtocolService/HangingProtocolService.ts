@@ -1621,7 +1621,8 @@ export default class HangingProtocolService extends PubSubService {
         name: 'study',
         reverse: true,
       },
-      this._getSeriesFieldForDisplaySetSort()
+      this._getSeriesFieldForDisplaySetSort(),
+      { name: 'instanceNumber' }
     );
     matchingScores.sort((a, b) => sortingFunction(a.sortingInfo, b.sortingInfo));
 
@@ -1636,11 +1637,23 @@ export default class HangingProtocolService extends PubSubService {
   }
 
   private _getSeriesSortInfoForDisplaySetSort(displaySet) {
+    const seriesNumber =
+      displaySet.SeriesNumber != null
+        ? parseInt(displaySet.SeriesNumber, 10)
+        : parseInt(displaySet.seriesNumber, 10);
+    const instanceNumber = Number(
+      displaySet.instanceNumber ??
+        displaySet.InstanceNumber ??
+        displaySet.instances?.[0]?.InstanceNumber ??
+        0
+    );
+
     return {
-      [this._getSeriesFieldForDisplaySetSort().name]:
-        displaySet.SeriesNumber != null
-          ? parseInt(displaySet.SeriesNumber)
-          : parseInt(displaySet.seriesNumber),
+      [this._getSeriesFieldForDisplaySetSort().name]: Number.isFinite(seriesNumber)
+        ? seriesNumber
+        : 0,
+      // Keeps one-SOP-per-displaySet US studies in InstanceNumber order for grid fill.
+      instanceNumber: Number.isFinite(instanceNumber) ? instanceNumber : 0,
     };
   }
 

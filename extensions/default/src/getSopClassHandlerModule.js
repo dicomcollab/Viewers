@@ -178,6 +178,11 @@ const isSingleImageModality = modality => {
   return modality === 'CR' || modality === 'MG' || modality === 'DX';
 };
 
+/** Ultrasound: one thumbnail / viewport slot per SOP instance (single-frame or multiframe). */
+const isPerInstanceDisplaySetModality = modality => {
+  return isSingleImageModality(modality) || modality === 'US';
+};
+
 function getSopClassUids(instances) {
   const uniqueSopClassUidsInSeries = new Set();
   instances.forEach(instance => {
@@ -232,7 +237,7 @@ function getDisplaySetsFromSeries(instances) {
         acquisitionDatetime: instance.AcquisitionDateTime,
       });
       displaySets.push(displaySet);
-    } else if (isSingleImageModality(instance.Modality)) {
+    } else if (isPerInstanceDisplaySetModality(instance.Modality)) {
       displaySet = makeDisplaySet([instance]);
       displaySet.setAttributes({
         sopClassUids,

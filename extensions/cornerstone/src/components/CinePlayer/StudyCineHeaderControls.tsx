@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Icons, Button } from '@ohif/ui-next';
 import { advanceUsBatch, buildUsBatchNavigationInfo } from '../../utils/usBatchNavigationUtils';
-import { isUsFrameDistributionEnabled } from '@ohif/extension-default';
+import {
+  isUsFrameDistributionEnabled,
+  subscribeUsFrameDistribution,
+} from '@ohif/extension-default';
 
 type PageInfo = {
   currentPage: number;
@@ -52,12 +55,14 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
       displaySetService.EVENTS.DISPLAY_SETS_CHANGED,
       refresh
     );
+    const unsubscribeFrameDist = subscribeUsFrameDistribution(refresh);
 
     refresh();
 
     return () => {
       gridSub.unsubscribe();
       dsSub.unsubscribe();
+      unsubscribeFrameDist();
     };
   }, [refreshPageInfo, servicesManager]);
 
@@ -78,8 +83,8 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
   const navBtnClass =
     'h-6 w-6 shrink-0 p-0 text-white hover:bg-primary-active disabled:opacity-30 [&_svg]:h-3 [&_svg]:w-3';
   const isFrameGroupNav = pageInfo.mode === 'frames';
-  const prevTitle = isFrameGroupNav ? 'Previous group' : 'Previous page';
-  const nextTitle = isFrameGroupNav ? 'Next group' : 'Next page';
+  const prevTitle = isFrameGroupNav ? 'Previous frame group' : 'Previous page';
+  const nextTitle = isFrameGroupNav ? 'Next frame group' : 'Next page';
 
   return (
     <div

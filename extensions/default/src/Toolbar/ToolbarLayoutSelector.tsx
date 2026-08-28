@@ -5,6 +5,7 @@ import { CommandsManager } from '@ohif/core';
 
 import { LayoutSelector } from '@ohif/ui-next';
 import { useTranslation } from 'react-i18next';
+import { saveHangingProtocolChoice } from '../utils/viewerLayoutPreferences';
 
 function ToolbarLayoutSelectorWithServices({
   commandsManager,
@@ -170,15 +171,40 @@ function ToolbarLayoutSelectorWithServices({
           commandName: 'setHangingProtocol',
           commandOptions,
         });
+        if (typeof protocolId === 'string' && protocolId) {
+          saveHangingProtocolChoice(
+            {
+              kind: 'protocol',
+              protocolId,
+            },
+            servicesManager
+          );
+        }
       } else {
         // Common preset or custom grid selection
         commandsManager.run({
           commandName: 'setViewportGridLayout',
           commandOptions,
         });
+        if (commandOptions?.numRows && commandOptions?.numCols) {
+          saveHangingProtocolChoice(
+            {
+              kind: 'grid',
+              numRows: commandOptions.numRows,
+              numCols: commandOptions.numCols,
+            },
+            servicesManager
+          );
+        }
       }
     },
-    [commandsManager, isJpegDataSourceActive, advancedVolumeProtocolIds, uiNotificationService]
+    [
+      commandsManager,
+      isJpegDataSourceActive,
+      advancedVolumeProtocolIds,
+      uiNotificationService,
+      servicesManager,
+    ]
   );
 
   return (

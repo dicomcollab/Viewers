@@ -74,8 +74,8 @@ function FrameDistributionControl({
       onClick={handleToggle}
       title={
         enabled
-          ? 'Frame distribution on — spread cine frames across the layout'
-          : 'Frame distribution off — click to spread cine frames across the layout'
+          ? 'Frame Dist on — 2×2 static frames; use page next/prev (no cine)'
+          : 'Frame Dist off — 1×1 with cine play; click to distribute frames in 2×2'
       }
       aria-pressed={enabled}
       data-cy="frame-distribution-toggle"

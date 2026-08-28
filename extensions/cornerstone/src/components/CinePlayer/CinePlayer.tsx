@@ -37,7 +37,10 @@ import {
   startSyncStartDriver,
 } from '../../utils/usCineSyncPlaybackDriver';
 import { getCineSyncMode } from '../../utils/cineSyncModeStore';
-import { isUsFrameDistributionEnabled } from '@ohif/extension-default';
+import {
+  isUsFrameDistributionEnabled,
+  subscribeUsFrameDistribution,
+} from '@ohif/extension-default';
 import { isCineClipRunning } from '../../utils/cineClipStateUtils';
 import {
   getAliveViewport,
@@ -121,6 +124,7 @@ function WrappedCinePlayer({
   const [stackCineInfo, setStackCineInfo] = useState<UsStackCineInfo | null>(null);
   const [appConfig] = useAppConfig();
   const [playbackEpoch, setPlaybackEpoch] = useState(0);
+  const [frameDistEnabled, setFrameDistEnabled] = useState(() => isUsFrameDistributionEnabled());
 
   const isMountedRef = useRef(false);
   const cinesRef = useRef(cines);
@@ -490,6 +494,11 @@ function WrappedCinePlayer({
   }, [isCineEnabled, newDisplaySetHandler, viewportId]);
 
   useEffect(() => {
+    setFrameDistEnabled(isUsFrameDistributionEnabled());
+    return subscribeUsFrameDistribution(setFrameDistEnabled);
+  }, []);
+
+  useEffect(() => {
     refreshStackCineInfo();
 
     const { viewportGridService: gridService } = servicesManager.services;
@@ -733,9 +742,10 @@ function WrappedCinePlayer({
   const { viewports } = viewportGridService.getState();
   const viewportState = viewports.get(viewportId);
   const supportsCine = viewportSupportsCine(displaySetService, viewportState);
-  const showCineUI = usePerViewportCine
-    ? supportsCine
-    : cineControlViewportId === viewportId;
+  // Frame Dist spreads static frames across tiles — page nav only, no cine chrome.
+  const showCineUI =
+    !frameDistEnabled &&
+    (usePerViewportCine ? supportsCine : cineControlViewportId === viewportId);
 
   if (!showCineUI) {
     return null;

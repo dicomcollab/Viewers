@@ -119,16 +119,16 @@ const Thumbnail = ({
               <div className="bg-background h-[114px] w-[128px] rounded"></div>
             )}
 
-            {/* bottom left */}
+            {/* bottom left — thin accent mark (no large filled circle) */}
             <div className="absolute bottom-0 left-0 flex h-[14px] items-center gap-[4px] rounded-tr pt-[10px] pb-[10px] pr-[6px] pl-[5px]">
               <div
                 className={classnames(
-                  'h-[10px] w-[10px] rounded-[2px]',
-                  isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight' : 'bg-primary/65',
-                  showLoading && 'bg-primary/25'
+                  'h-[8px] w-[2px] rounded-sm',
+                  isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight/80' : 'bg-white/35',
+                  showLoading && 'bg-white/20'
                 )}
               ></div>
-              <div className="text-[11px] font-semibold text-white">{modality}</div>
+              <div className="text-[11px] font-semibold text-white/80">{modality}</div>
             </div>
 
             {/* top right */}
@@ -251,26 +251,29 @@ const Thumbnail = ({
       >
         <div
           className={classnames(
-            'flex w-full items-center justify-between pr-[8px] pl-[8px] pt-[4px] pb-[4px]',
+            'flex w-full min-w-0 items-center justify-between pr-[8px] pl-[8px] pt-[4px] pb-[4px]',
             !showUserPreloadProgress && 'h-full',
             isActive && 'bg-primary-light/30 rounded'
           )}
         >
-        <div className="relative flex h-[32px] w-full items-center gap-[8px] overflow-hidden">
+        <div className="relative flex h-[32px] min-w-0 flex-1 items-center gap-[8px] overflow-hidden">
           <div
             className={classnames(
-              'h-[32px] w-[4px] min-w-[4px] rounded',
-              isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight' : 'bg-primary/65',
-              showLoading && 'bg-primary/25'
+              'h-[32px] w-[2px] min-w-[2px] rounded-sm',
+              isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight/80' : 'bg-white/35',
+              showLoading && 'bg-white/20'
             )}
           ></div>
-          <div className="flex h-full w-[calc(100%-12px)] flex-col justify-start">
-            <div className="flex items-center gap-[7px]">
-              <div className="text-[13px] font-semibold text-white">{modality}</div>
+          <div className="flex h-full min-w-0 w-[calc(100%-12px)] flex-col justify-start">
+            <div className="flex items-center gap-[7px] min-w-0">
+              <div className="shrink-0 text-[13px] font-semibold text-white">{modality}</div>
               <Tooltip>
                 <TooltipContent>{description}</TooltipContent>
-                <TooltipTrigger className="w-full overflow-hidden">
-                  <div className="max-w-[160px] overflow-hidden overflow-ellipsis whitespace-nowrap text-left text-[13px] font-normal text-white">
+                <TooltipTrigger
+                  className="min-w-0 flex-1 overflow-hidden"
+                  asChild
+                >
+                  <div className="min-w-0 overflow-hidden truncate whitespace-nowrap text-left text-[13px] font-normal text-white">
                     {description}
                   </div>
                 </TooltipTrigger>
@@ -310,7 +313,7 @@ const Thumbnail = ({
             </div>
           </div>
         </div>
-        <div className="flex h-full items-center gap-[4px]">
+        <div className="flex h-full shrink-0 items-center gap-[4px]">
           <DisplaySetMessageListTooltip
             messages={messages}
             id={`display-set-tooltip-${displaySetInstanceUID}`}

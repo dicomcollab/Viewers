@@ -204,6 +204,10 @@ function getRisPostMessagePreferences() {
  * Apply AUTH_SESSION payload from parent RIS (postMessage).
  * @param {{ token?: string, cookies?: Record<string, string>, preferences?: object }} data
  */
+function coercePersistFlag(value) {
+  return value === true || value === 'true';
+}
+
 function applyRisAuthSessionFromPostMessage(data) {
   if (!data || typeof data !== 'object') return;
 
@@ -211,6 +215,10 @@ function applyRisAuthSessionFromPostMessage(data) {
     _risPostMessageAuth.token = String(data.token).trim();
   }
   if (data.preferences && typeof data.preferences === 'object') {
+    data.preferences = {
+      ...data.preferences,
+      persistViewerLayout: coercePersistFlag(data.preferences.persistViewerLayout),
+    };
     _risPostMessageAuth.preferences = data.preferences;
     _preferencesCache = data.preferences;
     _preferencesPromise = Promise.resolve(data.preferences);
@@ -225,6 +233,16 @@ function applyRisAuthSessionFromPostMessage(data) {
   }
 
   persistRisAuthSessionToCookies(data);
+  if (data.preferences && typeof data.preferences === 'object') {
+    const persistOn = coercePersistFlag(data.preferences.persistViewerLayout);
+    data.preferences.persistViewerLayout = persistOn;
+    setUserPreferenceCookie('persistViewerLayout', persistOn);
+    mergePreferencesCache({ persistViewerLayout: persistOn });
+    if (persistOn && data.preferences.viewerLayout) {
+      setUserPreferenceCookie('viewerLayout', data.preferences.viewerLayout);
+      mergePreferencesCache({ viewerLayout: data.preferences.viewerLayout });
+    }
+  }
 
   // Keep early-bridge memory/sessionStorage in sync (iframe / new-tab handoff).
   if (typeof window !== 'undefined' && _risPostMessageAuth.token) {
@@ -1000,7 +1018,12 @@ function parseCookieValue(value) {
 function getPreferencesFromCookies() {
   const fromPostMessage = getRisPostMessagePreferences();
   if (fromPostMessage && typeof fromPostMessage === 'object') {
-    return fromPostMessage;
+    if (fromPostMessage.viewerLayout) {
+      return {
+        ...fromPostMessage,
+        persistViewerLayout: coercePersistFlag(fromPostMessage.persistViewerLayout),
+      };
+    }
   }
   if (typeof document === 'undefined' || !document.cookie) {
     console.log('[getPreferencesFromCookies] No document or document.cookie');
@@ -1140,6 +1163,21 @@ function getPreferencesFromCookies() {
       prefs.cinePreferences = null;
     }
   }
+  if (raw.viewerLayout != null) {
+    try {
+      let parsed =
+        typeof raw.viewerLayout === 'string' ? JSON.parse(raw.viewerLayout) : raw.viewerLayout;
+      while (typeof parsed === 'string') {
+        parsed = JSON.parse(parsed);
+      }
+      prefs.viewerLayout = parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (_) {
+      prefs.viewerLayout = null;
+    }
+  }
+  if (raw.persistViewerLayout != null) {
+    prefs.persistViewerLayout = coercePersistFlag(parseCookieValue(raw.persistViewerLayout));
+  }
   if (raw.tools != null) {
     try {
       let parsed = typeof raw.tools === 'string' ? JSON.parse(raw.tools) : raw.tools;
@@ -1175,9 +1213,28 @@ function getPreferencesFromCookies() {
         : Object.keys(prefs.tools).length > 0)) ||
     (prefs.mousePreferences && Object.keys(prefs.mousePreferences).length > 0) ||
     (prefs.cinePreferences && Object.keys(prefs.cinePreferences).length > 0) ||
+    (prefs.viewerLayout && Object.keys(prefs.viewerLayout).length > 0) ||
+    prefs.persistViewerLayout === true ||
+    prefs.persistViewerLayout === false ||
     prefs.windowLevelPresets != null ||
     prefs.dataSourceFormat != null;
-  return hasAny ? prefs : null;
+  const cookiePrefs = hasAny ? prefs : null;
+  if (fromPostMessage && typeof fromPostMessage === 'object') {
+    const persistFromCookie =
+      cookiePrefs && cookiePrefs.persistViewerLayout != null
+        ? coercePersistFlag(cookiePrefs.persistViewerLayout)
+        : null;
+    return {
+      ...fromPostMessage,
+      ...(cookiePrefs || {}),
+      viewerLayout: cookiePrefs?.viewerLayout || fromPostMessage.viewerLayout || null,
+      persistViewerLayout:
+        persistFromCookie !== null
+          ? persistFromCookie
+          : coercePersistFlag(fromPostMessage.persistViewerLayout),
+    };
+  }
+  return cookiePrefs;
 }
 
 // Function to fetch preferences: first from cookies (userPreferences_*), then from API if no cookie data
@@ -1238,11 +1295,91 @@ function clearPreferencesCache() {
   _preferencesCache = undefined;
 }
 
+function mergePreferencesCache(partial) {
+  if (!partial || typeof partial !== 'object') {
+    return;
+  }
+  if (!_preferencesCache || typeof _preferencesCache !== 'object') {
+    _preferencesCache = { ...partial };
+    return;
+  }
+  _preferencesCache = { ..._preferencesCache, ...partial };
+}
+
+function setUserPreferenceCookie(key, value) {
+  if (!key) return;
+  const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  setCookieOnViewer('userPreferences_' + key, str);
+}
+
+async function waitForAuthToken(maxMs = 4000) {
+  const started = Date.now();
+  let token = getTokenFromCookie();
+  while (!token && Date.now() - started < maxMs) {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    token = getTokenFromCookie();
+  }
+  return token;
+}
+
+async function fetchViewerLayoutFromApi() {
+  try {
+    const token = await waitForAuthToken(8000);
+    if (!token) {
+      return null;
+    }
+    const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/getPreferences`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Token: token,
+      },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    const persist = coercePersistFlag(data?.persistViewerLayout);
+    const layout = data?.viewerLayout || null;
+    setUserPreferenceCookie('persistViewerLayout', persist);
+    mergePreferencesCache({ persistViewerLayout: persist });
+    if (layout) {
+      setUserPreferenceCookie('viewerLayout', layout);
+      mergePreferencesCache({ viewerLayout: layout });
+      if (_risPostMessageAuth.preferences && typeof _risPostMessageAuth.preferences === 'object') {
+        _risPostMessageAuth.preferences = {
+          ..._risPostMessageAuth.preferences,
+          persistViewerLayout: persist,
+          viewerLayout: layout,
+        };
+      }
+    } else if (
+      _risPostMessageAuth.preferences &&
+      typeof _risPostMessageAuth.preferences === 'object'
+    ) {
+      _risPostMessageAuth.preferences = {
+        ..._risPostMessageAuth.preferences,
+        persistViewerLayout: persist,
+      };
+    }
+    return { viewerLayout: layout, persistViewerLayout: persist };
+  } catch (error) {
+    console.warn('[fetchViewerLayoutFromApi]', error);
+    return null;
+  }
+}
+
 async function savePreferences(payload) {
   try {
-    const token = getTokenFromCookie();
+    const token = payload?.viewerLayout ? await waitForAuthToken(8000) : getTokenFromCookie();
     if (!token) {
-      console.warn('No token found in cookie');
+      console.warn('[savePreferences] No token found in cookie');
+      return null;
+    }
+    if (!RIS_API_BASE) {
+      console.warn(
+        '[savePreferences] RIS_API_BASE is empty — set VIEWER_IS_DEV / RIS_DEV_API_BASE'
+      );
       return null;
     }
     const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/savePreferences`, {
@@ -1256,11 +1393,172 @@ async function savePreferences(payload) {
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
+    if (payload?.viewerLayout) {
+      const existingLayout = getPreferencesFromCookies()?.viewerLayout;
+      const incoming = payload.viewerLayout;
+      const mergedLayout =
+        incoming?.standalone || incoming?.iframe
+          ? {
+              version: 2,
+              standalone: incoming.standalone || existingLayout?.standalone || existingLayout,
+              iframe: incoming.iframe || existingLayout?.iframe,
+            }
+          : incoming;
+      setUserPreferenceCookie('viewerLayout', mergedLayout);
+      console.log('[savePreferences] viewerLayout posted to RIS');
+    }
     clearPreferencesCache();
     return await response.json();
   } catch (error) {
     console.error('Error saving preferences:', error);
     return null;
+  }
+}
+
+const VIEWER_RESET_COOKIE_KEYS = [
+  'hotkeys',
+  'windowLevelPresets',
+  'globalToolColor',
+  'globalLineColor',
+  'globalTextColor',
+  'tools',
+  'mousePreferences',
+  'persistViewerLayout',
+  'viewerLayout',
+];
+
+function expireCookie(name) {
+  if (typeof document === 'undefined' || !name) return;
+  document.cookie = `${name}=; path=/; max-age=0`;
+}
+
+function deleteUserPreferenceCookie(key) {
+  expireCookie('userPreferences_' + key);
+  for (let i = 0; i < 20; i++) {
+    expireCookie('userPreferences_' + key + '_' + i);
+  }
+}
+
+function notifyRisViewerPreferencesReset(preferences) {
+  if (typeof window === 'undefined') return;
+  const payload = {
+    source: 'DICOMRIS_VIEWER',
+    type: 'VIEWER_PREFERENCES_RESET',
+    preferences: preferences || {},
+  };
+  let targetOrigin = '*';
+  try {
+    if (window.document?.referrer) {
+      targetOrigin = new URL(window.document.referrer).origin;
+    }
+  } catch (_) {
+    targetOrigin = '*';
+  }
+  const targets = [];
+  try {
+    if (window.parent && window.parent !== window) targets.push(window.parent);
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    if (window.opener && !window.opener.closed) targets.push(window.opener);
+  } catch (_) {
+    /* ignore */
+  }
+  targets.forEach(win => {
+    try {
+      win.postMessage(payload, targetOrigin);
+    } catch (_) {
+      /* ignore */
+    }
+  });
+}
+
+function applyResetPreferencesLocally(prefs) {
+  const persist = coercePersistFlag(prefs?.persistViewerLayout);
+  const layout =
+    prefs?.viewerLayout && typeof prefs.viewerLayout === 'object' ? prefs.viewerLayout : null;
+  const next = {
+    ...(prefs && typeof prefs === 'object' ? prefs : {}),
+    persistViewerLayout: persist,
+    viewerLayout: layout,
+  };
+  VIEWER_RESET_COOKIE_KEYS.forEach(deleteUserPreferenceCookie);
+  for (let i = 0; i < 20; i++) {
+    expireCookie('hotkeys_' + i);
+  }
+
+  const cookieWrites = {
+    persistViewerLayout: persist,
+    mousePreferences: next.mousePreferences,
+    globalToolColor: next.globalToolColor,
+    globalLineColor: next.globalLineColor,
+    globalTextColor: next.globalTextColor,
+    tools: Array.isArray(next.tools) ? next.tools : [],
+    hotkeys: next.hotkeys,
+  };
+  if (layout) {
+    cookieWrites.viewerLayout = layout;
+  }
+  Object.keys(cookieWrites).forEach(key => {
+    if (cookieWrites[key] !== undefined) {
+      setUserPreferenceCookie(key, cookieWrites[key]);
+    }
+  });
+
+  _preferencesCache = next;
+  _preferencesPromise = Promise.resolve(next);
+  if (_risPostMessageAuth.preferences && typeof _risPostMessageAuth.preferences === 'object') {
+    _risPostMessageAuth.preferences = {
+      ..._risPostMessageAuth.preferences,
+      ...next,
+      persistViewerLayout: persist,
+      viewerLayout: layout,
+    };
+  }
+  if (typeof window.resetViewerLayoutPersistence === 'function') {
+    window.resetViewerLayoutPersistence({
+      persistViewerLayout: persist,
+      viewerLayout: layout,
+    });
+  }
+  if (typeof window.applyDefaultViewerInteractionPreferences === 'function') {
+    window.applyDefaultViewerInteractionPreferences();
+  }
+  notifyRisViewerPreferencesReset(next);
+  return next;
+}
+
+async function resetViewerPreferences(payload) {
+  try {
+    const token = await waitForAuthToken(8000);
+    if (!token) {
+      throw new Error('[resetViewerPreferences] No token found in cookie');
+    }
+    if (!RIS_API_BASE) {
+      throw new Error('[resetViewerPreferences] RIS_API_BASE is empty');
+    }
+    const body = {};
+    if (Array.isArray(payload?.hotkeys) && payload.hotkeys.length > 0) {
+      body.hotkeys = payload.hotkeys;
+    }
+    const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/resetViewerPreferences`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Token: token,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    applyResetPreferencesLocally(data?.preferences || {});
+    return data;
+  } catch (error) {
+    console.error('Error resetting viewer preferences:', error);
+    throw error;
   }
 }
 
@@ -1953,6 +2251,12 @@ try {
 if (typeof window !== 'undefined') {
   window.fetchPreferences = fetchPreferences;
   window.savePreferences = savePreferences;
+  window.savePreferences = savePreferences;
   window.clearPreferencesCache = clearPreferencesCache;
   window.getPreferencesFromCookies = getPreferencesFromCookies;
+  window.mergePreferencesCache = mergePreferencesCache;
+  window.setUserPreferenceCookie = setUserPreferenceCookie;
+  window.fetchViewerLayoutFromApi = fetchViewerLayoutFromApi;
+  window.resetViewerPreferences = resetViewerPreferences;
+  window.applyResetPreferencesLocally = applyResetPreferencesLocally;
 }

@@ -45,17 +45,26 @@ const seriesSortCriteria = {
 };
 
 const sortByInstanceNumber = (a, b) => {
-  // Sort by InstanceNumber (0020,0013)
-  const aInstance = parseInt(a.InstanceNumber) || 0;
-  const bInstance = parseInt(b.InstanceNumber) || 0;
+  // Prefer series number when sorting study-panel display-set thumbnails.
+  const aSeries = Number(a.SeriesNumber ?? a.seriesNumber ?? 0);
+  const bSeries = Number(b.SeriesNumber ?? b.seriesNumber ?? 0);
+  if (aSeries !== bSeries) {
+    return aSeries - bSeries;
+  }
+
+  // Sort by InstanceNumber (0020,0013) — also accepts mapped thumbnail `instanceNumber`.
+  const aInstance = parseInt(a.InstanceNumber ?? a.instanceNumber, 10) || 0;
+  const bInstance = parseInt(b.InstanceNumber ?? b.instanceNumber, 10) || 0;
   if (aInstance !== bInstance) {
-    return (parseInt(a.InstanceNumber) || 0) - (parseInt(b.InstanceNumber) || 0);
+    return aInstance - bInstance;
   }
   // Fallback rule to enable consistent sorting
-  if (a.SOPInstanceUID === b.SOPInstanceUID) {
+  const aUid = a.SOPInstanceUID ?? a.displaySetInstanceUID;
+  const bUid = b.SOPInstanceUID ?? b.displaySetInstanceUID;
+  if (aUid === bUid) {
     return 0;
   }
-  return a.SOPInstanceUID < b.SOPInstanceUID ? -1 : 1;
+  return aUid < bUid ? -1 : 1;
 };
 
 const instancesSortCriteria = {

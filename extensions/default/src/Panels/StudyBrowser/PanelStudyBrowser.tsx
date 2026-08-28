@@ -10,6 +10,7 @@ import MoreDropdownMenu from '../../Components/MoreDropdownMenu';
 import { CallbackCustomization } from 'platform/core/src/types';
 import { type TabsProps } from '@ohif/core/src/utils/createStudyBrowserTabs';
 import { normalizeJpegImageId } from '../../DicomWebDataSource/utils/getImageId';
+import { getViewerLayoutSync, mergeAndSaveViewerLayout } from '../../utils/viewerLayoutPreferences';
 
 const { sortStudyInstances, formatDate, createStudyBrowserTabs } = utils;
 
@@ -124,9 +125,17 @@ function PanelStudyBrowser({
   const [prefetchProgressTrackByUid, setPrefetchProgressTrackByUid] = useState({});
   const [jumpToDisplaySet, setJumpToDisplaySet] = useState(null);
 
-  const [viewPresets, setViewPresets] = useState(
-    customizationService.getCustomization('studyBrowser.viewPresets')
-  );
+  const [viewPresets, setViewPresets] = useState(() => {
+    const custom = customizationService.getCustomization('studyBrowser.viewPresets');
+    const savedPreset = getViewerLayoutSync()?.leftPanel?.studyBrowserViewPreset;
+    if (!savedPreset || !Array.isArray(custom)) {
+      return custom;
+    }
+    return custom.map(preset => ({
+      ...preset,
+      selected: preset.id === savedPreset,
+    }));
+  });
 
   const [actionIcons, setActionIcons] = useState(defaultActionIcons);
 
@@ -143,10 +152,17 @@ function PanelStudyBrowser({
       return;
     }
     const newViewPresets = viewPresets.map(preset => {
-      preset.selected = preset.id === viewPreset.id;
-      return preset;
+      return {
+        ...preset,
+        selected: preset.id === viewPreset.id,
+      };
     });
     setViewPresets(newViewPresets);
+    if (viewPreset.id === 'list' || viewPreset.id === 'thumbnails') {
+      mergeAndSaveViewerLayout({
+        leftPanel: { studyBrowserViewPreset: viewPreset.id },
+      });
+    }
   };
 
   /**
@@ -616,19 +632,14 @@ function PanelStudyBrowser({
 
   const tabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
 
-  // TODO: Should not fire this on "close"
   function _handleStudyClick(StudyInstanceUID) {
-    const shouldCollapseStudy = expandedStudyInstanceUIDs.includes(StudyInstanceUID);
-    const updatedExpandedStudyInstanceUIDs = shouldCollapseStudy
-      ? [...expandedStudyInstanceUIDs.filter(stdyUid => stdyUid !== StudyInstanceUID)]
-      : [...expandedStudyInstanceUIDs, StudyInstanceUID];
-
-    setExpandedStudyInstanceUIDs(updatedExpandedStudyInstanceUIDs);
-
-    if (!shouldCollapseStudy) {
-      const madeInClient = true;
-      requestDisplaySetCreationForStudy(displaySetService, StudyInstanceUID, madeInClient);
+    if (expandedStudyInstanceUIDs.includes(StudyInstanceUID)) {
+      return;
     }
+
+    setExpandedStudyInstanceUIDs([...expandedStudyInstanceUIDs, StudyInstanceUID]);
+    const madeInClient = true;
+    requestDisplaySetCreationForStudy(displaySetService, StudyInstanceUID, madeInClient);
   }
 
   useEffect(() => {
@@ -906,6 +917,8 @@ function _mapDisplaySets(
         displaySetInstanceUID,
         description: ds.SeriesDescription || '',
         seriesNumber: ds.SeriesNumber,
+        InstanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
+        instanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
         modality: ds.Modality,
         seriesDate: formatDate(ds.SeriesDate),
         numInstances: loadingNumInstances ?? ds.numImageFrames,

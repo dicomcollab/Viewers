@@ -4,8 +4,8 @@
   flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
-  --us-cine-bar-height: 32px;
-  --us-viewport-bottom-reserve: 44px;
+  --us-cine-bar-height: 28px;
+  --us-viewport-bottom-reserve: 38px;
 }
 
 .viewport-wrapper[data-us-cine='true'] > .cornerstone-viewport-element {
@@ -45,10 +45,32 @@
 }
 
 /*
+ * Only the scrub slider is muted — small thumb + low-contrast track so it
+ * does not pull the eye away from the image. Transport buttons stay normal.
+ */
+.us-viewport-cine-slider [role='slider'] {
+  height: 8px !important;
+  width: 8px !important;
+  border-width: 1px !important;
+  box-shadow: none !important;
+  background-color: rgba(255, 255, 255, 0.35) !important;
+  border-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.us-viewport-cine-slider [data-orientation='horizontal'] > span:first-child {
+  background-color: rgba(255, 255, 255, 0.14) !important;
+  height: 2px !important;
+}
+
+.us-viewport-cine-slider [data-orientation='horizontal'] > span:first-child > span {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/*
  * Window-level and other bottom action corners are siblings of viewport-wrapper
  * and were sitting under the cine bar — lift them above the reserved bottom chrome.
  */
 [data-cy='viewport-pane'][data-us-cine='true'] div[class*='bottom-[3px]'] {
-  bottom: calc(var(--us-viewport-bottom-reserve, 44px) + 2px) !important;
+  bottom: calc(var(--us-viewport-bottom-reserve, 38px) + 2px) !important;
   z-index: 55;
 }

@@ -9,6 +9,7 @@ import {
   Button,
   Icons,
 } from '@ohif/ui-next';
+import { saveHangingProtocolChoice } from '../utils/viewerLayoutPreferences';
 
 interface HangingProtocolSelectorProps {
   commandsManager: CommandsManager;
@@ -132,8 +133,16 @@ function HangingProtocolSelectorWithServices({
           stageId: option.stageId,
         },
       });
+      saveHangingProtocolChoice(
+        {
+          kind: 'protocol',
+          protocolId: option.protocolId,
+          stageId: option.stageId,
+        },
+        servicesManager
+      );
     },
-    [commandsManager]
+    [commandsManager, servicesManager]
   );
 
   const cycleProtocol = useCallback(

@@ -27,6 +27,8 @@ import {
   init,
   addTool,
   annotation,
+  ToolGroupManager,
+  Enums,
   ReferenceLinesTool,
   TrackballRotateTool,
   AdvancedMagnifyTool,
@@ -393,3 +395,76 @@ const toolNames = {
 };
 
 export { toolNames };
+
+function applyDefaultAnnotationColors() {
+  try {
+    const defaultLine = 'rgb(0, 220, 0)';
+    const defaultText = 'rgb(0, 255, 0)';
+    const current = annotation.config.style.getDefaultToolStyles() || {};
+    const next = { global: { ...(current.global || {}) } };
+    Object.keys(current).forEach(key => {
+      if (key === 'global') {
+        return;
+      }
+      next[key] = {
+        ...current[key],
+        color: defaultLine,
+        colorHighlighted: defaultLine,
+        colorLocked: defaultLine,
+        colorSelected: defaultLine,
+        textBoxColor: defaultText,
+        textBoxColorHighlighted: defaultText,
+        textBoxColorLocked: defaultText,
+        textBoxColorSelected: defaultText,
+      };
+    });
+    annotation.config.style.setDefaultToolStyles(next);
+  } catch (error) {
+    console.warn('[applyDefaultAnnotationColors]', error);
+  }
+}
+
+function applyDefaultMouseBindings() {
+  try {
+    const groups = ToolGroupManager.getAllToolGroups?.() || [];
+    const defaults = [
+      {
+        toolName: toolNames.WindowLevel,
+        bindings: [{ mouseButton: Enums.MouseBindings.Primary }],
+      },
+      {
+        toolName: toolNames.Zoom,
+        bindings: [{ mouseButton: Enums.MouseBindings.Secondary }, { numTouchPoints: 2 }],
+      },
+      {
+        toolName: toolNames.Pan,
+        bindings: [{ mouseButton: Enums.MouseBindings.Auxiliary }],
+      },
+      {
+        toolName: toolNames.StackScroll,
+        bindings: [{ mouseButton: Enums.MouseBindings.Wheel }, { numTouchPoints: 3 }],
+      },
+    ];
+    groups.forEach(group => {
+      defaults.forEach(({ toolName, bindings }) => {
+        if (group.hasTool?.(toolName)) {
+          group.setToolActive(toolName, { bindings });
+        }
+      });
+      if (group.hasTool?.(toolNames.TrackballRotateTool)) {
+        group.setToolPassive?.(toolNames.TrackballRotateTool);
+      }
+    });
+  } catch (error) {
+    console.warn('[applyDefaultMouseBindings]', error);
+  }
+}
+
+function applyDefaultViewerInteractionPreferences() {
+  applyDefaultAnnotationColors();
+  applyDefaultMouseBindings();
+}
+
+if (typeof window !== 'undefined') {
+  window.applyDefaultViewerInteractionPreferences = applyDefaultViewerInteractionPreferences;
+}

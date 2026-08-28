@@ -31,6 +31,7 @@ export type HangingProtocolParams = {
   activeStudyUID?: string;
   stageId?: string;
   reset?: false;
+  silent?: boolean;
 };
 
 export type UpdateViewportDisplaySetParams = {
@@ -335,6 +336,7 @@ const commandsModule = ({
       stageId,
       stageIndex,
       reset = false,
+      silent = false,
     }: HangingProtocolParams): boolean => {
       const isVolumeLikeProtocol =
         typeof protocolId === 'string' &&
@@ -374,7 +376,10 @@ const commandsModule = ({
         // Pass in viewportId for the active viewport.  This item will get set as
         // the activeViewportId
         const state = viewportGridService.getState();
-        const hpInfo = hangingProtocolService.getState();
+        const hpInfo = hangingProtocolService.getState() || {};
+        if (!toUseStudyInstanceUID && !hpInfo.activeStudyUID) {
+          return false;
+        }
         reuseCachedLayouts(state, hangingProtocolService);
         const { hangingProtocolStageIndexMap } = useHangingProtocolStageIndexStore.getState();
         const { displaySetSelectorMap } = useDisplaySetSelectorStore.getState();
@@ -400,7 +405,7 @@ const commandsModule = ({
 
         const activeStudyChanged = hangingProtocolService.setActiveStudyUID(toUseStudyInstanceUID);
 
-        const storedHanging = `${toUseStudyInstanceUID || hangingProtocolService.getState().activeStudyUID}:${protocolId}:${
+        const storedHanging = `${toUseStudyInstanceUID || hangingProtocolService.getState()?.activeStudyUID || hpInfo.activeStudyUID}:${protocolId}:${
           useStageIdx || 0
         }`;
 
@@ -454,12 +459,14 @@ const commandsModule = ({
         return true;
       } catch (e) {
         console.error(e);
-        uiNotificationService.show({
-          title: 'Apply Hanging Protocol',
-          message: 'The hanging protocol could not be applied.',
-          type: 'error',
-          duration: 3000,
-        });
+        if (!silent) {
+          uiNotificationService.show({
+            title: 'Apply Hanging Protocol',
+            message: 'The hanging protocol could not be applied.',
+            type: 'error',
+            duration: 3000,
+          });
+        }
         return false;
       }
     },

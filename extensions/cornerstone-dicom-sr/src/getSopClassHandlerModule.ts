@@ -133,6 +133,8 @@ function _getDisplaySetsFromSeries(
     SOPClassHandlerId: is3DSR ? SOPClassHandlerId3D : SOPClassHandlerId,
     SOPClassUID,
     instances,
+    instanceNumber: instance.InstanceNumber,
+    InstanceNumber: instance.InstanceNumber,
     referencedImages: null,
     measurements: null,
     isDerivedDisplaySet: true,

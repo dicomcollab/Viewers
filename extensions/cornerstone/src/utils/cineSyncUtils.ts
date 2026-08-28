@@ -167,12 +167,24 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
 /**
  * Show study-level US cine controls in the viewer header (page nav + sync + FPS/fr).
  * Ultrasound only — CT/MR multi-slice must not show US header cine chrome.
+ * Autoplay stays US-only (CinePlayer / isUsMultiframeDisplaySet).
  */
 export function shouldShowStudyCineHeaderControls(
   servicesManager: AppTypes.ServicesManager
 ): boolean {
   const { displaySetService } = servicesManager.services;
   const usMultiframeSets = displaySetService.activeDisplaySets.filter(isUsMultiframeDisplaySet);
+  const usStudySlots = displaySetService.activeDisplaySets.filter(
+    ds =>
+      !ds?.unsupported &&
+      (ds.Modality === 'SR' || (ds.Modality === 'US' && (ds.numImageFrames ?? 0) >= 1))
+  );
+
+  // Pager / study transport when the study has multiple US/SR slots,
+  // even if the current hanging-protocol page only has static tiles.
+  if (usStudySlots.length > 1) {
+    return true;
+  }
 
   return usMultiframeSets.length > 0;
 }

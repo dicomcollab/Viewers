@@ -11,7 +11,7 @@ const ICON_BTN =
   'h-5 w-5 shrink-0 p-0 transition-colors [&_svg]:h-3 [&_svg]:w-3';
 const FRAME_BTN = `${ICON_BTN} text-white/80 hover:bg-white/10 hover:text-white`;
 const FPS_STEP_BTN =
-  'flex h-4 w-3.5 shrink-0 items-center justify-center rounded text-[11px] font-semibold leading-none hover:bg-white/15';
+  'flex h-4 w-3.5 shrink-0 items-center justify-center rounded text-[11px] font-normal leading-none text-white/90 hover:bg-white/10 hover:text-white/90';
 const ULTRA_COMPACT_WIDTH_PX = 280;
 const FPS_MIN = 1;
 const FPS_MAX = 90;
@@ -144,7 +144,7 @@ function UsViewportCineBar({
         <Button
           variant="ghost"
           size="icon"
-          className={`${ICON_BTN} rounded-sm ${isLayoutPlaying ? activeTransportClass(true) : 'text-white/90 hover:bg-white/10'}`}
+          className={`${ICON_BTN} rounded-sm ${activeTransportClass(isLayoutPlaying)}`}
           onClick={() => onPlayPauseChange(!isLayoutPlaying)}
           title={isLayoutPlaying ? 'Pause' : 'Play'}
           data-cy="cine-player-play-pause"
@@ -188,7 +188,7 @@ function UsViewportCineBar({
 
       {showFpsControl ? (
         <div
-          className="inline-flex h-5 shrink-0 items-center gap-px rounded bg-black/40 px-0.5 text-[9px] text-white"
+          className="inline-flex h-5 shrink-0 items-center gap-px rounded bg-black/40 px-0.5 text-[9px] leading-none text-white/90"
           data-cy="cine-player-viewport-fps"
           title="FPS for this viewport only"
         >
@@ -208,10 +208,10 @@ function UsViewportCineBar({
             title="FPS for this viewport"
             data-cy="cine-player-viewport-fps"
           >
-            <span className="min-w-[1.1rem] text-center font-semibold tabular-nums">
+            <span className="min-w-[1.1rem] text-center tabular-nums">
               {localFps}
             </span>
-            <span className="text-[8px] font-medium text-primary-foreground">FPS</span>
+            <span className="text-[8px] font-normal text-white/90">FPS</span>
           </span>
           {!isUltraCompact ? (
             <button
@@ -227,14 +227,14 @@ function UsViewportCineBar({
         </div>
       ) : localFps != null && localFps > 0 ? (
         <span
-          className="shrink-0 px-0.5 text-[9px] font-semibold leading-none text-white/90 tabular-nums"
+          className="shrink-0 px-0.5 text-[9px] font-normal leading-none text-white/90 tabular-nums"
           data-cy="cine-player-viewport-fps"
         >
           {localFps} FPS
         </span>
       ) : null}
 
-      <div className="min-w-[2rem] flex-1 px-1">
+      <div className="us-viewport-cine-slider min-w-[2rem] flex-1 px-1">
         <Numeric.Container
           mode="singleRange"
           min={1}

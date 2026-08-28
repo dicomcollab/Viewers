@@ -29,24 +29,28 @@ const StudyItem = ({
     <Accordion
       type="single"
       collapsible
-      onClick={onClick}
-      onKeyDown={() => {}}
-      role="button"
-      tabIndex={0}
-      defaultValue={isActive ? 'study-item' : undefined}
+      value={isExpanded ? 'study-item' : ''}
+      onValueChange={nextValue => {
+        if (nextValue === 'study-item' && !isExpanded) {
+          onClick();
+        }
+      }}
     >
-      <AccordionItem value="study-item">
-        <AccordionTrigger className={classnames('hover:bg-primary-active bg-primary-main group w-full rounded', isActive && 'bg-primary-main')}>
-          <div className="flex h-[40px] w-full flex-row overflow-hidden">
-            <div className="flex w-full flex-row items-center justify-between">
-              <div className="flex min-w-0 flex-col items-start text-[13px]">
+      <AccordionItem
+        value="study-item"
+        className="min-w-0"
+      >
+        <AccordionTrigger className={classnames('hover:bg-primary-active bg-primary-main group w-full min-w-0 overflow-hidden rounded', isActive && 'bg-primary-main')}>
+          <div className="flex h-[40px] w-full min-w-0 flex-row overflow-hidden">
+            <div className="flex w-full min-w-0 flex-row items-center justify-between gap-1">
+              <div className="flex min-w-0 flex-1 flex-col items-start text-[13px]">
                 <Tooltip>
                   <TooltipContent>{date}</TooltipContent>
                   <TooltipTrigger
-                    className="w-full"
+                    className="w-full min-w-0"
                     asChild
                   >
-                    <div className="h-[18px] w-full max-w-[160px] overflow-hidden truncate whitespace-nowrap text-left text-white">
+                    <div className="h-[18px] w-full min-w-0 overflow-hidden truncate whitespace-nowrap text-left text-white">
                       {date}
                     </div>
                   </TooltipTrigger>
@@ -54,21 +58,21 @@ const StudyItem = ({
                 <Tooltip>
                   <TooltipContent>{description}</TooltipContent>
                   <TooltipTrigger
-                    className="w-full"
+                    className="w-full min-w-0"
                     asChild
                   >
-                    <div className="text-white h-[18px] w-full overflow-hidden truncate whitespace-nowrap text-left">
+                    <div className="text-white h-[18px] w-full min-w-0 overflow-hidden truncate whitespace-nowrap text-left">
                       {description}
                     </div>
                   </TooltipTrigger>
                 </Tooltip>
               </div>
-              <div className="text-white flex flex-col items-end pl-[10px] text-[12px]">
-                <div className="max-w-[150px] overflow-hidden text-ellipsis">{modalities}</div>
+              <div className="text-white flex max-w-[42%] shrink-0 flex-col items-end pl-1 text-[12px]">
+                <div className="max-w-full overflow-hidden truncate">{modalities}</div>
                 <div>{numInstances}</div>
               </div>
               {StudyMenuItems && (
-                <div className="ml-2 flex items-center">
+                <div className="ml-1 flex shrink-0 items-center">
                   <StudyMenuItems StudyInstanceUID={StudyInstanceUID} />
                 </div>
               )}

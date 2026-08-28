@@ -211,7 +211,7 @@ function applyFrameOffsetsWhenReady(
  * in 2×2 is 6 pages, last page shows the two reports).
  *
  * Does not attach a frameview synchronizer, so wheel/scrub stays independent.
- * Cine is paused — the user starts playback if they want it.
+ * Cine chrome is hidden in this mode — page next/prev advances frame groups.
  */
 function applyUsFrameDistribution(
   servicesManager: AppTypes.ServicesManager,
@@ -330,14 +330,9 @@ function restoreHangingProtocol(
   const snapshot = consumeFrameDistributionLayoutSnapshot();
   const hpState = servicesManager.services.hangingProtocolService.getState();
   const singleUs = getUsImageDisplaySets(servicesManager.services.displaySetService).length === 1;
-  const snapshotIs1x1 =
-    snapshot?.protocolId === 'allModality1x1' ||
-    snapshot?.stageId === '1x1' ||
-    snapshot?.protocolId === 'usModality1x1';
 
-  // A single US instance always hangs 1×1. Do not keep a 2×2 that Frame Dist
-  // or unmatched HP fill applied on top of that study.
-  const use1x1 = singleUs && (snapshotIs1x1 || !snapshot?.protocolId);
+  // Single multiframe US: Frame Dist off always returns to 1×1 cine play.
+  const use1x1 = singleUs;
 
   commandsManager.run({
     commandName: 'setHangingProtocol',
@@ -372,12 +367,24 @@ function sanitizeSingleUsLayoutWhenFrameDistOff(servicesManager: AppTypes.Servic
     return;
   }
 
-  const { displaySetService, viewportGridService, cornerstoneViewportService } =
+  const { displaySetService, viewportGridService, hangingProtocolService, cornerstoneViewportService } =
     servicesManager.services;
   const usSets = getUsImageDisplaySets(displaySetService);
 
   if (usSets.length !== 1) {
     return;
+  }
+
+  const grid = viewportGridService.getState()?.layout;
+  const tiles = (grid?.numRows || 1) * (grid?.numCols || 1);
+  const hpId = hangingProtocolService?.getState?.()?.protocolId;
+  if (tiles > 1 && hpId !== 'allModality1x1') {
+    try {
+      hangingProtocolService.setProtocol('allModality1x1', { reset: true });
+      return;
+    } catch {
+      // Viewport cleanup below still runs if the protocol switch fails.
+    }
   }
 
   const usUid = usSets[0].displaySetInstanceUID;
@@ -468,7 +475,19 @@ function setUsFrameDistribution(
   setUsFrameDistributionBatchStart(0);
   pauseAllUsViewports(servicesManager);
 
-  applyUsFrameDistribution(servicesManager);
+  // Frame Dist: 2×2 layout, static frames only — page next/prev moves groups.
+  commandsManager.run({
+    commandName: 'setHangingProtocol',
+    commandOptions: {
+      protocolId: 'allModality2x2',
+      stageId: '2x2',
+      stageIndex: 0,
+      reset: true,
+    },
+  });
+
+  window.setTimeout(() => applyUsFrameDistribution(servicesManager, { force: true }), 120);
+  window.setTimeout(() => applyUsFrameDistribution(servicesManager, { force: true }), 400);
 }
 
 function snapBatchStartToLayout(

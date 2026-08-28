@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 import { HangingProtocolService, CommandsManager } from '@ohif/core';
@@ -8,6 +8,16 @@ import ViewerHpCineBar from './ViewerHpCineBar';
 import SidePanelWithServices from '../Components/SidePanelWithServices';
 import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@ohif/ui-next';
 import useResizablePanels from './ResizablePanelsHook';
+import useViewerLayoutPersistence from '../hooks/useViewerLayoutPersistence';
+import {
+  getViewerLayoutSync,
+  hasExplicitViewerLayout,
+  isPersistViewerLayoutEnabled,
+  isViewerLayoutHydrated,
+  seedDefaultClosedPanels,
+  setPanelRestoreLocked,
+  subscribeViewerLayoutLoaded,
+} from '../utils/viewerLayoutPreferences';
 import './ViewerLayout.css';
 
 const resizableHandleClassName = 'mt-[1px] bg-black';
@@ -81,8 +91,33 @@ function ViewerLayout({
 
   const isIframeMode = isInIframe();
   const defaultPanelsClosed = shouldDefaultPanelsClosed();
-  const effectiveLeftPanelClosed = defaultPanelsClosed ? true : leftPanelClosed;
-  const effectiveRightPanelClosed = defaultPanelsClosed ? true : rightPanelClosed;
+  if (defaultPanelsClosed && !hasExplicitViewerLayout()) {
+    seedDefaultClosedPanels();
+  }
+  const savedViewerLayout = getViewerLayoutSync();
+  const layoutHydrated = isViewerLayoutHydrated();
+  const hasSavedLayout = isPersistViewerLayoutEnabled() && hasExplicitViewerLayout();
+  // Do not expand on first paint before preferences load — that fights a saved closed panel.
+  const effectiveLeftPanelClosed = !layoutHydrated
+    ? true
+    : hasSavedLayout
+      ? savedViewerLayout.leftPanel.closed === true
+      : defaultPanelsClosed
+        ? true
+        : typeof savedViewerLayout?.leftPanel?.closed === 'boolean'
+          ? savedViewerLayout.leftPanel.closed
+          : leftPanelClosed;
+  const effectiveRightPanelClosed = !layoutHydrated
+    ? true
+    : hasSavedLayout
+      ? savedViewerLayout.rightPanel.closed === true
+      : defaultPanelsClosed
+        ? true
+        : typeof savedViewerLayout?.rightPanel?.closed === 'boolean'
+          ? savedViewerLayout.rightPanel.closed
+          : rightPanelClosed;
+  const restoredLeftPanelWidth = savedViewerLayout?.leftPanel?.width;
+  const restoredRightPanelWidth = savedViewerLayout?.rightPanel?.width;
 
   const hasPanels = useCallback(
     (side): boolean => !!panelService.getPanels(side).length,
@@ -94,6 +129,52 @@ function ViewerLayout({
   const [leftPanelClosedState, setLeftPanelClosed] = useState(effectiveLeftPanelClosed);
   const [rightPanelClosedState, setRightPanelClosed] = useState(effectiveRightPanelClosed);
 
+  const { persistPanelChange } = useViewerLayoutPersistence({
+    servicesManager,
+    commandsManager,
+  });
+  const applyingSavedPanelsRef = useRef(true);
+  const userAdjustedPanelsRef = useRef(false);
+  const applyGenerationRef = useRef(0);
+
+  const setLeftPanelClosedAndPersist = useCallback(
+    (closed, options) => {
+      if (options?.persist === false && userAdjustedPanelsRef.current && closed === false) {
+        return;
+      }
+      setLeftPanelClosed(closed);
+      if (options?.persist === false) {
+        return;
+      }
+      userAdjustedPanelsRef.current = true;
+      applyGenerationRef.current += 1;
+      persistPanelChange(
+        { leftPanel: { closed } },
+        { userAction: true, debounceMs: 0, force: true }
+      );
+    },
+    [persistPanelChange]
+  );
+
+  const setRightPanelClosedAndPersist = useCallback(
+    (closed, options) => {
+      if (options?.persist === false && userAdjustedPanelsRef.current && closed === false) {
+        return;
+      }
+      setRightPanelClosed(closed);
+      if (options?.persist === false) {
+        return;
+      }
+      userAdjustedPanelsRef.current = true;
+      applyGenerationRef.current += 1;
+      persistPanelChange(
+        { rightPanel: { closed } },
+        { userAction: true, debounceMs: 0, force: true }
+      );
+    },
+    [persistPanelChange]
+  );
+
   const [
     leftPanelProps,
     rightPanelProps,
@@ -102,18 +183,193 @@ function ViewerLayout({
     resizableViewportGridPanelProps,
     resizableRightPanelProps,
     onHandleDragging,
+    syncPanelClosed,
   ] = useResizablePanels(
     effectiveLeftPanelClosed,
-    setLeftPanelClosed,
+    setLeftPanelClosedAndPersist,
     effectiveRightPanelClosed,
-    setRightPanelClosed,
+    setRightPanelClosedAndPersist,
     hasLeftPanels,
     hasRightPanels,
-    leftPanelInitialExpandedWidth,
-    rightPanelInitialExpandedWidth,
+    restoredLeftPanelWidth || leftPanelInitialExpandedWidth,
+    restoredRightPanelWidth || rightPanelInitialExpandedWidth,
     leftPanelMinimumExpandedWidth,
-    rightPanelMinimumExpandedWidth
+    isIframeMode ? (rightPanelMinimumExpandedWidth ?? 200) : rightPanelMinimumExpandedWidth
   );
+
+  const skipFirstLeftWidthSaveRef = useRef(true);
+  const skipFirstRightWidthSaveRef = useRef(true);
+
+  useEffect(() => {
+    if (skipFirstLeftWidthSaveRef.current) {
+      skipFirstLeftWidthSaveRef.current = false;
+      return;
+    }
+    if (applyingSavedPanelsRef.current) {
+      return;
+    }
+    if (typeof leftPanelProps?.expandedWidth !== 'number') {
+      return;
+    }
+    persistPanelChange(
+      { leftPanel: { width: Math.round(leftPanelProps.expandedWidth) } },
+      { debounceMs: 500, userAction: true }
+    );
+  }, [leftPanelProps?.expandedWidth, persistPanelChange]);
+
+  useEffect(() => {
+    if (skipFirstRightWidthSaveRef.current) {
+      skipFirstRightWidthSaveRef.current = false;
+      return;
+    }
+    if (applyingSavedPanelsRef.current) {
+      return;
+    }
+    if (typeof rightPanelProps?.expandedWidth !== 'number') {
+      return;
+    }
+    persistPanelChange(
+      { rightPanel: { width: Math.round(rightPanelProps.expandedWidth) } },
+      { debounceMs: 500, userAction: true }
+    );
+  }, [rightPanelProps?.expandedWidth, persistPanelChange]);
+
+  const leftPanelPropsRef = useRef(leftPanelProps);
+  const rightPanelPropsRef = useRef(rightPanelProps);
+  const syncPanelClosedRef = useRef(syncPanelClosed);
+  const hasLeftPanelsRef = useRef(hasLeftPanels);
+  const hasRightPanelsRef = useRef(hasRightPanels);
+  leftPanelPropsRef.current = leftPanelProps;
+  rightPanelPropsRef.current = rightPanelProps;
+  syncPanelClosedRef.current = syncPanelClosed;
+  hasLeftPanelsRef.current = hasLeftPanels;
+  hasRightPanelsRef.current = hasRightPanels;
+
+  const handlePanelDragging = useCallback(
+    isStartDrag => {
+      onHandleDragging(isStartDrag);
+      if (isStartDrag || applyingSavedPanelsRef.current) {
+        return;
+      }
+      const leftWidth = leftPanelPropsRef.current?.expandedWidth;
+      const rightWidth = rightPanelPropsRef.current?.expandedWidth;
+      persistPanelChange(
+        {
+          ...(typeof leftWidth === 'number' ? { leftPanel: { width: Math.round(leftWidth) } } : {}),
+          ...(typeof rightWidth === 'number' ? { rightPanel: { width: Math.round(rightWidth) } } : {}),
+        },
+        { debounceMs: 0, userAction: true }
+      );
+    },
+    [onHandleDragging, persistPanelChange]
+  );
+
+  useEffect(() => {
+    setPanelRestoreLocked(true);
+    applyingSavedPanelsRef.current = true;
+    let unlockTimer = 0;
+    let resizeObserver = null;
+    const retryTimers = [];
+
+    const unlock = () => {
+      applyingSavedPanelsRef.current = false;
+      setPanelRestoreLocked(false);
+      retryTimers.forEach(clearTimeout);
+      retryTimers.length = 0;
+      resizeObserver?.disconnect();
+      resizeObserver = null;
+    };
+
+    const apply = layout => {
+      if (userAdjustedPanelsRef.current) {
+        unlock();
+        return;
+      }
+      if (!layout?.leftPanel && !layout?.rightPanel) {
+        unlock();
+        return;
+      }
+      applyingSavedPanelsRef.current = true;
+      setPanelRestoreLocked(true);
+      const generation = ++applyGenerationRef.current;
+      const leftClosed = layout.leftPanel?.closed === true;
+      const rightClosed = layout.rightPanel?.closed === true;
+      setLeftPanelClosed(leftClosed);
+      setRightPanelClosed(rightClosed);
+
+      const trySync = () => {
+        if (userAdjustedPanelsRef.current || generation !== applyGenerationRef.current) {
+          return true;
+        }
+        const leftOk =
+          !hasLeftPanelsRef.current ||
+          syncPanelClosedRef.current?.('left', leftClosed, layout.leftPanel?.width) === true;
+        const rightOk =
+          !hasRightPanelsRef.current ||
+          syncPanelClosedRef.current?.('right', rightClosed, layout.rightPanel?.width) === true;
+        return leftOk && rightOk;
+      };
+
+      retryTimers.forEach(clearTimeout);
+      retryTimers.length = 0;
+      if (unlockTimer) {
+        clearTimeout(unlockTimer);
+        unlockTimer = 0;
+      }
+
+      const schedule = () => {
+        if (userAdjustedPanelsRef.current || generation !== applyGenerationRef.current) {
+          unlock();
+          return;
+        }
+        if (trySync()) {
+          unlockTimer = window.setTimeout(() => {
+            if (generation === applyGenerationRef.current && !userAdjustedPanelsRef.current) {
+              unlock();
+            }
+          }, 400);
+        }
+      };
+
+      schedule();
+      [50, 150, 300, 600, 1000, 1600, 2500].forEach(ms => {
+        retryTimers.push(window.setTimeout(schedule, ms));
+      });
+      unlockTimer = window.setTimeout(() => {
+        if (generation === applyGenerationRef.current) {
+          unlock();
+        }
+      }, 3000);
+
+      const groupEl = document.querySelector(
+        '[data-panel-group-id="viewerLayoutResizablePanelGroup"]'
+      );
+      resizeObserver?.disconnect();
+      if (groupEl && typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => {
+          if (userAdjustedPanelsRef.current || generation !== applyGenerationRef.current) {
+            resizeObserver?.disconnect();
+            return;
+          }
+          schedule();
+        });
+        resizeObserver.observe(groupEl);
+      }
+    };
+
+    const unsubscribe = subscribeViewerLayoutLoaded(layout => {
+      apply(layout);
+    });
+    return () => {
+      retryTimers.forEach(clearTimeout);
+      if (unlockTimer) {
+        clearTimeout(unlockTimer);
+      }
+      resizeObserver?.disconnect();
+      unsubscribe();
+      setPanelRestoreLocked(false);
+    };
+  }, []);
 
   const handleMouseEnter = () => {
     (document.activeElement as HTMLElement)?.blur();
@@ -295,10 +551,10 @@ function ViewerLayout({
       ({ options }) => {
         setHasLeftPanels(hasPanels('left'));
         setHasRightPanels(hasPanels('right'));
-        if (options?.leftPanelClosed !== undefined) {
+        if (options?.leftPanelClosed !== undefined && !hasExplicitViewerLayout() && !userAdjustedPanelsRef.current) {
           setLeftPanelClosed(options.leftPanelClosed);
         }
-        if (options?.rightPanelClosed !== undefined) {
+        if (options?.rightPanelClosed !== undefined && !hasExplicitViewerLayout() && !userAdjustedPanelsRef.current) {
           setRightPanelClosed(options.rightPanelClosed);
         }
       }
@@ -348,7 +604,7 @@ function ViewerLayout({
                   />
                 </ResizablePanel>
                 <ResizableHandle
-                  onDragging={onHandleDragging}
+                  onDragging={handlePanelDragging}
                   disabled={!leftPanelResizable}
                   className={resizableHandleClassName}
                 />
@@ -377,7 +633,7 @@ function ViewerLayout({
             {hasRightPanels ? (
               <>
                 <ResizableHandle
-                  onDragging={onHandleDragging}
+                  onDragging={handlePanelDragging}
                   disabled={!rightPanelResizable}
                   className={resizableHandleClassName}
                 />

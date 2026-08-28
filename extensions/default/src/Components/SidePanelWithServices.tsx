@@ -1,6 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { SidePanel } from '@ohif/ui-next';
 import { Types } from '@ohif/core';
+import {
+  getViewerLayoutSync,
+  isPanelRestoreLocked,
+  isPersistViewerLayoutEnabled,
+  mergeAndSaveViewerLayout,
+  resolveTabIndex,
+  subscribeViewerLayoutLoaded,
+} from '../utils/viewerLayoutPreferences';
 
 export type SidePanelWithServicesProps = {
   servicesManager: AppTypes.ServicesManager;
@@ -30,41 +38,54 @@ const SidePanelWithServices = ({
 }: SidePanelWithServicesProps) => {
   const { panelService, toolbarService, viewportGridService } = servicesManager.services;
 
-  // Tracks whether this SidePanel has been opened at least once since this SidePanel was inserted into the DOM.
-  // Thus going to the Study List page and back to the viewer resets this flag for a SidePanel.
-  const [sidePanelExpanded, setSidePanelExpanded] = useState(isExpanded);
-  const [activeTabIndex, setActiveTabIndex] = useState(activeTabIndexProp ?? 0);
-  const [closedManually, setClosedManually] = useState(false);
+  // Tracks whether the user manually closed this panel (for ACTIVATE_PANEL behavior).
+  const [closedManually, setClosedManually] = useState(
+    () => getViewerLayoutSync()?.[side === 'left' ? 'leftPanel' : 'rightPanel']?.closed === true
+  );
   const [tabs, setTabs] = useState(tabsProp ?? panelService.getPanels(side));
+  const [activeTabIndex, setActiveTabIndex] = useState(() => {
+    const saved = getViewerLayoutSync()?.[side === 'left' ? 'leftPanel' : 'rightPanel'];
+    const fromSaved = resolveTabIndex(tabsProp ?? panelService.getPanels(side), saved);
+    return fromSaved ?? activeTabIndexProp ?? 0;
+  });
+  const tabRestoredRef = useRef(false);
 
   const handleActiveTabIndexChange = useCallback(
-    ({ activeTabIndex }) => {
+    ({ activeTabIndex: nextIndex }) => {
       const { activeViewportId: viewportId } = viewportGridService.getState();
       toolbarService.refreshToolbarState({ viewportId });
 
-      setActiveTabIndex(activeTabIndex);
+      setActiveTabIndex(nextIndex);
+      const tab = tabs[nextIndex];
+      mergeAndSaveViewerLayout({
+        [side === 'left' ? 'leftPanel' : 'rightPanel']: {
+          tabIndex: nextIndex,
+          ...(tab?.id ? { tabId: tab.id } : {}),
+        },
+      });
     },
-    [toolbarService, viewportGridService]
+    [toolbarService, viewportGridService, tabs, side]
   );
 
   const handleOpen = useCallback(() => {
-    setSidePanelExpanded(true);
     onOpen?.();
   }, [onOpen]);
 
   const handleClose = useCallback(() => {
-    setSidePanelExpanded(false);
     setClosedManually(true);
     onClose?.();
   }, [onClose]);
 
   useEffect(() => {
-    setSidePanelExpanded(isExpanded);
+    setClosedManually(!isExpanded);
   }, [isExpanded]);
 
-  /** update the active tab index from outside */
+  /** Keep restored tab when parent does not pass an index. */
   useEffect(() => {
-    setActiveTabIndex(activeTabIndexProp ?? 0);
+    if (activeTabIndexProp === undefined || activeTabIndexProp === null) {
+      return;
+    }
+    setActiveTabIndex(activeTabIndexProp);
   }, [activeTabIndexProp]);
 
   useEffect(() => {
@@ -88,11 +109,17 @@ const SidePanelWithServices = ({
     const activatePanelSubscription = panelService.subscribe(
       panelService.EVENTS.ACTIVATE_PANEL,
       (activatePanelEvent: Types.ActivatePanelEvent) => {
-        if (sidePanelExpanded || activatePanelEvent.forceActive) {
+        if (isPanelRestoreLocked()) {
+          return;
+        }
+        if (!isExpanded && !activatePanelEvent.forceExpand) {
+          return;
+        }
+        if (isExpanded || activatePanelEvent.forceActive) {
           const tabIndex = tabs.findIndex(tab => tab.id === activatePanelEvent.panelId);
           if (tabIndex !== -1) {
             if (!closedManually || activatePanelEvent.forceExpand) {
-              setSidePanelExpanded(true);
+              onOpen?.();
               setClosedManually(false);
             }
             setActiveTabIndex(tabIndex);
@@ -104,7 +131,22 @@ const SidePanelWithServices = ({
     return () => {
       activatePanelSubscription.unsubscribe();
     };
-  }, [tabs, sidePanelExpanded, panelService, closedManually]);
+  }, [tabs, panelService, closedManually, isExpanded, onOpen]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeViewerLayoutLoaded(layout => {
+      if (!isPersistViewerLayoutEnabled() || tabRestoredRef.current || !tabs?.length) {
+        return;
+      }
+      const saved = layout?.[side === 'left' ? 'leftPanel' : 'rightPanel'];
+      const fromSaved = resolveTabIndex(tabs, saved);
+      if (fromSaved != null) {
+        setActiveTabIndex(fromSaved);
+        tabRestoredRef.current = true;
+      }
+    });
+    return unsubscribe;
+  }, [side, tabs]);
 
   return (
     <SidePanel
@@ -112,7 +154,7 @@ const SidePanelWithServices = ({
       side={side}
       tabs={tabs}
       activeTabIndex={activeTabIndex}
-      isExpanded={sidePanelExpanded}
+      isExpanded={isExpanded}
       onOpen={handleOpen}
       onClose={handleClose}
       onActiveTabIndexChange={handleActiveTabIndexChange}

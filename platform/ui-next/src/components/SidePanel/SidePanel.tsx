@@ -58,7 +58,7 @@ const closeIconWidth = 30;
 const gridHorizontalPadding = 10;
 const tabSpacerWidth = 2;
 
-const baseClasses = 'bg-black border-black justify-start box-content flex flex-col';
+const baseClasses = 'bg-black border-black justify-start box-border flex min-w-0 flex-col overflow-hidden';
 
 const openStateIconName = {
   left: 'SidePanelCloseLeft',
@@ -131,14 +131,12 @@ const getTabIconClassNames = (numTabs: number, isActiveTab: boolean) => {
   });
 };
 const createStyleMap = (
-  expandedWidth: number,
+  _expandedWidth: number,
   expandedInsideBorderSize: number,
-  collapsedWidth: number,
+  _collapsedWidth: number,
   collapsedInsideBorderSize: number,
-  collapsedOutsideBorderSize: number
+  _collapsedOutsideBorderSize: number
 ): StyleMap => {
-  const collapsedHideWidth = expandedWidth - collapsedWidth - collapsedOutsideBorderSize;
-
   return {
     open: {
       left: { marginLeft: '0px', marginRight: `${expandedInsideBorderSize}px` },
@@ -146,13 +144,13 @@ const createStyleMap = (
     },
     closed: {
       left: {
-        marginLeft: `-${collapsedHideWidth}px`,
+        marginLeft: '0px',
         marginRight: `${collapsedInsideBorderSize}px`,
         alignItems: `flex-end`,
       },
       right: {
         marginLeft: `${collapsedInsideBorderSize}px`,
-        marginRight: `-${collapsedHideWidth}px`,
+        marginRight: '0px',
         alignItems: `flex-start`,
       },
     },
@@ -168,15 +166,16 @@ const getToolTipContent = (label: string, disabled: boolean) => {
   );
 };
 
-const createBaseStyle = (expandedWidth: number) => {
+const createBaseStyle = (_expandedWidth: number) => {
   return {
-    maxWidth: `${expandedWidth}px`,
-    width: `${expandedWidth}px`,
-    // To align the top of the side panel with the top of the viewport grid, use position relative and offset the
-    // top by the same top offset as the viewport grid. Also adjust the height so that there is no overflow.
-    position: 'relative',
+    maxWidth: '100%',
+    width: '100%',
+    minWidth: 0,
+    // Fill the resizable panel so study text reflows instead of overflowing when width changes.
+    position: 'relative' as const,
     top: '0.2%',
     height: '99.8%',
+    overflow: 'hidden',
   };
 };
 
@@ -220,15 +219,17 @@ const SidePanel = ({
 
   const updatePanelOpen = useCallback(
     (isOpen: boolean) => {
-      setPanelOpen(isOpen);
-      if (isOpen !== panelOpen) {
-        // only fire events for changes
-        if (isOpen && onOpen) {
-          onOpen();
-        } else if (onClose && !isOpen) {
-          onClose();
-        }
+      if (isOpen === panelOpen) {
+        return;
       }
+
+      if (isOpen) {
+        onOpen?.();
+        return;
+      }
+
+      onClose?.();
+      setPanelOpen(false);
     },
     [panelOpen, onOpen, onClose]
   );
@@ -249,8 +250,8 @@ const SidePanel = ({
   );
 
   useEffect(() => {
-    updatePanelOpen(isExpanded);
-  }, [isExpanded, updatePanelOpen]);
+    setPanelOpen(Boolean(isExpanded));
+  }, [isExpanded]);
 
   useEffect(() => {
     setStyleMap(
@@ -343,11 +344,12 @@ const SidePanel = ({
     return (
       <div
         className={classnames(
-          'absolute flex cursor-pointer items-center justify-center',
+          'absolute z-10 flex cursor-pointer items-center justify-center',
           side === 'left' ? 'right-0' : 'left-0'
         )}
         style={{ width: `${closeIconWidth}px` }}
-        onClick={() => {
+        onClick={event => {
+          event.stopPropagation();
           updatePanelOpen(!panelOpen);
         }}
         data-cy={`side-panel-header-${side}`}
@@ -430,13 +432,13 @@ const SidePanel = ({
     return (
       <div
         className={classnames(
-          'text-white flex grow cursor-pointer select-none justify-center self-center text-[13px]'
+          'text-white flex min-w-0 grow select-none items-center justify-center self-center text-[13px]',
+          side === 'left' ? 'pr-[30px]' : 'pl-[30px]'
         )}
         data-cy={`${tabs[0].name}-btn`}
-        onClick={() => updatePanelOpen(!panelOpen)}
       >
         {getCloseIcon()}
-        <span>{tabs[0].label}</span>
+        <span className="truncate">{tabs[0].label}</span>
       </div>
     );
   };
@@ -444,7 +446,7 @@ const SidePanel = ({
   const getOpenStateComponent = () => {
     return (
       <>
-        <div className="bg-primary-active flex h-[40px] flex-shrink-0 select-none rounded-t p-2">
+        <div className="bg-primary-active flex h-[40px] min-w-0 flex-shrink-0 select-none overflow-hidden rounded-t p-2">
           {tabs.length === 1 ? getOneTabComponent() : getTabGridComponent()}
         </div>
         <Separator
@@ -470,7 +472,7 @@ const SidePanel = ({
         return (
           <div
             key={tabIndex}
-            className={panelOpen ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+            className={panelOpen ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden' : 'hidden'}
           >
             <tab.content />
           </div>

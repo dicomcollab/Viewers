@@ -160,12 +160,13 @@ const allModality1x2Protocol = createAllModalityGridProtocol({
     {
       // Count image series only so a single US instance plus SR reports
       // still hangs 1×1 (Frame Distribution is an explicit HP option).
+      // Hanging-protocol greaterThan is implemented as >=, so value 2 means 2+.
       id: 'TwoOrMoreImageDisplaySets',
       weight: 200,
       required: true,
       attribute: 'numberOfDisplaySetsWithImages',
       constraint: {
-        greaterThan: { value: 1 },
+        greaterThan: { value: 2 },
       },
     },
   ],
@@ -189,12 +190,13 @@ const allModality2x2Protocol = createAllModalityGridProtocol({
       },
     },
     {
+      // greaterThan is >=, so value 3 means 3+ image series.
       id: 'ThreeOrMoreImageDisplaySets',
       weight: 300,
       required: true,
       attribute: 'numberOfDisplaySetsWithImages',
       constraint: {
-        greaterThan: { value: 2 },
+        greaterThan: { value: 3 },
       },
     },
   ],

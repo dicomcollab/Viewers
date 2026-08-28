@@ -1,9 +1,9 @@
 /** Height of the per-viewport cine control row (must match CSS). */
-export const US_VIEWPORT_CINE_BAR_HEIGHT_PX = 32;
+export const US_VIEWPORT_CINE_BAR_HEIGHT_PX = 28;
 
 /** Total bottom space reserved from the image (cine bar + gap for action corners). */
 export const US_VIEWPORT_BOTTOM_RESERVE_PX =
-  US_VIEWPORT_CINE_BAR_HEIGHT_PX + 12;
+  US_VIEWPORT_CINE_BAR_HEIGHT_PX + 10;
 
 export type CinePlayMode = 'fps' | 'step';
 

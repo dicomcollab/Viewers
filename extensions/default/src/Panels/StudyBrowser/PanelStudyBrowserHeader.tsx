@@ -17,10 +17,10 @@ function PanelStudyBrowserHeader({
   // Button order: Settings button then List view mode (thumbnails vs. list)
   return (
     <>
-      <div className="bg-primary-main flex h-[40px] select-none rounded-t p-2">
-        <div className={'flex h-[24px] w-full select-none justify-center self-center text-[14px]'}>
-          <div className="flex w-full items-center gap-[10px]">
-            <div className="flex items-center justify-center">
+      <div className="bg-primary-main flex h-[40px] min-w-0 select-none overflow-hidden rounded-t p-2">
+        <div className="flex h-[24px] w-full min-w-0 select-none items-center self-center text-[14px]">
+          <div className="flex w-full min-w-0 items-center gap-[10px]">
+            <div className="flex shrink-0 items-center justify-center">
               <div className="text-white flex items-center space-x-1">
                 {actionIcons.map((icon: actionIcon, index) =>
                   React.createElement(Icons[icon.iconName] || Icons.MissingIcon, {
@@ -31,7 +31,7 @@ function PanelStudyBrowserHeader({
                 )}
               </div>
             </div>
-            <div className="ml-auto flex h-full items-center justify-center">
+            <div className="ml-auto flex h-full min-w-0 items-center justify-center overflow-hidden">
               <ToggleGroup
                 type="single"
                 value={viewPresets.filter(preset => preset.selected)[0].id}

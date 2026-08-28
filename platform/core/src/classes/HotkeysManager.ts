@@ -107,12 +107,26 @@ export class HotkeysManager {
   }
 
   /**
-   * Uses most recent
-   *
-   * @returns {Promise<void>}
+   * Restore built-in hotkeys locally. When persisting, uses resetViewerPreferences
+   * (not savePreferences) so mouse, tool colors, and layout persist flag are reset too.
    */
-  async restoreDefaultBindings() {
-    await this.setHotkeys(this.hotkeyDefaults, 'hotkey-definitions', true);
+  async restoreDefaultBindings(saveToApi = true) {
+    await this.setHotkeys(this.hotkeyDefaults, 'hotkey-definitions', false);
+    if (!saveToApi) {
+      return;
+    }
+    const win =
+      typeof window !== 'undefined'
+        ? (window as Window & {
+            resetViewerPreferences?: (payload?: { hotkeys?: unknown[] }) => Promise<unknown>;
+          })
+        : undefined;
+    const hotkeys = this.formatHotkeysForApi(this.hotkeyDefaults);
+    if (typeof win?.resetViewerPreferences === 'function') {
+      await win.resetViewerPreferences({ hotkeys });
+      return;
+    }
+    await this.resetViewerPreferencesToAPI(this.hotkeyDefaults);
   }
 
   /**
@@ -466,6 +480,63 @@ export class HotkeysManager {
     }
   }
 
+  formatHotkeysForApi(
+    definitions: Array<Record<string, any>> | Record<string, any> = []
+  ): Array<Record<string, any>> {
+    return this.getValidDefinitions(definitions).map(def => {
+      let keysArray: string[];
+      if (Array.isArray(def.keys)) {
+        keysArray = def.keys;
+      } else if (typeof def.keys === 'string') {
+        keysArray = def.keys.includes('+') ? def.keys.split('+') : [def.keys];
+      } else {
+        keysArray = [];
+      }
+      return {
+        commandName: def.commandName,
+        commandOptions: def.commandOptions || {},
+        label: def.label || '',
+        keys: keysArray,
+        isEditable: def.isEditable !== undefined ? def.isEditable : true,
+      };
+    });
+  }
+
+  /**
+   * Reset viewer-related RIS preferences (hotkeys, mouse, tool colors, layout persist).
+   * Does not use savePreferences.
+   */
+  async resetViewerPreferencesToAPI(definitions: Array<Record<string, any>>): Promise<void> {
+    const token = getTokenFromCookie();
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+    const backendUrl = getBackendUrl();
+    if (!backendUrl) {
+      throw new Error('RIS preferences API base URL is empty');
+    }
+    const axios = await import('axios');
+    const response = await axios.default.post(
+      `${backendUrl}/resetViewerPreferences`,
+      { hotkeys: this.formatHotkeysForApi(definitions) },
+      { headers: { Token: token } }
+    );
+    const win =
+      typeof window !== 'undefined'
+        ? (window as Window & {
+            applyResetPreferencesLocally?: (prefs?: unknown) => void;
+            applyDefaultViewerInteractionPreferences?: () => void;
+            resetViewerLayoutPersistence?: () => void;
+          })
+        : undefined;
+    if (typeof win?.applyResetPreferencesLocally === 'function') {
+      win.applyResetPreferencesLocally(response.data?.preferences || {});
+      return;
+    }
+    win?.applyDefaultViewerInteractionPreferences?.();
+    win?.resetViewerLayoutPersistence?.();
+  }
+
   /**
    * Save hotkeys to API preferences
    * @param {HotkeyDefinition[]} definitions Array of hotkey definitions to save
@@ -478,35 +549,11 @@ export class HotkeysManager {
       }
 
       const backendUrl = getBackendUrl();
-
-      // Prepare hotkeys data in the format expected by API
-      const hotkeysData = definitions.map(def => {
-        // Convert keys to array format for API
-        let keysArray: string[];
-        if (Array.isArray(def.keys)) {
-          keysArray = def.keys;
-        } else if (typeof def.keys === 'string') {
-          // If keys is a string like "z" or "ctrl+z", convert to array
-          keysArray = def.keys.includes('+') ? def.keys.split('+') : [def.keys];
-        } else {
-          keysArray = [];
-        }
-
-        return {
-          commandName: def.commandName,
-          commandOptions: def.commandOptions || {},
-          label: def.label || '',
-          keys: keysArray,
-          isEditable: def.isEditable !== undefined ? def.isEditable : true,
-        };
-      });
-
-      // Use dynamic import for axios to avoid bundling issues
       const axios = await import('axios');
 
       const response = await axios.default.post(
         `${backendUrl}/savePreferences`,
-        { hotkeys: hotkeysData },
+        { hotkeys: this.formatHotkeysForApi(definitions) },
         { headers: { Token: token } }
       );
 

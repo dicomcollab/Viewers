@@ -62,9 +62,124 @@ const useResizablePanels = (
   const resizableLeftPanelAPIRef = useRef(null);
   const resizableRightPanelAPIRef = useRef(null);
   const isResizableHandleDraggingRef = useRef(false);
+  const isLeftPanelCollapsingRef = useRef(false);
+  const isRightPanelCollapsingRef = useRef(false);
+  const lastValidLeftPanelExpandedWidthRef = useRef(panelGroupDefinition.left.initialExpandedWidth);
+  const lastValidRightPanelExpandedWidthRef = useRef(panelGroupDefinition.right.initialExpandedWidth);
 
   // The total width of both handles.
   const resizableHandlesWidth = useRef(null);
+
+  const getMinimumExpandedPixelWidth = sideDef =>
+    sideDef.minimumExpandedOffsetWidth - panelGroupDefinition.shared.expandedInsideBorderSize;
+
+  const getCollapsedWidthThreshold = () =>
+    panelGroupDefinition.shared.collapsedWidth +
+    panelGroupDefinition.shared.collapsedInsideBorderSize +
+    panelGroupDefinition.shared.collapsedOutsideBorderSize +
+    16;
+
+  const resolveExpandedPixelWidth = (side, widthPx) => {
+    const def = side === 'left' ? panelGroupDefinition.left : panelGroupDefinition.right;
+    const lastValidRef =
+      side === 'left' ? lastValidLeftPanelExpandedWidthRef : lastValidRightPanelExpandedWidthRef;
+    const parsed = Number(widthPx);
+    const collapsedThreshold = getCollapsedWidthThreshold();
+    if (Number.isFinite(parsed) && parsed > collapsedThreshold) {
+      return parsed;
+    }
+    return lastValidRef.current ?? def.initialExpandedWidth;
+  };
+
+  const rememberExpandedPixelWidth = (side, widthPx) => {
+    if (!Number.isFinite(widthPx) || widthPx <= getCollapsedWidthThreshold()) {
+      return;
+    }
+    if (side === 'left') {
+      lastValidLeftPanelExpandedWidthRef.current = widthPx;
+      setLeftPanelExpandedWidth(widthPx);
+    } else {
+      lastValidRightPanelExpandedWidthRef.current = widthPx;
+      setRightPanelExpandedWidth(widthPx);
+    }
+  };
+
+  const refreshPanelSizeConstraints = () => {
+    if (!resizablePanelGroupElemRef.current) {
+      return;
+    }
+
+    const minimumLeftSize = getPercentageSize(panelGroupDefinition.left.minimumExpandedOffsetWidth);
+    const minimumRightSize = getPercentageSize(panelGroupDefinition.right.minimumExpandedOffsetWidth);
+    const leftCollapsedSize = getPercentageSize(panelGroupDefinition.left.collapsedOffsetWidth);
+    const rightCollapsedSize = getPercentageSize(panelGroupDefinition.right.collapsedOffsetWidth);
+
+    if (Number.isFinite(minimumLeftSize)) {
+      setLeftResizablePanelMinimumSize(minimumLeftSize);
+    }
+    if (Number.isFinite(minimumRightSize)) {
+      setRightResizablePanelMinimumSize(minimumRightSize);
+    }
+    if (Number.isFinite(leftCollapsedSize)) {
+      setLeftResizePanelCollapsedSize(leftCollapsedSize);
+    }
+    if (Number.isFinite(rightCollapsedSize)) {
+      setRightResizePanelCollapsedSize(rightCollapsedSize);
+    }
+  };
+
+  const applyExpandedPanelLayout = (side, widthPx) => {
+    const api = side === 'left' ? resizableLeftPanelAPIRef.current : resizableRightPanelAPIRef.current;
+    const elem = side === 'left' ? resizableLeftPanelElemRef.current : resizableRightPanelElemRef.current;
+    if (!api || !elem) {
+      return false;
+    }
+
+    const expandedWidth = resolveExpandedPixelWidth(side, widthPx);
+    rememberExpandedPixelWidth(side, expandedWidth);
+    const offsetWidth = expandedWidth + panelGroupDefinition.shared.expandedInsideBorderSize;
+    const pct = getPercentageSize(offsetWidth);
+    if (!Number.isFinite(pct) || pct <= 0) {
+      return false;
+    }
+
+    const bounded = Math.min(pct, 90);
+    try {
+      if (api.isCollapsed?.()) {
+        api.expand?.(bounded);
+      }
+      api.resize?.(bounded);
+      setMinMaxWidth(elem, offsetWidth);
+      return !api.isCollapsed?.();
+    } catch {
+      return false;
+    }
+  };
+
+  const ensureExpandedPanelWidth = side => {
+    if (isResizableHandleDraggingRef.current) {
+      return;
+    }
+    const collapsingRef = side === 'left' ? isLeftPanelCollapsingRef : isRightPanelCollapsingRef;
+    if (collapsingRef.current) {
+      return;
+    }
+
+    const api = side === 'left' ? resizableLeftPanelAPIRef.current : resizableRightPanelAPIRef.current;
+    const elem = side === 'left' ? resizableLeftPanelElemRef.current : resizableRightPanelElemRef.current;
+    if (!api || !elem || api.isCollapsed?.()) {
+      return;
+    }
+
+    const actualWidth = elem.getBoundingClientRect?.()?.width ?? 0;
+    if (actualWidth > getCollapsedWidthThreshold() + 24) {
+      return;
+    }
+
+    const lastValidRef =
+      side === 'left' ? lastValidLeftPanelExpandedWidthRef : lastValidRightPanelExpandedWidthRef;
+    applyExpandedPanelLayout(side, lastValidRef.current);
+  };
 
   // This useLayoutEffect is used to...
   // - Grab a reference to the various resizable panel elements needed for
@@ -95,17 +210,23 @@ const useResizablePanels = (
       const leftResizablePanelExpandedSize = getPercentageSize(
         panelGroupDefinition.left.initialExpandedOffsetWidth
       );
-      resizableLeftPanelAPIRef?.current?.expand(leftResizablePanelExpandedSize);
-      setMinMaxWidth(leftPanelElem, panelGroupDefinition.left.initialExpandedOffsetWidth);
+      if (Number.isFinite(leftResizablePanelExpandedSize)) {
+        resizableLeftPanelAPIRef?.current?.expand(leftResizablePanelExpandedSize);
+        setMinMaxWidth(leftPanelElem, panelGroupDefinition.left.initialExpandedOffsetWidth);
+      }
     }
 
     if (!rightPanelClosed) {
       const rightResizablePanelExpandedSize = getPercentageSize(
         panelGroupDefinition.right.initialExpandedOffsetWidth
       );
-      resizableRightPanelAPIRef?.current?.expand(rightResizablePanelExpandedSize);
-      setMinMaxWidth(rightPanelElem, panelGroupDefinition.right.initialExpandedOffsetWidth);
+      if (Number.isFinite(rightResizablePanelExpandedSize)) {
+        resizableRightPanelAPIRef?.current?.expand(rightResizablePanelExpandedSize);
+        setMinMaxWidth(rightPanelElem, panelGroupDefinition.right.initialExpandedOffsetWidth);
+      }
     }
+
+    refreshPanelSizeConstraints();
   }, []); // no dependencies because this useLayoutEffect is only needed on the very first render
 
   // This useLayoutEffect follows the pattern prescribed by the react-resizable-panels
@@ -126,39 +247,38 @@ const useResizablePanels = (
     // And by virtue of the dependency on the minimum size state variables, this code
     // is executed on the render following an update of the minimum percentage sizes
     // for a panel.
-    if (!resizableLeftPanelAPIRef.current?.isCollapsed()) {
+    if (
+      !isResizableHandleDraggingRef.current &&
+      !isLeftPanelCollapsingRef.current &&
+      !resizableLeftPanelAPIRef.current?.isCollapsed()
+    ) {
       const leftSize = getPercentageSize(
         leftPanelExpandedWidth + panelGroupDefinition.shared.expandedInsideBorderSize
       );
-      resizableLeftPanelAPIRef.current?.resize(leftSize);
+      if (Number.isFinite(leftSize) && leftSize > 0) {
+        resizableLeftPanelAPIRef.current?.resize(leftSize);
+      }
+      ensureExpandedPanelWidth('left');
     }
 
-    if (!resizableRightPanelAPIRef?.current?.isCollapsed()) {
+    if (
+      !isResizableHandleDraggingRef.current &&
+      !isRightPanelCollapsingRef.current &&
+      !resizableRightPanelAPIRef?.current?.isCollapsed()
+    ) {
       const rightSize = getPercentageSize(
         rightPanelExpandedWidth + panelGroupDefinition.shared.expandedInsideBorderSize
       );
-      resizableRightPanelAPIRef?.current?.resize(rightSize);
+      if (Number.isFinite(rightSize) && rightSize > 0) {
+        resizableRightPanelAPIRef?.current?.resize(rightSize);
+      }
+      ensureExpandedPanelWidth('right');
     }
 
     // This observer kicks in when the ViewportLayout resizable panel group
     // component is resized. This typically occurs when the browser window resizes.
     const observer = new ResizeObserver(() => {
-      const minimumLeftSize = getPercentageSize(
-        panelGroupDefinition.left.minimumExpandedOffsetWidth
-      );
-      const minimumRightSize = getPercentageSize(
-        panelGroupDefinition.right.minimumExpandedOffsetWidth
-      );
-
-      // Set the new minimum and collapsed resizable panel sizes.
-      setLeftResizablePanelMinimumSize(minimumLeftSize);
-      setRightResizablePanelMinimumSize(minimumRightSize);
-      setLeftResizePanelCollapsedSize(
-        getPercentageSize(panelGroupDefinition.left.collapsedOffsetWidth)
-      );
-      setRightResizePanelCollapsedSize(
-        getPercentageSize(panelGroupDefinition.right.collapsedOffsetWidth)
-      );
+      refreshPanelSizeConstraints();
     });
 
     observer.observe(resizablePanelGroupElemRef.current);
@@ -189,17 +309,21 @@ const useResizablePanels = (
         isResizableHandleDraggingRef.current = false;
 
         if (resizableLeftPanelAPIRef?.current?.isExpanded()) {
+          const width = resolveExpandedPixelWidth('left', leftPanelExpandedWidth);
           setMinMaxWidth(
             resizableLeftPanelElemRef.current,
-            leftPanelExpandedWidth + panelGroupDefinition.shared.expandedInsideBorderSize
+            width + panelGroupDefinition.shared.expandedInsideBorderSize
           );
+          ensureExpandedPanelWidth('left');
         }
 
         if (resizableRightPanelAPIRef?.current?.isExpanded()) {
+          const width = resolveExpandedPixelWidth('right', rightPanelExpandedWidth);
           setMinMaxWidth(
             resizableRightPanelElemRef.current,
-            rightPanelExpandedWidth + panelGroupDefinition.shared.expandedInsideBorderSize
+            width + panelGroupDefinition.shared.expandedInsideBorderSize
           );
+          ensureExpandedPanelWidth('right');
         }
       }
     },
@@ -207,25 +331,48 @@ const useResizablePanels = (
   );
 
   const onLeftPanelClose = useCallback(() => {
+    isResizableHandleDraggingRef.current = false;
+    isLeftPanelCollapsingRef.current = true;
+    setLeftPanelExpandedWidth(lastValidLeftPanelExpandedWidthRef.current);
     setLeftPanelClosed(true);
     setMinMaxWidth(resizableLeftPanelElemRef.current);
     resizableLeftPanelAPIRef?.current?.collapse();
   }, [setLeftPanelClosed]);
 
   const onLeftPanelOpen = useCallback(() => {
-    resizableLeftPanelAPIRef?.current?.expand(
-      getPercentageSize(panelGroupDefinition.left.initialExpandedOffsetWidth)
-    );
-    setLeftPanelClosed(false);
-  }, [setLeftPanelClosed]);
+    isLeftPanelCollapsingRef.current = false;
+    if (applyExpandedPanelLayout('left', leftPanelExpandedWidth)) {
+      setLeftPanelClosed(false);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      if (applyExpandedPanelLayout('left', leftPanelExpandedWidth)) {
+        setLeftPanelClosed(false);
+      }
+    });
+  }, [setLeftPanelClosed, leftPanelExpandedWidth]);
 
   const onLeftPanelResize = useCallback(size => {
-    if (!resizablePanelGroupElemRef?.current || resizableLeftPanelAPIRef.current?.isCollapsed()) {
+    if (
+      !resizablePanelGroupElemRef?.current ||
+      resizableLeftPanelAPIRef.current?.isCollapsed() ||
+      isLeftPanelCollapsingRef.current
+    ) {
       return;
     }
 
     const newExpandedWidth = getExpandedPixelWidth(size);
-    setLeftPanelExpandedWidth(newExpandedWidth);
+    if (newExpandedWidth <= getCollapsedWidthThreshold()) {
+      return;
+    }
+    if (
+      !isResizableHandleDraggingRef.current &&
+      newExpandedWidth < getMinimumExpandedPixelWidth(panelGroupDefinition.left)
+    ) {
+      return;
+    }
+
+    rememberExpandedPixelWidth('left', newExpandedWidth);
 
     if (!isResizableHandleDraggingRef.current) {
       // This typically gets executed when the left panel is expanded via one of the UI
@@ -236,25 +383,48 @@ const useResizablePanels = (
   }, []);
 
   const onRightPanelClose = useCallback(() => {
+    isResizableHandleDraggingRef.current = false;
+    isRightPanelCollapsingRef.current = true;
+    setRightPanelExpandedWidth(lastValidRightPanelExpandedWidthRef.current);
     setRightPanelClosed(true);
     setMinMaxWidth(resizableRightPanelElemRef.current);
     resizableRightPanelAPIRef?.current?.collapse();
   }, [setRightPanelClosed]);
 
   const onRightPanelOpen = useCallback(() => {
-    resizableRightPanelAPIRef?.current?.expand(
-      getPercentageSize(panelGroupDefinition.right.initialExpandedOffsetWidth)
-    );
-    setRightPanelClosed(false);
-  }, [setRightPanelClosed]);
+    isRightPanelCollapsingRef.current = false;
+    if (applyExpandedPanelLayout('right', rightPanelExpandedWidth)) {
+      setRightPanelClosed(false);
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      if (applyExpandedPanelLayout('right', rightPanelExpandedWidth)) {
+        setRightPanelClosed(false);
+      }
+    });
+  }, [setRightPanelClosed, rightPanelExpandedWidth]);
 
   const onRightPanelResize = useCallback(size => {
-    if (!resizablePanelGroupElemRef?.current || resizableRightPanelAPIRef?.current?.isCollapsed()) {
+    if (
+      !resizablePanelGroupElemRef?.current ||
+      resizableRightPanelAPIRef?.current?.isCollapsed() ||
+      isRightPanelCollapsingRef.current
+    ) {
       return;
     }
 
     const newExpandedWidth = getExpandedPixelWidth(size);
-    setRightPanelExpandedWidth(newExpandedWidth);
+    if (newExpandedWidth <= getCollapsedWidthThreshold()) {
+      return;
+    }
+    if (
+      !isResizableHandleDraggingRef.current &&
+      newExpandedWidth < getMinimumExpandedPixelWidth(panelGroupDefinition.right)
+    ) {
+      return;
+    }
+
+    rememberExpandedPixelWidth('right', newExpandedWidth);
 
     if (!isResizableHandleDraggingRef.current) {
       // This typically gets executed when the right panel is expanded via one of the UI
@@ -269,9 +439,51 @@ const useResizablePanels = (
    * Note that the width attributed to the handles must be taken into account.
    */
   const getPercentageSize = pixelSize => {
-    const { width: panelGroupWidth } = resizablePanelGroupElemRef.current?.getBoundingClientRect();
-    return (pixelSize / (panelGroupWidth - resizableHandlesWidth.current)) * 100;
+    const panelGroupWidth = resizablePanelGroupElemRef.current?.getBoundingClientRect?.()?.width;
+    const handles = resizableHandlesWidth.current || 0;
+    if (!panelGroupWidth || panelGroupWidth <= handles) {
+      return NaN;
+    }
+    return (pixelSize / (panelGroupWidth - handles)) * 100;
   };
+
+  const syncPanelClosed = useCallback((side, closed, widthPx) => {
+    const api = side === 'left' ? resizableLeftPanelAPIRef.current : resizableRightPanelAPIRef.current;
+    const elem = side === 'left' ? resizableLeftPanelElemRef.current : resizableRightPanelElemRef.current;
+    if (!api) {
+      return false;
+    }
+    const targetWidth = resolveExpandedPixelWidth(side, widthPx);
+    rememberExpandedPixelWidth(side, targetWidth);
+    try {
+      if (closed) {
+        if (side === 'left') {
+          isLeftPanelCollapsingRef.current = true;
+        } else {
+          isRightPanelCollapsingRef.current = true;
+        }
+        isResizableHandleDraggingRef.current = false;
+        setMinMaxWidth(elem);
+        api.collapse?.();
+      } else {
+        if (side === 'left') {
+          isLeftPanelCollapsingRef.current = false;
+        } else {
+          isRightPanelCollapsingRef.current = false;
+        }
+        if (!applyExpandedPanelLayout(side, targetWidth)) {
+          return false;
+        }
+      }
+      const collapsed = api.isCollapsed?.();
+      if (typeof collapsed === 'boolean') {
+        return closed ? collapsed : !collapsed;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   /**
    * Gets the width in pixels for an expanded panel given its percentage size/width.
@@ -311,8 +523,12 @@ const useResizablePanels = (
       onResize: onLeftPanelResize,
       collapsible: true,
       collapsedSize: leftResizablePanelCollapsedSize,
-      onCollapse: () => setLeftPanelClosed(true),
-      onExpand: () => setLeftPanelClosed(false),
+      onCollapse: () => {
+        isLeftPanelCollapsingRef.current = false;
+        setLeftPanelExpandedWidth(lastValidLeftPanelExpandedWidthRef.current);
+        setLeftPanelClosed(true, { persist: false });
+      },
+      onExpand: () => setLeftPanelClosed(false, { persist: false }),
       ref: resizableLeftPanelAPIRef,
       order: 0,
       id: panelGroupDefinition.left.panelId,
@@ -324,13 +540,18 @@ const useResizablePanels = (
       onResize: onRightPanelResize,
       collapsible: true,
       collapsedSize: rightResizePanelCollapsedSize,
-      onCollapse: () => setRightPanelClosed(true),
-      onExpand: () => setRightPanelClosed(false),
+      onCollapse: () => {
+        isRightPanelCollapsingRef.current = false;
+        setRightPanelExpandedWidth(lastValidRightPanelExpandedWidthRef.current);
+        setRightPanelClosed(true, { persist: false });
+      },
+      onExpand: () => setRightPanelClosed(false, { persist: false }),
       ref: resizableRightPanelAPIRef,
       order: 2,
       id: panelGroupDefinition.right.panelId,
     },
     onHandleDragging,
+    syncPanelClosed,
   ];
 };
 
