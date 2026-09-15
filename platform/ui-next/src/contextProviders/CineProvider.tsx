@@ -20,7 +20,7 @@ const DEFAULT_STATE = {
 const DEFAULT_CINE = {
   isPlaying: false,
   frameRate: 24,
-  cinePlayMode: 'step' as 'fps' | 'step',
+  cinePlayMode: 'fps' as 'fps' | 'step',
   frameStep: 4,
 };
 
@@ -63,11 +63,12 @@ export default function CineProvider({ children, service }) {
         );
         const cineIdsToUpdate = [id, ...syncedCineIds].filter(curId => {
           const currentCine = cines[curId] ?? {};
-          const nextFrameRate = frameRate ?? currentCine.frameRate;
+          const isSource = curId === id;
+          const nextFrameRate = isSource ? (frameRate ?? currentCine.frameRate) : currentCine.frameRate;
           const nextIsPlaying = isPlaying ?? currentCine.isPlaying;
           const nextCinePlayMode = cinePlayMode ?? currentCine.cinePlayMode;
           const nextFrameStep = frameStep ?? currentCine.frameStep;
-          const shouldUpdateFrameRate = currentCine.frameRate !== nextFrameRate;
+          const shouldUpdateFrameRate = isSource && currentCine.frameRate !== nextFrameRate;
           const shouldUpdateIsPlaying = currentCine.isPlaying !== nextIsPlaying;
           const shouldUpdatePlayMode = currentCine.cinePlayMode !== nextCinePlayMode;
           const shouldUpdateFrameStep = currentCine.frameStep !== nextFrameStep;
@@ -99,10 +100,12 @@ export default function CineProvider({ children, service }) {
 
         cineIdsToUpdate.forEach(currId => {
           const currentCine = cines[currId] ?? { ...DEFAULT_CINE };
+          const isSource = currId === id;
 
           cines[currId] = {
             ...currentCine,
-            frameRate: frameRate ?? currentCine.frameRate,
+            // FPS is always per viewport. Synced peers keep play/pause/mode only.
+            frameRate: isSource ? (frameRate ?? currentCine.frameRate) : currentCine.frameRate,
             isPlaying: isPlaying ?? currentCine.isPlaying,
             cinePlayMode: cinePlayMode ?? currentCine.cinePlayMode,
             frameStep: frameStep ?? currentCine.frameStep,

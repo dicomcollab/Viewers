@@ -1,6 +1,9 @@
 import objectHash from 'object-hash';
 import { hotkeys as mouseTrapAPI } from '../utils';
-import { resolveRisPreferencesApiBaseUrl, getRisAuthTokenFromBrowserCookies } from '../utils/risEnvironmentDefaults';
+import {
+  resolveRisPreferencesApiBaseUrl,
+  getRisAuthTokenFromBrowserCookies,
+} from '../utils/risEnvironmentDefaults';
 import Hotkey from './Hotkey';
 import migrateOldHotkeyDefinitions from '../utils/hotkeys/migrateHotkeys';
 import pubSubServiceInterface from '../services/_shared/pubSubServiceInterface';
@@ -190,8 +193,15 @@ export class HotkeysManager {
       // Save to localStorage as backup
       localStorage.setItem(name, JSON.stringify(definitions));
 
-      const zoomInDef = definitions.find((d: Record<string, any>) => d.commandName === 'scaleUpViewport');
-      console.log('[HotkeysManager] setHotkeys: registering definitions. Zoom In keys=', zoomInDef?.keys, 'definitions count=', definitions.length);
+      const zoomInDef = definitions.find(
+        (d: Record<string, any>) => d.commandName === 'scaleUpViewport'
+      );
+      console.log(
+        '[HotkeysManager] setHotkeys: registering definitions. Zoom In keys=',
+        zoomInDef?.keys,
+        'definitions count=',
+        definitions.length
+      );
 
       // Register hotkeys
       definitions.forEach(definition => this.registerHotkeys(definition));
@@ -363,14 +373,18 @@ export class HotkeysManager {
           const zoomInDef = updatedDefinitions.find(
             (d: Record<string, any>) => d.commandName === 'scaleUpViewport'
           );
-          console.log(
-            '[HotkeysManager] setDefaultHotKeys: after API merge fromApiOrCookies size=',
-            fromApiOrCookies.size,
-            'Zoom In keys=',
-            zoomInDef?.keys
-          );
+          // console.log(
+          //   '[HotkeysManager] setDefaultHotKeys: after API merge fromApiOrCookies size=',
+          //   fromApiOrCookies.size,
+          //   'Zoom In keys=',
+          //   zoomInDef?.keys
+          // );
         } else {
-          console.log('[HotkeysManager] setDefaultHotKeys: no apiHotkeys (length=', apiHotkeys?.length ?? 0, ')');
+          // console.log(
+          //   '[HotkeysManager] setDefaultHotKeys: no apiHotkeys (length=',
+          //   apiHotkeys?.length ?? 0,
+          //   ')'
+          // );
         }
       } catch (error) {
         console.warn('[HotkeysManager] Failed to load hotkeys from API, using defaults:', error);
@@ -398,7 +412,11 @@ export class HotkeysManager {
     const zoomInFinal = updatedDefinitions.find(
       (d: Record<string, any>) => d.commandName === 'scaleUpViewport'
     );
-    console.log('[HotkeysManager] setDefaultHotKeys: final Zoom In keys=', zoomInFinal?.keys, 'before setHotkeys');
+    // console.log(
+    //   '[HotkeysManager] setDefaultHotKeys: final Zoom In keys=',
+    //   zoomInFinal?.keys,
+    //   'before setHotkeys'
+    // );
 
     // Set hotkeys without saving to API (to avoid circular saves during initialization)
     await this.setHotkeys(updatedDefinitions, 'hotkey-definitions', false);
@@ -442,15 +460,17 @@ export class HotkeysManager {
                 (h: any) => h && typeof h === 'object' && (h.commandName || h.label)
               ) as Array<Record<string, any>>;
             }
-            console.log('[HotkeysManager] loadHotkeysFromAPI: using getPreferencesFromCookies() fallback, count=', hotkeys.length);
+            // console.log('[HotkeysManager] loadHotkeysFromAPI: using getPreferencesFromCookies() fallback, count=', hotkeys.length);
           }
         }
-        const zoomIn = hotkeys.find((h: Record<string, any>) => h.commandName === 'scaleUpViewport');
-        console.log('[HotkeysManager] loadHotkeysFromAPI: source=fetchPreferences', 'count=', hotkeys.length, 'Zoom In keys=', zoomIn?.keys, 'data.hotkeys type=', data?.hotkeys != null ? typeof data.hotkeys : 'n/a');
+        const zoomIn = hotkeys.find(
+          (h: Record<string, any>) => h.commandName === 'scaleUpViewport'
+        );
+        // console.log('[HotkeysManager] loadHotkeysFromAPI: source=fetchPreferences', 'count=', hotkeys.length, 'Zoom In keys=', zoomIn?.keys, 'data.hotkeys type=', data?.hotkeys != null ? typeof data.hotkeys : 'n/a');
         return hotkeys;
       }
 
-      console.log('[HotkeysManager] loadHotkeysFromAPI: win.fetchPreferences not available, trying direct fetch');
+      // console.log('[HotkeysManager] loadHotkeysFromAPI: win.fetchPreferences not available, trying direct fetch');
       const token = getTokenFromCookie();
       if (!token) {
         console.warn('[HotkeysManager] No token found in cookie, skipping API hotkey load');
@@ -472,7 +492,7 @@ export class HotkeysManager {
 
       const data = await response.json();
       const hotkeys = data?.hotkeys && Array.isArray(data.hotkeys) ? data.hotkeys : [];
-      console.log('[HotkeysManager] loadHotkeysFromAPI: direct fetch count=', hotkeys.length);
+      // console.log('[HotkeysManager] loadHotkeysFromAPI: direct fetch count=', hotkeys.length);
       return hotkeys;
     } catch (error) {
       console.error('[HotkeysManager] Error loading hotkeys from API:', error);

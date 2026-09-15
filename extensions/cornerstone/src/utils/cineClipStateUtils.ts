@@ -9,6 +9,17 @@ type CustomClipState = {
 const clipsByElement = new Map<HTMLElement, CustomClipState>();
 const clipsByViewportId = new Map<string, CustomClipState>();
 
+let cineGeneration = 0;
+
+function bumpCineGeneration(): number {
+  cineGeneration += 1;
+  return cineGeneration;
+}
+
+function getCineGeneration(): number {
+  return cineGeneration;
+}
+
 function clearClipState(clip: CustomClipState | undefined): void {
   if (!clip) {
     return;
@@ -98,8 +109,10 @@ function isCineClipRunning(
 }
 
 export {
+  bumpCineGeneration,
   clearCustomClip,
   clearCustomClipByViewportId,
+  getCineGeneration,
   isCineClipRunning,
   setCustomClip,
 };

@@ -1527,7 +1527,7 @@ export default class HangingProtocolService extends PubSubService {
     const matchingScores = [];
     let highestSeriesMatchingScore = 0;
 
-    console.log('ProtocolEngine::matchImages', studyMatchingRules, seriesMatchingRules);
+    // console.log('ProtocolEngine::matchImages', studyMatchingRules, seriesMatchingRules);
     const matchActiveOnly = this.protocol.numberOfPriorsReferenced === -1;
     this.studies.forEach((study, studyInstanceUIDsIndex) => {
       // Skip non-active if active only
@@ -1622,13 +1622,15 @@ export default class HangingProtocolService extends PubSubService {
         reverse: true,
       },
       this._getSeriesFieldForDisplaySetSort(),
-      { name: 'instanceNumber' }
+      { name: 'instanceNumber' },
+      { name: 'acquisitionStamp' },
+      { name: 'sopInstanceUID' }
     );
     matchingScores.sort((a, b) => sortingFunction(a.sortingInfo, b.sortingInfo));
 
     const bestMatch = matchingScores[0];
 
-    console.log('ProtocolEngine::matchImages bestMatch', bestMatch, matchingScores);
+    // console.log('ProtocolEngine::matchImages bestMatch', bestMatch, matchingScores);
 
     return {
       bestMatch,
@@ -1647,13 +1649,26 @@ export default class HangingProtocolService extends PubSubService {
         displaySet.instances?.[0]?.InstanceNumber ??
         0
     );
+    const instance = displaySet.instance ?? displaySet.instances?.[0];
+    const acquisitionStamp = String(
+      displaySet.acquisitionDatetime ??
+        displaySet.AcquisitionDateTime ??
+        instance?.AcquisitionDateTime ??
+        instance?.ContentDateTime ??
+        ''
+    );
+    const sopInstanceUID = String(
+      displaySet.SOPInstanceUID ?? instance?.SOPInstanceUID ?? ''
+    );
 
     return {
       [this._getSeriesFieldForDisplaySetSort().name]: Number.isFinite(seriesNumber)
         ? seriesNumber
         : 0,
-      // Keeps one-SOP-per-displaySet US studies in InstanceNumber order for grid fill.
+      // Keeps one-SOP-per-displaySet US studies in the same order as the study panel / 2×2 pager.
       instanceNumber: Number.isFinite(instanceNumber) ? instanceNumber : 0,
+      acquisitionStamp,
+      sopInstanceUID,
     };
   }
 

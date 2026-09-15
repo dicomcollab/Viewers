@@ -3,7 +3,12 @@ import {
   getCineDisplaySetFromViewport,
   getViewportEnabledElement,
 } from './cineSyncUtils';
-import { getAliveViewport, getViewportFrameIndex, setViewportFrameIndexById } from './safeViewportFrameUtils';
+import {
+  getAliveViewport,
+  getViewportFrameIndex,
+  recoverLayoutStackViewports,
+  setViewportFrameIndexById,
+} from './safeViewportFrameUtils';
 import { playAllUsViewports } from './usCinePlaybackUtils';
 import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUtils';
 import {
@@ -14,13 +19,13 @@ import {
   applyUsFrameDistribution,
   getUsFrameDistributionPageInfo,
 } from './usFrameDistributionUtils';
+import { bumpCineGeneration } from './cineClipStateUtils';
+import { shouldSuppressCineAutoplay, suppressCineAutoplay } from './cineAutoplaySuppress';
+import { snapshotUsLayoutInstanceFrames } from './usInstanceFrameState';
+import { eventTarget, EVENTS } from '@cornerstonejs/core';
+import { utils } from '@ohif/core';
 
-/** While paging, CinePlayer must not force autoplay; resume only if play was already on. */
-let suppressCineAutoplayUntil = 0;
-
-function shouldSuppressCineAutoplay(): boolean {
-  return Date.now() < suppressCineAutoplayUntil;
-}
+let lastPagingInventoryKey = '';
 
 type UsBatchNavigationInfo = {
   batchSize: number;
@@ -104,35 +109,7 @@ function getPageInfo(batchStart: number, batchSize: number, totalCount: number) 
 }
 
 function sortCineDisplaySets(displaySets) {
-  return [...displaySets].sort((a, b) => {
-    // Keep SR after US images so doctors review the whole image study first.
-    const aIsSr = a.Modality === 'SR' ? 1 : 0;
-    const bIsSr = b.Modality === 'SR' ? 1 : 0;
-
-    if (aIsSr !== bIsSr) {
-      return aIsSr - bIsSr;
-    }
-
-    const aSeries = Number(a.SeriesNumber ?? 0);
-    const bSeries = Number(b.SeriesNumber ?? 0);
-
-    if (aSeries !== bSeries) {
-      return aSeries - bSeries;
-    }
-
-    const aNum = Number(
-      a.instanceNumber ?? a.InstanceNumber ?? a.instances?.[0]?.InstanceNumber ?? 0
-    );
-    const bNum = Number(
-      b.instanceNumber ?? b.InstanceNumber ?? b.instances?.[0]?.InstanceNumber ?? 0
-    );
-
-    if (aNum !== bNum) {
-      return aNum - bNum;
-    }
-
-    return String(a.displaySetInstanceUID).localeCompare(String(b.displaySetInstanceUID));
-  });
+  return [...displaySets].sort(utils.compareDisplaySetsByReviewOrder);
 }
 
 /**
@@ -155,9 +132,7 @@ function getAllUsStudyDisplaySets(displaySetService, studyInstanceUID?: string) 
 
 function getUsSeriesDisplaySets(displaySetService, seriesInstanceUID: string) {
   const displaySets = displaySetService.activeDisplaySets.filter(
-    ds =>
-      isUsStudyViewportSlotDisplaySet(ds) &&
-      ds?.SeriesInstanceUID === seriesInstanceUID
+    ds => isUsStudyViewportSlotDisplaySet(ds) && ds?.SeriesInstanceUID === seriesInstanceUID
   );
 
   return sortCineDisplaySets(displaySets);
@@ -229,6 +204,10 @@ function resolveNavigationTarget(
 function stopCineOnViewports(servicesManager: AppTypes.ServicesManager, viewportIds: string[]) {
   const { cineService, cornerstoneViewportService } = servicesManager.services;
 
+  snapshotUsLayoutInstanceFrames(servicesManager);
+  bumpCineGeneration();
+  suppressCineAutoplay(2200);
+
   viewportIds.forEach(viewportId => {
     cineService.setCine({ id: viewportId, isPlaying: false });
 
@@ -238,6 +217,70 @@ function stopCineOnViewports(servicesManager: AppTypes.ServicesManager, viewport
       cineService.stopClip(element, { viewportId });
     }
   });
+}
+
+function recoverLayoutAfterPage(servicesManager: AppTypes.ServicesManager): void {
+  recoverLayoutStackViewports(
+    servicesManager.services.cornerstoneViewportService,
+    getUsLayoutViewportIds(servicesManager)
+  );
+}
+
+function scheduleLayoutRecover(servicesManager: AppTypes.ServicesManager): void {
+  [0, 120, 400, 900].forEach(ms => {
+    window.setTimeout(() => recoverLayoutAfterPage(servicesManager), ms);
+  });
+}
+
+function scheduleCineResumeAfterPaint(
+  servicesManager: AppTypes.ServicesManager,
+  wasPlaying: boolean
+): void {
+  if (!wasPlaying) {
+    return;
+  }
+
+  const viewportIds = getUsLayoutViewportIds(servicesManager);
+  const remaining = new Set(viewportIds);
+  let finished = false;
+
+  const finish = () => {
+    if (finished) {
+      return;
+    }
+
+    finished = true;
+    eventTarget.removeEventListener(EVENTS.IMAGE_RENDERED, onRendered);
+    window.clearTimeout(timeoutId);
+    recoverLayoutAfterPage(servicesManager);
+
+    const resume = () => {
+      if (shouldSuppressCineAutoplay()) {
+        window.setTimeout(resume, 200);
+        return;
+      }
+
+      playAllUsViewports(servicesManager);
+    };
+
+    window.setTimeout(resume, 80);
+  };
+
+  const onRendered = (evt: Event) => {
+    const viewportId = (evt as CustomEvent)?.detail?.viewportId;
+
+    if (viewportId) {
+      remaining.delete(viewportId);
+    }
+
+    if (remaining.size === 0) {
+      finish();
+    }
+  };
+
+  eventTarget.addEventListener(EVENTS.IMAGE_RENDERED, onRendered);
+
+  const timeoutId = window.setTimeout(finish, 1800);
 }
 
 function applyFrameBatch(
@@ -338,7 +381,9 @@ function navigateToAdjacentInstance(
   applyInstanceBatch(servicesManager, orderedViewportIds, instanceBatchStart, studyDisplaySets);
 }
 
-function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): UsBatchNavigationInfo | null {
+function buildUsBatchNavigationInfo(
+  servicesManager: AppTypes.ServicesManager
+): UsBatchNavigationInfo | null {
   if (isUsFrameDistributionEnabled()) {
     return getUsFrameDistributionPageInfo(servicesManager);
   }
@@ -375,13 +420,36 @@ function buildUsBatchNavigationInfo(servicesManager: AppTypes.ServicesManager): 
   // Page by SOP/SR slot for every grid size. Leftover empty tiles on the last page stay valid.
   const isInstanceBatchMode = studyDisplaySets.length > 1;
 
+  if (typeof window !== 'undefined') {
+    const all = displaySetService.activeDisplaySets || [];
+    const byModality = all.reduce((acc, ds) => {
+      const key = ds.unsupported ? `unsupported:${ds.Modality || '?'}` : ds.Modality || 'other';
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const inventoryKey = `${studyUid}:${studyDisplaySets.length}:${all.length}:${JSON.stringify(byModality)}`;
+
+    if (inventoryKey !== lastPagingInventoryKey) {
+      lastPagingInventoryKey = inventoryKey;
+      // console.info('[US paging inventory]', {
+      //   studyInstanceUID: studyUid,
+      //   studyBrowserHint:
+      //     'SR/US count in the left panel is QIDO NumberOfStudyRelatedInstances (0020,1208)',
+      //   pagingSlots: studyDisplaySets.length,
+      //   pagingUS: studyDisplaySets.filter(ds => ds.Modality === 'US').length,
+      //   pagingSR: studyDisplaySets.filter(ds => ds.Modality === 'SR').length,
+      //   activeDisplaySets: all.length,
+      //   byModality,
+      //   layout: `${batchSize}-up`,
+      //   totalPages: Math.max(1, Math.ceil(studyDisplaySets.length / batchSize)),
+      // });
+    }
+  }
+
   if (isInstanceBatchMode) {
     const indices = layoutViewportIds
       .map(viewportId => {
-        const ds = getUsStudyViewportSlotFromViewport(
-          displaySetService,
-          viewports.get(viewportId)
-        );
+        const ds = getUsStudyViewportSlotFromViewport(displaySetService, viewports.get(viewportId));
 
         if (!ds) {
           return -1;
@@ -460,7 +528,6 @@ function advanceUsBatch(
     const { cineService } = servicesManager.services;
     const { cines } = cineService.getState();
     const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
-    suppressCineAutoplayUntil = Date.now() + 700;
     stopCineOnViewports(servicesManager, layoutViewportIds);
 
     const target = resolveNavigationTarget(batchInfo, direction);
@@ -470,9 +537,10 @@ function advanceUsBatch(
       applyUsFrameDistribution(servicesManager, { force: true });
     }
 
+    scheduleLayoutRecover(servicesManager);
+
     if (wasPlaying) {
-      window.setTimeout(() => playAllUsViewports(servicesManager), 50);
-      window.setTimeout(() => playAllUsViewports(servicesManager), 450);
+      scheduleCineResumeAfterPaint(servicesManager, true);
     }
 
     return getUsFrameDistributionPageInfo(servicesManager);
@@ -505,7 +573,6 @@ function advanceUsBatch(
   const { cineService } = servicesManager.services;
   const { cines } = cineService.getState();
   const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
-  suppressCineAutoplayUntil = Date.now() + 700;
 
   stopCineOnViewports(servicesManager, layoutViewportIds);
 
@@ -515,19 +582,9 @@ function advanceUsBatch(
     controlDisplaySet.StudyInstanceUID
   );
 
-  const resumePlayIfNeeded = () => {
-    if (!wasPlaying) {
-      return;
-    }
-
-    cineService.setIsCineEnabled(true);
-    playAllUsViewports(servicesManager);
-  };
-
   const scheduleCineResume = () => {
-    // Let React process the pause from stopCine / display-set swap before restarting.
-    window.setTimeout(resumePlayIfNeeded, 50);
-    window.setTimeout(resumePlayIfNeeded, 450);
+    scheduleLayoutRecover(servicesManager);
+    scheduleCineResumeAfterPaint(servicesManager, wasPlaying);
   };
 
   if (target.type === 'instance') {
@@ -549,12 +606,7 @@ function advanceUsBatch(
   if (batchInfo.mode === 'instances') {
     applyInstanceBatch(servicesManager, layoutViewportIds, target.batchStart, studyDisplaySets);
   } else {
-    applyFrameBatch(
-      servicesManager,
-      layoutViewportIds,
-      target.batchStart,
-      batchInfo.totalCount
-    );
+    applyFrameBatch(servicesManager, layoutViewportIds, target.batchStart, batchInfo.totalCount);
   }
 
   scheduleCineResume();
@@ -576,10 +628,7 @@ function getUsSeriesPositionInStudy(
     return null;
   }
 
-  const studyDisplaySets = getAllUsStudyDisplaySets(
-    displaySetService,
-    displaySet.StudyInstanceUID
-  );
+  const studyDisplaySets = getAllUsStudyDisplaySets(displaySetService, displaySet.StudyInstanceUID);
   const seriesIndex = getDisplaySetIndex(studyDisplaySets, displaySet);
 
   if (seriesIndex < 0 || !studyDisplaySets.length) {

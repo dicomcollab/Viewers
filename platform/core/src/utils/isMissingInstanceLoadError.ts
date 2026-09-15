@@ -68,25 +68,43 @@ export function isMissingInstanceLoadError(error: unknown): boolean {
 
 /**
  * Benign viewer errors that should not surface as UI overlays or global error handlers.
+ * Cine playback aborts in-flight frame retrieves (status 0 / undefined) — those are not CORS.
  */
 export function shouldSuppressBenignViewerError(value: unknown): boolean {
-  const text = String(value ?? '');
-  if (!text || text === '[object Object]') {
+  if (value == null) {
     return false;
   }
 
-  if (isMissingInstanceLoadError(text)) {
+  const status =
+    typeof value === 'object' ? getErrorStatus(value as Record<string, unknown>) : undefined;
+  const message = getErrorMessage(value).toLowerCase();
+
+  if (status === 0 || status === '0') {
     return true;
   }
 
-  return (
-    text.includes('isAttributeUsed') ||
-    text.includes('pixel data is missing') ||
-    text.includes('The pixel data is missing') ||
-    text.includes('request failed') ||
-    text.includes('Cannot convert undefined or null to object') ||
-    text.includes('loading aborted') ||
-    text.includes('request was aborted') ||
-    text.includes('HTTP 406: Not Acceptable')
-  );
+  if (isMissingInstanceLoadError(value) || isMissingInstanceLoadError(message)) {
+    return true;
+  }
+
+  if (
+    message.includes('cannot convert undefined or null to object') ||
+    message.includes('loading aborted') ||
+    message.includes('request was aborted') ||
+    message.includes('the user aborted') ||
+    message.includes('failed to fetch') ||
+    message.includes('isattributeused') ||
+    message.includes('pixel data is missing') ||
+    message.includes('the pixel data is missing') ||
+    message.includes('http 406: not acceptable')
+  ) {
+    return true;
+  }
+
+  // dicomweb-client uses "request failed" for every reject; only swallow cancelled ones.
+  if (message.includes('request failed') && (status == null || status === '')) {
+    return true;
+  }
+
+  return false;
 }

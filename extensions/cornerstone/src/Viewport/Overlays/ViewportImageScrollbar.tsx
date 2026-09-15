@@ -1,7 +1,10 @@
 import React, { useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { Enums, VolumeViewport3D, utilities as csUtils } from '@cornerstonejs/core';
+import { Enums, VolumeViewport3D } from '@cornerstonejs/core';
 import { ImageScrollbar } from '@ohif/ui-next';
+import { restartPlayingCineClips } from '../../utils/usCinePlaybackUtils';
+import { rememberUsViewportFrame } from '../../utils/usInstanceFrameState';
+import { getAliveViewport, setViewportFrameIndex } from '../../utils/safeViewportFrameUtils';
 
 function CornerstoneImageScrollbar({
   viewportData,
@@ -17,20 +20,20 @@ function CornerstoneImageScrollbar({
   const { cineService, cornerstoneViewportService } = servicesManager.services;
 
   const onImageScrollbarChange = (imageIndex, viewportId) => {
-    const viewport = cornerstoneViewportService.getCornerstoneViewport(viewportId);
+    const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
 
-    const { isCineEnabled } = cineService.getState();
-
-    if (isCineEnabled) {
-      // on image scrollbar change, stop the CINE if it is playing
-      cineService.stopClip(element, { viewportId });
-      cineService.setCine({ id: viewportId, isPlaying: false });
+    if (!viewport) {
+      return;
     }
 
-    csUtils.jumpToSlice(viewport.element, {
-      imageIndex,
-      debounceLoading: true,
-    });
+    const wasPlaying = Boolean(cineService.getState().cines?.[viewportId]?.isPlaying);
+
+    setViewportFrameIndex(viewport, imageIndex);
+    rememberUsViewportFrame(servicesManager, viewportId, imageIndex);
+
+    if (wasPlaying) {
+      restartPlayingCineClips(servicesManager, [viewportId]);
+    }
   };
 
   useEffect(() => {

@@ -320,7 +320,8 @@ function _getDynamicVolumePeerIds(
 }
 
 /**
- * Return viewport ids that should share play/pause and frame-rate when cine changes.
+ * Return viewport ids that should share play/pause when cine changes.
+ * Frame rate is never shared here — each viewport keeps its own FPS.
  */
 export function getSyncedCineViewportIds(
   servicesManager: AppTypes.ServicesManager,

@@ -5,7 +5,8 @@ import {
 } from '@cornerstonejs/core/loaders';
 import dicomImageLoader from '@cornerstonejs/dicom-image-loader';
 import { errorHandler, utils } from '@ohif/core';
-import { registerJPEGImageLoader } from './utils/jpegImageLoader';
+import { isJpegWadoUriImageId, registerJPEGImageLoader } from './utils/jpegImageLoader';
+import { getWadoUriFileCacheUrl } from './utils/wadoUriCacheUrl';
 import {
   handleDataSource406,
   navigateTo406FallbackDataSource,
@@ -487,15 +488,19 @@ export default function initWADOImageLoader(
         }
       }
 
+      // JPEG: keep &frame= in the key (each still is its own GET).
+      // DICOM P10: strip &frame= so frame 2+ reuse the already-downloaded instance.
+      const cacheUrl = isJpegWadoUriImageId(imageId) ? url : getWadoUriFileCacheUrl(url);
+
       // Try to get from cache first (only for valid HTTP URL strings)
       if (
         imageCache &&
-        url &&
-        typeof url === 'string' &&
-        (url.startsWith('http://') || url.startsWith('https://'))
+        cacheUrl &&
+        typeof cacheUrl === 'string' &&
+        (cacheUrl.startsWith('http://') || cacheUrl.startsWith('https://'))
       ) {
         try {
-          const cachedData = await imageCache.getCachedImage(url);
+          const cachedData = await imageCache.getCachedImage(cacheUrl);
           if (cachedData && cachedData instanceof ArrayBuffer) {
             // Return cached ArrayBuffer - dicomImageLoader expects this format
             return cachedData;
@@ -513,12 +518,12 @@ export default function initWADOImageLoader(
         if (
           imageCache &&
           result instanceof ArrayBuffer &&
-          url &&
-          typeof url === 'string' &&
-          (url.startsWith('http://') || url.startsWith('https://'))
+          cacheUrl &&
+          typeof cacheUrl === 'string' &&
+          (cacheUrl.startsWith('http://') || cacheUrl.startsWith('https://'))
         ) {
           // Store in cache asynchronously (don't wait)
-          imageCache.setCachedImage(url, result).catch(() => {
+          imageCache.setCachedImage(cacheUrl, result).catch(() => {
             // Silently fail - don't break image loading
           });
         }

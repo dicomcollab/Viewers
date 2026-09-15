@@ -4,9 +4,16 @@ import {
   getAliveViewport,
   getViewportFrameCount,
   getViewportFrameIndex,
+  getViewportStackKey,
   setViewportFrameIndex,
-  setViewportFrameIndexById,
+  setViewportFrameIndexAsync,
 } from './safeViewportFrameUtils';
+import {
+  isStackFrameReady,
+  prefetchStackFrame,
+  prefetchUpcomingStackFrames,
+} from './cineFrameLoadUtils';
+import { getCineGeneration } from './cineClipStateUtils';
 
 /**
  * Sync playback driver.
@@ -29,12 +36,14 @@ type SyncStartViewportState = {
   frameRate: number;
   frameIndex: number;
   nextFrameAt: number;
+  advanceInFlight: boolean;
 };
 
 type SyncStartDriverState = {
   mode: 'syncStart';
   viewportIds: string[];
   intervalId: ReturnType<typeof setInterval>;
+  cleanups: Array<() => void>;
 };
 
 type DriverState = SyncPlaybackDriverState | SyncStartDriverState;
@@ -124,6 +133,7 @@ export function stopSyncPlaybackDriver(): void {
     }
   } else {
     clearInterval(driver.intervalId);
+    driver.cleanups.forEach(cleanup => cleanup());
   }
 
   driver = null;
@@ -178,6 +188,9 @@ export function startSyncPlaybackDriver(
 /**
  * Start every loop at frame 1. A shorter/faster loop waits on its final frame
  * until every loop has finished; only then does the complete layout restart.
+ *
+ * Advances one frame at a time after that frame is cached and painted. Catch-up
+ * skips are not used — they move the bar while cancelling in-flight renders.
  */
 export function startSyncStartDriver(
   servicesManager: AppTypes.ServicesManager,
@@ -210,6 +223,7 @@ export function startSyncStartDriver(
         frameRate,
         frameIndex: 0,
         nextFrameAt: now + 1000 / frameRate,
+        advanceInFlight: false,
       };
     })
     .filter(Boolean) as SyncStartViewportState[];
@@ -218,42 +232,89 @@ export function startSyncStartDriver(
     return;
   }
 
+  const clipGeneration = getCineGeneration();
+  const frameOptions = (viewportId: string, viewport) => ({
+    viewportId,
+    cornerstoneViewportService,
+    generation: clipGeneration,
+    getGeneration: getCineGeneration,
+    stackKey: getViewportStackKey(viewport),
+  });
+
   const intervalId = window.setInterval(() => {
-    if (driver?.mode !== 'syncStart') {
+    if (driver?.mode !== 'syncStart' || getCineGeneration() !== clipGeneration) {
       return;
     }
 
     const tickNow = performance.now();
 
     viewportStates.forEach(state => {
-      if (state.frameIndex >= state.frameCount - 1 || tickNow < state.nextFrameAt) {
+      if (state.advanceInFlight || state.frameIndex >= state.frameCount - 1 || tickNow < state.nextFrameAt) {
         return;
       }
 
-      const elapsedFrames = Math.max(
-        1,
-        Math.floor((tickNow - state.nextFrameAt) / (1000 / state.frameRate)) + 1
-      );
-      state.frameIndex = Math.min(state.frameCount - 1, state.frameIndex + elapsedFrames);
-      state.nextFrameAt += elapsedFrames * (1000 / state.frameRate);
+      const nextIndex = state.frameIndex + 1;
+      const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
+      const imageIds = viewport?.getImageIds?.() ?? [];
+      const nextImageId = imageIds[nextIndex];
 
-      setViewportFrameIndexById(
-        cornerstoneViewportService,
-        state.viewportId,
-        state.frameIndex
-      );
+      prefetchUpcomingStackFrames(imageIds, state.frameIndex);
+
+      if (!isStackFrameReady(nextImageId)) {
+        prefetchStackFrame(nextImageId);
+        return;
+      }
+
+      state.advanceInFlight = true;
+      void setViewportFrameIndexAsync(viewport, nextIndex, frameOptions(state.viewportId, viewport))
+        .then(ok => {
+          if (ok) {
+            state.frameIndex = nextIndex;
+          }
+          state.nextFrameAt = performance.now() + 1000 / state.frameRate;
+        })
+        .finally(() => {
+          state.advanceInFlight = false;
+        });
     });
 
-    if (!viewportStates.every(state => state.frameIndex === state.frameCount - 1)) {
+    if (
+      !viewportStates.every(state => state.frameIndex === state.frameCount - 1 && !state.advanceInFlight)
+    ) {
       return;
     }
 
-    // Barrier reached: every loop restarts from frame 1 on this same tick.
+    const firstIdsReady = viewportStates.every(state => {
+      const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
+      return isStackFrameReady(viewport?.getImageIds?.()?.[0]);
+    });
+
+    if (!firstIdsReady) {
+      viewportStates.forEach(state => {
+        const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
+        prefetchStackFrame(viewport?.getImageIds?.()?.[0]);
+      });
+      return;
+    }
+
     const restartAt = performance.now();
     viewportStates.forEach(state => {
-      state.frameIndex = 0;
-      state.nextFrameAt = restartAt + 1000 / state.frameRate;
-      setViewportFrameIndexById(cornerstoneViewportService, state.viewportId, 0);
+      if (state.advanceInFlight) {
+        return;
+      }
+
+      const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
+      state.advanceInFlight = true;
+      void setViewportFrameIndexAsync(viewport, 0, frameOptions(state.viewportId, viewport))
+        .then(ok => {
+          if (ok) {
+            state.frameIndex = 0;
+          }
+          state.nextFrameAt = restartAt + 1000 / state.frameRate;
+        })
+        .finally(() => {
+          state.advanceInFlight = false;
+        });
     });
   }, 16);
 
@@ -261,6 +322,7 @@ export function startSyncStartDriver(
     mode: 'syncStart',
     viewportIds: viewportStates.map(state => state.viewportId),
     intervalId,
+    cleanups: [],
   };
 }
 

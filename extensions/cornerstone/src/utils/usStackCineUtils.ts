@@ -99,10 +99,36 @@ function clampUsCineFps(value: number): number {
   return Math.max(US_CINE_MIN_FPS, Math.min(US_CINE_MAX_FPS, Math.round(value)));
 }
 
+function unwrapDicomNumeric(value: unknown): number | null {
+  if (value == null || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  }
+
+  if (Array.isArray(value)) {
+    return unwrapDicomNumeric(value[0]);
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return unwrapDicomNumeric(record.Value ?? record.value ?? record[0]);
+  }
+
+  return null;
+}
+
 function firstFinitePositive(...values: unknown[]): number | null {
   for (const value of values) {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric > 0) {
+    const numeric = unwrapDicomNumeric(value);
+    if (numeric != null) {
       return numeric;
     }
   }
@@ -135,9 +161,16 @@ function fpsFromIntervalMs(intervalMs: number): number | null {
  * (US 4, CT/MR 15, other stacks 10).
  */
 function getUsCineFrameRate(displaySet, fallbackFps?: number): number {
+  const instance =
+    displaySet?.instance ??
+    displaySet?.instances?.[0] ??
+    (typeof displaySet?.getImage === 'function' ? displaySet.getImage(0) : undefined);
+
   const recommendedFps = firstFinitePositive(
     displaySet?.RecommendedDisplayFrameRate,
     displaySet?.CineRate,
+    instance?.RecommendedDisplayFrameRate,
+    instance?.CineRate,
     displaySet?.instances?.[0]?.RecommendedDisplayFrameRate,
     displaySet?.instances?.[0]?.CineRate
   );
@@ -149,6 +182,7 @@ function getUsCineFrameRate(displaySet, fallbackFps?: number): number {
   const frameTimeMs = firstFinitePositive(
     displaySet?.FrameTime,
     displaySet?.FrameRate,
+    instance?.FrameTime,
     displaySet?.instances?.[0]?.FrameTime
   );
 
@@ -161,6 +195,7 @@ function getUsCineFrameRate(displaySet, fallbackFps?: number): number {
 
   const actualFrameDurationMs = firstFinitePositive(
     displaySet?.ActualFrameDuration,
+    instance?.ActualFrameDuration,
     displaySet?.instances?.[0]?.ActualFrameDuration
   );
 

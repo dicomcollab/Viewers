@@ -37,6 +37,12 @@ import { useLutPresentationStore } from '../../stores/useLutPresentationStore';
 import { usePositionPresentationStore } from '../../stores/usePositionPresentationStore';
 import { useSynchronizersStore } from '../../stores/useSynchronizersStore';
 import { useSegmentationPresentationStore } from '../../stores/useSegmentationPresentationStore';
+import { pickSafeStackBindIndex } from '../../utils/cineFrameLoadUtils';
+import { recoverBlankStackViewport } from '../../utils/safeViewportFrameUtils';
+import {
+  resolveUsStackInitialImageIndex,
+  scheduleUsInstanceFrameRestore,
+} from '../../utils/usInstanceFrameState';
 
 const EVENTS = {
   VIEWPORT_DATA_CHANGED: 'event::cornerstoneViewportService:viewportDataChanged',
@@ -103,7 +109,9 @@ function isLikelyWebGlContextError(error: unknown): boolean {
     message.includes('no valid shader program in use') ||
     message.includes('location is not from the associated program') ||
     message.includes('enablevertexattribarray: index out of range') ||
-    message.includes('vertexattribpointer: index out of range')
+    message.includes('vertexattribpointer: index out of range') ||
+    message.includes('releasegraphicsresources') ||
+    message.includes('unregistergraphicsresources')
   );
 }
 
@@ -675,6 +683,7 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       presentations
     ).catch(err => {
       console.warn('[CornerstoneViewportService] setViewportData failed:', err);
+      recoverBlankStackViewport(this, viewportId);
     });
   }
 
@@ -1090,7 +1099,28 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       initialImageIndexToUse = this._getInitialImageIndexForViewport(viewportInfo, imageIds) || 0;
     }
 
-    return viewport.setStack(imageIds, initialImageIndexToUse).then(() => {
+    // US multiframe: bind a cached frame first so paging/layout does not
+    // setStack onto an uncached index while VTK is still tearing down actors
+    // (releaseGraphicsResources on null → black viewport). Restore SOP frame after.
+    let restoredIndex: number | null = null;
+    if (!referencedImageId) {
+      const { displaySetService } = this.servicesManager.services;
+      const displaySet = displaySetService.getDisplaySetByUID(
+        viewportData.data[0]?.displaySetInstanceUID
+      );
+      restoredIndex = resolveUsStackInitialImageIndex(displaySet, imageIds?.length);
+    }
+
+    const bindIndex = pickSafeStackBindIndex(
+      imageIds,
+      restoredIndex ?? initialImageIndexToUse
+    );
+
+    const afterStackBound = () => {
+      if (viewport.isDisabled) {
+        return;
+      }
+
       viewport.setProperties({ ...properties });
       this.setPresentations(viewport.id, presentations, viewportInfo);
 
@@ -1111,6 +1141,30 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       if (flipHorizontal) {
         viewport.setCamera({ flipHorizontal: true });
       }
+
+      if (restoredIndex != null && restoredIndex !== bindIndex) {
+        scheduleUsInstanceFrameRestore(this.servicesManager, viewport.id, restoredIndex);
+      }
+    };
+
+    const bindStack = (index: number) => {
+      try {
+        return Promise.resolve(viewport.setStack(imageIds, index));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    };
+
+    return bindStack(bindIndex).then(afterStackBound, error => {
+      if (viewport.isDisabled) {
+        return;
+      }
+
+      if (bindIndex !== 0) {
+        return bindStack(0).then(afterStackBound);
+      }
+
+      throw error;
     });
   }
 

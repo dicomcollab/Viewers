@@ -7,6 +7,7 @@ import {
 import { syncImageNumberOfComponents } from './syncImageNumberOfComponents.js';
 import { ensureImagePreScale } from './ensureImagePreScale.js';
 import { handleJpegLoader406 } from './dataSource406Fallback.js';
+import { buildJpegUrlFromImageId } from './jpegWadoUriUtils';
 
 export function isJpegWadoUriImageId(imageId) {
   if (!imageId || typeof imageId !== 'string') {
@@ -320,22 +321,6 @@ function handleJpegLoader401(_xhr, reject) {
   }
   reject(new Error('HTTP 401: Unauthorized'));
   return true;
-}
-
-function buildJpegUrlFromImageId(imageId) {
-  let dicomUrl = imageId.replace('dicomweb-jpeg:', '').replace('dicomweb:', '');
-  const urlWithoutFrame = dicomUrl.split('&frame=')[0];
-  let jpegUrl = urlWithoutFrame.replace(
-    'contentType=application/dicom',
-    'contentType=image/jpeg'
-  );
-
-  if (!jpegUrl.includes('contentType=')) {
-    const separator = jpegUrl.includes('?') ? '&' : '?';
-    jpegUrl = `${jpegUrl}${separator}contentType=image/jpeg`;
-  }
-
-  return jpegUrl;
 }
 
 function buildJpegAuthHeader() {

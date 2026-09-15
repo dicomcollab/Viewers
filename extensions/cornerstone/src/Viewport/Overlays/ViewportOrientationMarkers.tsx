@@ -35,7 +35,6 @@ function ViewportOrientationMarkers({
     }
 
     if (!element || !getEnabledElement(element)) {
-      console.log(`ViewportOrientationMarkers :: Viewport element not enabled (${viewportId})`);
       return '';
     }
 

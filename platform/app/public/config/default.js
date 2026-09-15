@@ -1074,17 +1074,17 @@ function getPreferencesFromCookies() {
     }
   }
   const hasHotkeysParts = raw._hotkeysParts && Object.keys(raw._hotkeysParts).length > 0;
-  console.log(
-    '[getPreferencesFromCookies] userPreferences_ cookies found:',
-    foundCookieNames,
-    '| hotkeys parts:',
-    hasHotkeysParts ? Object.keys(raw._hotkeysParts) : 'none',
-    '| cookie names in document.cookie:',
-    cookieString
-      .split(';')
-      .map(s => s.trim().split('=')[0])
-      .filter(Boolean)
-  );
+  // console.log(
+  //   '[getPreferencesFromCookies] userPreferences_ cookies found:',
+  //   foundCookieNames,
+  //   '| hotkeys parts:',
+  //   hasHotkeysParts ? Object.keys(raw._hotkeysParts) : 'none',
+  //   '| cookie names in document.cookie:',
+  //   cookieString
+  //     .split(';')
+  //     .map(s => s.trim().split('=')[0])
+  //     .filter(Boolean)
+  // );
   if (Object.keys(raw).length === 0 && !raw._hotkeysParts) return null;
 
   const prefs = {};
@@ -1251,12 +1251,12 @@ async function fetchPreferences() {
       if (fromCookies != null) {
         _preferencesCache = fromCookies;
         const zoomIn = (fromCookies.hotkeys || []).find(h => h.commandName === 'scaleUpViewport');
-        console.log(
-          '[fetchPreferences] Using cookie preferences. Hotkeys count=',
-          (fromCookies.hotkeys || []).length,
-          'Zoom In keys=',
-          zoomIn?.keys
-        );
+        // console.log(
+        //   '[fetchPreferences] Using cookie preferences. Hotkeys count=',
+        //   (fromCookies.hotkeys || []).length,
+        //   'Zoom In keys=',
+        //   zoomIn?.keys
+        // );
         return fromCookies;
       }
 
@@ -2174,16 +2174,24 @@ window.config = {
     // dicomweb-client rejects with Error('request failed') + status, request (XHR), response
     // @ts-expect-error - augmented error from dicomweb-client
     const status = error?.status ?? error?.statusCode;
+    const message = String(error?.message ?? '');
+    const isCancelledRetrieve =
+      status === 0 ||
+      status === '0' ||
+      /abort/i.test(message) ||
+      /cannot convert undefined or null to object/i.test(message) ||
+      ((status == null || status === '') && /request failed/i.test(message));
+
+    // Cine / paging cancels in-flight frame GETs. Not CORS. Do not spam the console.
+    if (isCancelledRetrieve) {
+      return;
+    }
+
     // @ts-expect-error
     const xhr = error?.request;
     const url =
       (xhr && (xhr.responseURL || xhr._url || xhr.url)) || '(see Network tab for failing URL)';
     if (status === 404) {
-      console.warn('[DICOMweb] Instance not found (suppressed in viewer)', {
-        status,
-        url,
-        message: error?.message,
-      });
       return;
     }
     console.error('[DICOMweb] request failed', {
@@ -2194,10 +2202,6 @@ window.config = {
     if (status === 401 || status === 403) {
       console.warn(
         '[DICOMweb] Auth rejected — check session cookie / viewer-access token (and ShortCode share link if used).'
-      );
-    } else if (status === 0 || status == null) {
-      console.warn(
-        '[DICOMweb] Status 0 / unknown — often CORS, blocked network, wrong HTTPS, or adblock.'
       );
     } else if (status === 406) {
       console.warn(

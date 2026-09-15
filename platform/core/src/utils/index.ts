@@ -31,6 +31,7 @@ import downloadCSVReport from './downloadCSVReport';
 import isEqualWithin from './isEqualWithin';
 import addAccessors from './addAccessors';
 import {
+  compareDisplaySetsByReviewOrder,
   sortStudy,
   sortStudySeries,
   sortStudyInstances,
@@ -79,6 +80,7 @@ const utils = {
   sortStudy,
   sortStudySeries,
   sortStudyInstances,
+  compareDisplaySetsByReviewOrder,
   sortingCriteria,
   seriesSortCriteria,
   instancesSortCriteria,

@@ -215,15 +215,25 @@ function getDisplaySetsFromSeries(instances) {
   // into their own specific display sets. Place the rest of each
   // series into another display set.
   const stackableInstances = [];
+  const skippedInstances = [];
   instances.forEach(instance => {
     // All imaging modalities must have a valid value for sopClassUid (x00080016) or rows (x00280010).
     // Also accept SOP classes handled by this module (e.g. retired US) when Rows is absent in metadata.
+    // Ultrasound from some PACS omits Rows in QIDO — still make a viewport slot per SOP.
     const hasImageData =
       isImage(instance.SOPClassUID) ||
       instance.Rows ||
+      instance.Modality === 'US' ||
       sopClassUids.includes(instance.SOPClassUID);
 
     if (!hasImageData) {
+      skippedInstances.push({
+        SOPInstanceUID: instance.SOPInstanceUID,
+        Modality: instance.Modality,
+        SOPClassUID: instance.SOPClassUID,
+        NumberOfFrames: instance.NumberOfFrames,
+        Rows: instance.Rows,
+      });
       return;
     }
 
@@ -234,6 +244,7 @@ function getDisplaySetsFromSeries(instances) {
         sopClassUids,
         numImageFrames: instance.NumberOfFrames,
         instanceNumber: instance.InstanceNumber,
+        SOPInstanceUID: instance.SOPInstanceUID,
         acquisitionDatetime: instance.AcquisitionDateTime,
       });
       displaySets.push(displaySet);
@@ -242,6 +253,7 @@ function getDisplaySetsFromSeries(instances) {
       displaySet.setAttributes({
         sopClassUids,
         instanceNumber: instance.InstanceNumber,
+        SOPInstanceUID: instance.SOPInstanceUID,
         acquisitionDatetime: instance.AcquisitionDateTime,
       });
       displaySets.push(displaySet);
@@ -257,6 +269,19 @@ function getDisplaySetsFromSeries(instances) {
       sopClassUids,
     });
     displaySets.push(displaySet);
+  }
+
+  if (typeof window !== 'undefined') {
+    const studyUid = instances[0]?.StudyInstanceUID;
+    // console.info('[US display-sets]', {
+    //   studyInstanceUID: studyUid,
+    //   seriesInstanceUID: instances[0]?.SeriesInstanceUID,
+    //   inputInstances: instances.length,
+    //   createdDisplaySets: displaySets.length,
+    //   skippedNoImageData: skippedInstances.length,
+    //   skippedInstances: skippedInstances.slice(0, 30),
+    //   modalities: Array.from(new Set(instances.map(i => i.Modality))),
+    // });
   }
 
   return displaySets;

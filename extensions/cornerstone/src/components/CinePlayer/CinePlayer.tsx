@@ -27,21 +27,23 @@ import {
   shouldAutoPlayCine,
 } from '../../utils/cinePreferencesUtils';
 import {
+  resolveCineFrameRate,
+  shouldReplacePlaceholderFrameRate,
+} from '../../utils/cineFrameRateOverrideStore';
+import {
   applyCineFrameRate,
   requestCineFrameChange,
   requestCinePlayPause,
 } from '../../utils/usCinePlaybackUtils';
 import { getStudyCineWantsPlaying, setStudyCineWantsPlaying } from '../../utils/cinePlaybackIntent';
-import {
-  isCinePlaybackManaged,
-  startSyncStartDriver,
-} from '../../utils/usCineSyncPlaybackDriver';
+import { isCinePlaybackManaged, startSyncStartDriver } from '../../utils/usCineSyncPlaybackDriver';
 import { getCineSyncMode } from '../../utils/cineSyncModeStore';
 import {
   isUsFrameDistributionEnabled,
   subscribeUsFrameDistribution,
 } from '@ohif/extension-default';
 import { isCineClipRunning } from '../../utils/cineClipStateUtils';
+import { getCineWaitingForFrame } from '../../utils/cineFrameWaitStore';
 import {
   getAliveViewport,
   getViewportFrameCount,
@@ -195,6 +197,13 @@ function WrappedCinePlayer({
       }
 
       if (playing) {
+        if (shouldSuppressCineAutoplay()) {
+          cineDebug('CinePlayer', 'applyPlayback skipped — paging suppress', {
+            viewportId,
+          });
+          return;
+        }
+
         cineDebug('CinePlayer', 'applyPlayback → playClip', {
           viewportId,
           fps: validFrameRate,
@@ -303,8 +312,8 @@ function WrappedCinePlayer({
     // lastPlaybackRef looking "unchanged" while the interval is already dead.
     lastPlaybackRef.current = null;
     setPlaybackEpoch(value => value + 1);
-    let nextFrameRate = US_CINE_DEFAULT_FPS;
     const existingCine = cinesRef.current[viewportId];
+    let nextFrameRate = existingCine?.frameRate;
     const hasExplicitPlayState = typeof existingCine?.isPlaying === 'boolean';
     let nextIsPlaying = hasExplicitPlayState ? !!existingCine.isPlaying : false;
     let nextCinePlayMode = cinesRef.current[viewportId]?.cinePlayMode ?? defaultPlayMode;
@@ -314,7 +323,7 @@ function WrappedCinePlayer({
 
     // Each multiframe instance keeps its own DICOM-derived FPS.
     // If the doctor changes FPS on this tile, keep that value until the instance changes.
-    const resolveMultiframeRate = (displaySet) => {
+    const resolveMultiframeRate = displaySet => {
       const existing = cinesRef.current[viewportId];
       const displaySetUid = displaySet?.displaySetInstanceUID;
       const sameInstance =
@@ -326,14 +335,15 @@ function WrappedCinePlayer({
       }
 
       return {
-        frameRate:
-          sameInstance && existing?.frameRate != null && Number.isFinite(existing.frameRate)
-            ? existing.frameRate
-            : dicomFrameRate,
+        frameRate: resolveCineFrameRate({
+          viewportId,
+          displaySetUid,
+          storedFrameRate: existing?.frameRate,
+          dicomFrameRate,
+          sameInstance,
+        }),
         // When fr is disabled, always use FPS mode (ignore stale step state).
-        cinePlayMode: cinePreferences.showFr
-          ? (existing?.cinePlayMode ?? defaultPlayMode)
-          : 'fps',
+        cinePlayMode: cinePreferences.showFr ? (existing?.cinePlayMode ?? defaultPlayMode) : 'fps',
         frameStep: existing?.frameStep ?? DEFAULT_US_FRAME_STEP,
       };
     };
@@ -403,7 +413,35 @@ function WrappedCinePlayer({
           nextIsPlaying = true;
           setStudyCineWantsPlaying(true);
         }
-      } else if (displaySet.FrameRate || displaySet.FrameTime || displaySet.RecommendedDisplayFrameRate) {
+      } else if (displaySet.Modality === 'US') {
+        setDynamicInfo(null);
+        nextStackCineInfo = buildUsStackCineInfo({
+          cornerstoneViewportService,
+          viewportId,
+          displaySetService,
+          viewportGridService,
+          servicesManager,
+        });
+        setStackCineInfo(nextStackCineInfo);
+        const resolved = resolveMultiframeRate(displaySet);
+        nextFrameRate = resolved.frameRate;
+        nextCinePlayMode = resolved.cinePlayMode;
+        nextFrameStep = resolved.frameStep;
+        if (
+          studyWantsPlaying &&
+          isUsMultiframeDisplaySet(displaySet) &&
+          !shouldSuppressCineAutoplay() &&
+          !isUsFrameDistributionEnabled() &&
+          (getCineSyncMode() !== 'none' || autoPlayEnabled)
+        ) {
+          nextIsPlaying = true;
+          setStudyCineWantsPlaying(true);
+        }
+      } else if (
+        displaySet.FrameRate ||
+        displaySet.FrameTime ||
+        displaySet.RecommendedDisplayFrameRate
+      ) {
         nextFrameRate = getUsCineFrameRate(displaySet);
         if (
           studyWantsPlaying &&
@@ -439,7 +477,27 @@ function WrappedCinePlayer({
       viewportId,
       nextFrameRate,
       nextIsPlaying,
+      displaySetUIDs: displaySetInstanceUIDs,
     });
+
+    if (typeof window !== 'undefined' && nextFrameRate != null) {
+      const ds = displaySetService.getDisplaySetByUID(displaySetInstanceUIDs[0]);
+      if (ds?.Modality === 'US') {
+        // console.info('[US cine fps]', {
+        //   viewportId,
+        //   appliedFps: nextFrameRate,
+        //   recommendedDisplayFrameRate: ds.RecommendedDisplayFrameRate,
+        //   cineRate: ds.CineRate,
+        //   frameTime: ds.FrameTime,
+        //   instanceRdfR: ds.instance?.RecommendedDisplayFrameRate,
+        //   displaySetInstanceUID: ds.displaySetInstanceUID,
+        // });
+      }
+    }
+
+    if (nextFrameRate == null || !Number.isFinite(Number(nextFrameRate))) {
+      nextFrameRate = US_CINE_DEFAULT_FPS;
+    }
 
     if (nextIsPlaying) {
       cineServiceRef.current.setIsCineEnabled(true);
@@ -598,6 +656,10 @@ function WrappedCinePlayer({
         return;
       }
 
+      if (shouldSuppressCineAutoplay()) {
+        return;
+      }
+
       const liveViewport = getAliveViewport(cornerstoneViewportService, viewportId);
       const element = liveViewport?.element ?? enabledVPElementRef.current;
       const ready = getViewportFrameCount(liveViewport) > 1;
@@ -640,10 +702,20 @@ function WrappedCinePlayer({
 
     let lastIndex = -1;
     let staleTicks = 0;
-    const staleLimit = Math.max(3, Math.ceil((2500 / Math.max(frameRate, 1)) / 400));
+    const staleLimit = Math.max(3, Math.ceil(2500 / Math.max(frameRate, 1) / 400));
 
     const watchdog = window.setInterval(() => {
       if (isCinePlaybackManaged(viewportId)) {
+        return;
+      }
+
+      if (shouldSuppressCineAutoplay()) {
+        return;
+      }
+
+      // Large instances wait on the next frame in cache — do not restart cine
+      // while that download/decode is still in flight.
+      if (getCineWaitingForFrame(viewportId)) {
         return;
       }
 
@@ -673,14 +745,7 @@ function WrappedCinePlayer({
     }, 400);
 
     return () => window.clearInterval(watchdog);
-  }, [
-    applyPlayback,
-    cornerstoneViewportService,
-    frameRate,
-    isCineEnabled,
-    isPlaying,
-    viewportId,
-  ]);
+  }, [applyPlayback, cornerstoneViewportService, frameRate, isCineEnabled, isPlaying, viewportId]);
 
   useEffect(() => {
     const onFrameChanged = (evt?: Event) => {
@@ -691,6 +756,32 @@ function WrappedCinePlayer({
       }
 
       refreshStackCineInfo();
+
+      const { viewports } = viewportGridService.getState();
+      const displaySetUid = viewports.get(viewportId)?.displaySetInstanceUIDs?.[0];
+      const displaySet = displaySetUid ? displaySetService.getDisplaySetByUID(displaySetUid) : null;
+
+      if (!isMultiframeStackDisplaySet(displaySet)) {
+        return;
+      }
+
+      const dicomFrameRate = getUsCineFrameRate(displaySet);
+      const currentFrameRate = cinesRef.current[viewportId]?.frameRate;
+
+      if (
+        shouldReplacePlaceholderFrameRate(
+          viewportId,
+          displaySetUid,
+          currentFrameRate,
+          dicomFrameRate
+        )
+      ) {
+        cineServiceRef.current.setCine({
+          id: viewportId,
+          frameRate: dicomFrameRate,
+          cinePlayMode: 'fps',
+        });
+      }
     };
 
     eventTarget.addEventListener(Enums.Events.STACK_NEW_IMAGE, onFrameChanged);
@@ -712,7 +803,7 @@ function WrappedCinePlayer({
         enabledVPElement.removeEventListener(Enums.Events.STACK_VIEWPORT_SCROLL, onFrameChanged);
       }
     };
-  }, [enabledVPElement, refreshStackCineInfo, viewportId]);
+  }, [enabledVPElement, refreshStackCineInfo, viewportId, displaySetService, viewportGridService]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -744,8 +835,7 @@ function WrappedCinePlayer({
   const supportsCine = viewportSupportsCine(displaySetService, viewportState);
   // Frame Dist spreads static frames across tiles — page nav only, no cine chrome.
   const showCineUI =
-    !frameDistEnabled &&
-    (usePerViewportCine ? supportsCine : cineControlViewportId === viewportId);
+    !frameDistEnabled && (usePerViewportCine ? supportsCine : cineControlViewportId === viewportId);
 
   if (!showCineUI) {
     return null;
@@ -968,7 +1058,13 @@ function RenderCinePlayer({
   const cinePlayer = (
     <CinePlayerComponent
       portaled={useUnifiedCineControl}
-      placement={usePerViewportUsCine ? 'bottom-center' : useUnifiedCineControl ? 'top-center' : 'bottom-center'}
+      placement={
+        usePerViewportUsCine
+          ? 'bottom-center'
+          : useUnifiedCineControl
+            ? 'top-center'
+            : 'bottom-center'
+      }
       compact={useUnifiedCineControl || usePerViewportUsCine || !!stackCineInfo}
       frameRate={cineFrameRate}
       cinePlayMode={cinePlayMode}

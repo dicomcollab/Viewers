@@ -3,13 +3,21 @@ import { utilities } from '@cornerstonejs/tools';
 import { getSyncedViewports } from './utils/cineSyncUtils';
 import { validateSyncPlaybackDriver } from './utils/usCineSyncPlaybackDriver';
 import { ensureLayoutCinePlayback } from './utils/usCinePlaybackUtils';
-import { getAliveViewport, isViewportAlive } from './utils/safeViewportFrameUtils';
+import {
+  getAliveViewport,
+  getViewportFrameIndex,
+  getViewportStackKey,
+  isViewportAlive,
+  setViewportFrameIndexAsync,
+} from './utils/safeViewportFrameUtils';
 import { cineDebug, cineDebugError, cineDebugWarn } from './utils/cineDebug';
 import {
   clearCustomClip,
   clearCustomClipByViewportId,
+  getCineGeneration,
   setCustomClip,
 } from './utils/cineClipStateUtils';
+import { shouldSuppressCineAutoplay } from './utils/cineAutoplaySuppress';
 import {
   isStackFrameReady,
   prefetchStackFrame,
@@ -21,6 +29,11 @@ export const DEFAULT_FRAME_STEP = 4;
 export const STEP_INTERVAL_MS = 400;
 const LIVE_CLIP_TICK_MS = 16;
 const liveClipCleanups = new Map<string, () => void>();
+
+function getEventImageId(evt: Event): string | undefined {
+  const detail = (evt as CustomEvent)?.detail;
+  return detail?.image?.imageId ?? detail?.imageId;
+}
 
 function cleanupLiveClip(viewportId?: string): void {
   if (!viewportId) {
@@ -100,6 +113,10 @@ function startLiveStackClip(
   clearCustomClip(element);
   setCineWaitingForFrame(viewportId, null);
 
+  const clipGeneration = getCineGeneration();
+  const { cornerstoneViewportService } = servicesManager.services;
+  let boundStackKey: string | null = null;
+  let cancelled = false;
   let nextFrameAt = performance.now();
   let lastPeriodMs = getLiveClipPeriodMs(
     servicesManager,
@@ -109,9 +126,11 @@ function startLiveStackClip(
   );
   let hasPaintedOnce = false;
   let waitingImageId: string | null = null;
+  let advanceInFlight = false;
+  let expectedAdvanceIndex: number | null = null;
 
   const onImageLoaded = (evt: Event) => {
-    const loadedId = (evt as CustomEvent)?.detail?.image?.imageId ?? (evt as CustomEvent)?.detail?.imageId;
+    const loadedId = getEventImageId(evt);
 
     if (!loadedId || loadedId !== waitingImageId) {
       return;
@@ -120,23 +139,75 @@ function startLiveStackClip(
     nextFrameAt = Math.min(nextFrameAt, performance.now());
   };
 
+  const stopClipAndUnbind = (playElement: HTMLElement) => {
+    cancelled = true;
+    eventTarget.removeEventListener(EVENTS.IMAGE_LOADED, onImageLoaded);
+    element.removeEventListener(EVENTS.STACK_VIEWPORT_SCROLL, onExternalFrameChange);
+    playElement.removeEventListener(EVENTS.STACK_VIEWPORT_SCROLL, onExternalFrameChange);
+    setCineWaitingForFrame(viewportId, null);
+    clearCustomClipByViewportId(viewportId);
+    clearCustomClip(playElement);
+    clearCustomClip(element);
+  };
+
   eventTarget.addEventListener(EVENTS.IMAGE_LOADED, onImageLoaded);
   cleanupLiveClip(viewportId);
+
+  const onExternalFrameChange = (evt: Event) => {
+    const detail = (evt as CustomEvent)?.detail;
+    const newIndex = detail?.newImageIdIndex ?? detail?.imageIdIndex;
+    const liveViewport = getLiveStackViewport(servicesManager, element, viewportId);
+    const currentIndex = Number.isFinite(newIndex)
+      ? Number(newIndex)
+      : getViewportFrameIndex(liveViewport);
+
+    if (expectedAdvanceIndex != null && currentIndex === expectedAdvanceIndex) {
+      expectedAdvanceIndex = null;
+      return;
+    }
+
+    expectedAdvanceIndex = null;
+    waitingImageId = null;
+    setCineWaitingForFrame(viewportId, null);
+    advanceInFlight = false;
+    nextFrameAt = performance.now() + lastPeriodMs;
+  };
+
+  element.addEventListener(EVENTS.STACK_VIEWPORT_SCROLL, onExternalFrameChange);
+
   if (viewportId) {
     liveClipCleanups.set(viewportId, () => {
+      cancelled = true;
       eventTarget.removeEventListener(EVENTS.IMAGE_LOADED, onImageLoaded);
+      element.removeEventListener(EVENTS.STACK_VIEWPORT_SCROLL, onExternalFrameChange);
       setCineWaitingForFrame(viewportId, null);
     });
   }
 
   const intervalId = window.setInterval(() => {
+    if (advanceInFlight) {
+      return;
+    }
+
+    if (cancelled || getCineGeneration() !== clipGeneration) {
+      stopClipAndUnbind(element);
+      return;
+    }
+
     const liveViewport = getLiveStackViewport(servicesManager, element, viewportId);
 
     if (!liveViewport) {
-      eventTarget.removeEventListener(EVENTS.IMAGE_LOADED, onImageLoaded);
-      setCineWaitingForFrame(viewportId, null);
-      clearCustomClipByViewportId(viewportId);
-      clearCustomClip(element);
+      stopClipAndUnbind(element);
+      return;
+    }
+
+    const stackKey = getViewportStackKey(liveViewport);
+
+    if (!boundStackKey) {
+      boundStackKey = stackKey;
+    } else if (stackKey && stackKey !== boundStackKey) {
+      // Next/previous reused this viewportId with a different SOP.
+      stopClipAndUnbind(element);
       return;
     }
 
@@ -186,10 +257,7 @@ function startLiveStackClip(
           ? liveViewport.getCurrentImageIdIndex()
           : 0;
     } catch {
-      eventTarget.removeEventListener(EVENTS.IMAGE_LOADED, onImageLoaded);
-      setCineWaitingForFrame(viewportId, null);
-      clearCustomClipByViewportId(viewportId);
-      clearCustomClip(element);
+      stopClipAndUnbind(element);
       return;
     }
 
@@ -200,6 +268,7 @@ function startLiveStackClip(
     }
 
     const nextIndex = (index + frameStep) % liveCount;
+    expectedAdvanceIndex = nextIndex;
     const nextImageId = imageIds[nextIndex];
 
     if (!isStackFrameReady(nextImageId)) {
@@ -209,7 +278,7 @@ function startLiveStackClip(
         imageIndex: nextIndex,
         imageId: nextImageId,
       });
-      // Stay on the current frame until the next one is in cache.
+      // Stay on the current frame until this imageId has decoded pixels.
       nextFrameAt = now + Math.min(periodMs, 50);
       return;
     }
@@ -217,20 +286,40 @@ function startLiveStackClip(
     waitingImageId = null;
     setCineWaitingForFrame(viewportId, null);
 
-    if (nextIndex !== index) {
-      try {
-        liveViewport.setImageIdIndex(nextIndex);
-        hasPaintedOnce = true;
-      } catch {
-        eventTarget.removeEventListener(EVENTS.IMAGE_LOADED, onImageLoaded);
-        setCineWaitingForFrame(viewportId, null);
-        clearCustomClipByViewportId(viewportId);
-        clearCustomClip(element);
-        return;
-      }
+    if (nextIndex === index) {
+      nextFrameAt = now + periodMs;
+      return;
     }
 
-    nextFrameAt = now + periodMs;
+    // Await the stack swap so wadouri/wadors/JPEG cannot queue another
+    // setImageIdIndex that cancels the in-flight paint (bar runs, first frame stuck).
+    advanceInFlight = true;
+    const advanceTimeoutMs = Math.max(400, lastPeriodMs * 3);
+    const hangWatch = window.setTimeout(() => {
+      advanceInFlight = false;
+    }, advanceTimeoutMs);
+
+    void setViewportFrameIndexAsync(liveViewport, nextIndex, {
+      viewportId,
+      cornerstoneViewportService,
+      generation: clipGeneration,
+      getGeneration: getCineGeneration,
+      isCurrent: () => !cancelled && getCineGeneration() === clipGeneration,
+      stackKey: boundStackKey,
+    })
+      .then(ok => {
+        if (ok && getCineGeneration() === clipGeneration) {
+          hasPaintedOnce = true;
+        }
+        nextFrameAt = performance.now() + lastPeriodMs;
+      })
+      .catch(() => {
+        nextFrameAt = performance.now() + lastPeriodMs;
+      })
+      .finally(() => {
+        window.clearTimeout(hangWatch);
+        advanceInFlight = false;
+      });
   }, LIVE_CLIP_TICK_MS);
 
   setCustomClip(element, intervalId, viewportId);
@@ -349,6 +438,14 @@ function initCineService(servicesManager: AppTypes.ServicesManager) {
 
     ensureAttempts = 0;
     const run = () => {
+      if (shouldSuppressCineAutoplay()) {
+        ensureAttempts += 1;
+        if (ensureAttempts < 16) {
+          ensureTimer = window.setTimeout(run, 200);
+        }
+        return;
+      }
+
       const settled = ensureLayoutCinePlayback(servicesManager);
       ensureAttempts += 1;
 

@@ -133,6 +133,9 @@ function UsViewportCineBar({
 
   const isUltraCompact = barWidth > 0 && barWidth < ULTRA_COMPACT_WIDTH_PX;
   const showFpsControl = localFps != null && localFps > 0 && !!onFrameRateChange;
+  // Reserve width for the widest "current/total" label so 115/170 does not
+  // overflow the old 32px box and paint over the FPS control.
+  const frameLabelCh = Math.max(String(numFrames).length, String(currentFrame).length, 1) * 2 + 1;
 
   return (
     <div
@@ -180,7 +183,8 @@ function UsViewportCineBar({
         </div>
       )}
       <span
-        className="w-8 shrink-0 text-center text-[9px] leading-none text-white/90 tabular-nums"
+        className="mx-0.5 shrink-0 text-center text-[9px] leading-none text-white/90 tabular-nums whitespace-nowrap"
+        style={{ width: `${frameLabelCh}ch` }}
         data-cy="cine-player-frames-trigger"
       >
         {currentFrame}/{numFrames}

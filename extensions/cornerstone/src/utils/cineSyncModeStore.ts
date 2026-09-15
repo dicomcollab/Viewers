@@ -3,9 +3,9 @@
  *
  * - none: every viewport keeps its own play state, FPS and frame position.
  * - syncStart: pressing play starts every cine viewport together from the first
- *   frame, but each instance keeps its own DICOM-derived FPS (clips drift apart).
- * - syncPlayback: play state, FPS, play mode and frame position are shared, so
- *   all viewports stay locked to the same timeline.
+ *   frame; each instance keeps its own FPS (clips drift apart).
+ * - syncPlayback: play/pause and frame position are shared. FPS is never
+ *   copied — changing the rate on one bar only affects that viewport.
  */
 export type CineSyncMode = 'none' | 'syncStart' | 'syncPlayback';
 
@@ -35,7 +35,7 @@ export const CINE_SYNC_MODE_OPTIONS: CineSyncModeOption[] = [
   {
     value: 'syncPlayback',
     label: 'Sync playback',
-    description: 'Play and pause affect every cine viewport in the layout.',
+    description: 'Play and pause affect every cine viewport. FPS stays per viewport.',
     badge: 'P',
   },
 ];

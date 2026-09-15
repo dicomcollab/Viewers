@@ -125,6 +125,21 @@ const OHIFCornerstoneViewport = React.memo(
       measurementService,
     } = servicesManager.services;
 
+    useEffect(() => {
+      hasReportedFirstImageRef.current = false;
+      const timers = [80, 250, 700].map(ms =>
+        window.setTimeout(() => {
+          if (hasReportedFirstImageRef.current) {
+            return;
+          }
+
+          recoverBlankStackViewport(cornerstoneViewportService, viewportId);
+        }, ms)
+      );
+
+      return () => timers.forEach(id => window.clearTimeout(id));
+    }, [cornerstoneViewportService, displaySetUIDsKey, viewportId]);
+
     const [viewportDialogState] = useViewportDialog();
     // useCallback for scroll bar height calculation
     const setImageScrollBarHeight = useCallback(() => {

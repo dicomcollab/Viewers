@@ -44,28 +44,111 @@ const seriesSortCriteria = {
   seriesInfoSortingCriteria,
 };
 
-const sortByInstanceNumber = (a, b) => {
-  // Prefer series number when sorting study-panel display-set thumbnails.
-  const aSeries = Number(a.SeriesNumber ?? a.seriesNumber ?? 0);
-  const bSeries = Number(b.SeriesNumber ?? b.seriesNumber ?? 0);
-  if (aSeries !== bSeries) {
-    return aSeries - bSeries;
-  }
+const sortByInstanceNumber = (a, b) => compareDisplaySetsByReviewOrder(a, b);
 
-  // Sort by InstanceNumber (0020,0013) — also accepts mapped thumbnail `instanceNumber`.
-  const aInstance = parseInt(a.InstanceNumber ?? a.instanceNumber, 10) || 0;
-  const bInstance = parseInt(b.InstanceNumber ?? b.instanceNumber, 10) || 0;
-  if (aInstance !== bInstance) {
-    return aInstance - bInstance;
-  }
-  // Fallback rule to enable consistent sorting
-  const aUid = a.SOPInstanceUID ?? a.displaySetInstanceUID;
-  const bUid = b.SOPInstanceUID ?? b.displaySetInstanceUID;
-  if (aUid === bUid) {
+/**
+ * Shared review order for study-panel thumbnails, hanging-protocol fill,
+ * and US 2×2 paging. Same keys everywhere so page N is the next contiguous
+ * block of thumbnails (first 4, next 4, …).
+ *
+ * Order: SR last, SeriesNumber, InstanceNumber, acquisition time, SOP UID.
+ */
+function compareDisplaySetsByReviewOrder(a, b): number {
+  if (!a && !b) {
     return 0;
   }
-  return aUid < bUid ? -1 : 1;
-};
+  if (!a) {
+    return 1;
+  }
+  if (!b) {
+    return -1;
+  }
+
+  const aSr = isLowPriorityReviewItem(a) ? 1 : 0;
+  const bSr = isLowPriorityReviewItem(b) ? 1 : 0;
+  if (aSr !== bSr) {
+    return aSr - bSr;
+  }
+
+  const seriesDiff = getSeriesNumber(a) - getSeriesNumber(b);
+  if (seriesDiff) {
+    return seriesDiff;
+  }
+
+  const instanceDiff = getInstanceNumber(a) - getInstanceNumber(b);
+  if (instanceDiff) {
+    return instanceDiff;
+  }
+
+  const acqA = getAcquisitionStamp(a);
+  const acqB = getAcquisitionStamp(b);
+  if (acqA !== acqB) {
+    return acqA.localeCompare(acqB);
+  }
+
+  const sopDiff = getSopInstanceUID(a).localeCompare(getSopInstanceUID(b));
+  if (sopDiff) {
+    return sopDiff;
+  }
+
+  return String(a.displaySetInstanceUID ?? a.uid ?? '').localeCompare(
+    String(b.displaySetInstanceUID ?? b.uid ?? '')
+  );
+}
+
+function isLowPriorityReviewItem(item): boolean {
+  const modality = item?.Modality ?? item?.modality;
+  return modality === 'SR' || modality === 'DOC' || modality === 'KO';
+}
+
+function getSeriesNumber(item): number {
+  const value = Number.parseInt(String(item?.SeriesNumber ?? item?.seriesNumber ?? ''), 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getInstanceNumber(item): number {
+  const value = Number.parseInt(
+    String(
+      item?.instanceNumber ??
+        item?.InstanceNumber ??
+        item?.instances?.[0]?.InstanceNumber ??
+        item?.instance?.InstanceNumber ??
+        ''
+    ),
+    10
+  );
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getSopInstanceUID(item): string {
+  return String(
+    item?.SOPInstanceUID ??
+      item?.sopInstanceUID ??
+      item?.instance?.SOPInstanceUID ??
+      item?.instances?.[0]?.SOPInstanceUID ??
+      ''
+  );
+}
+
+function getAcquisitionStamp(item): string {
+  const instance = item?.instance ?? item?.instances?.[0];
+  const dateTime =
+    item?.acquisitionDatetime ??
+    item?.AcquisitionDateTime ??
+    instance?.AcquisitionDateTime ??
+    instance?.ContentDateTime ??
+    item?.ContentDateTime;
+
+  if (dateTime) {
+    return String(dateTime);
+  }
+
+  const date = item?.AcquisitionDate ?? instance?.AcquisitionDate ?? item?.ContentDate ?? '';
+  const time =
+    item?.AcquisitionTime ?? instance?.AcquisitionTime ?? item?.ContentTime ?? instance?.ContentTime ?? '';
+
+  return `${date}${time}`;
+}
 
 const instancesSortCriteria = {
   default: sortByInstanceNumber,
@@ -233,6 +316,7 @@ const sortImagesByPatientPosition = images => {
 };
 
 export {
+  compareDisplaySetsByReviewOrder,
   sortStudy,
   sortStudySeries,
   sortStudyInstances,

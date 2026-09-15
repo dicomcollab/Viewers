@@ -88,8 +88,8 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
 
   // Create enhanced error handler that checks for 401 (unauthorized) errors
   // and redirects to login if token expires
-  const createEnhancedErrorHandler = (originalHandler) => {
-    return (error) => {
+  const createEnhancedErrorHandler = originalHandler => {
+    return error => {
       const status = error?.status ?? error?.statusCode;
 
       if (status === 406) {
@@ -106,23 +106,26 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
       if (error && status === 401) {
         // Defer redirect while RIS AUTH_SESSION handoff is in progress (iframe / popup).
         if (typeof window !== 'undefined' && window.__RIS_AUTH_PENDING) {
-          console.warn(
-            '401 error - deferring RIS redirect while AUTH_SESSION handoff is pending.'
-          );
+          console.warn('401 error - deferring RIS redirect while AUTH_SESSION handoff is pending.');
           return;
         }
 
         // Get userAuthenticationService from stored servicesManager
-        const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
+        const userAuthenticationService =
+          errorHandler._servicesManager?.services?.userAuthenticationService;
 
         // Check if userAuthenticationService has handleUnauthenticated method
-        if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
+        if (
+          userAuthenticationService &&
+          typeof userAuthenticationService.handleUnauthenticated === 'function'
+        ) {
           userAuthenticationService.handleUnauthenticated();
           return;
         }
         // Fallback: redirect to RIS URL if no handler is available
         if (typeof window !== 'undefined') {
-          const appConfig = errorHandler._servicesManager?.extensionManager?.appConfig || window.config || {};
+          const appConfig =
+            errorHandler._servicesManager?.extensionManager?.appConfig || window.config || {};
           if (isRedirectToRisOn401Enabled(appConfig)) {
             const target = resolveRis401RedirectUrlFromConfig(appConfig);
             console.log('401 error - redirecting to RIS:', target);
@@ -140,9 +143,8 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
   };
 
   errorHandler.getHTTPErrorHandler = () => {
-    const originalHandler = typeof appConfig.httpErrorHandler === 'function'
-      ? appConfig.httpErrorHandler
-      : null;
+    const originalHandler =
+      typeof appConfig.httpErrorHandler === 'function' ? appConfig.httpErrorHandler : null;
 
     // Return enhanced handler that checks for 401 errors
     return createEnhancedErrorHandler(originalHandler);
@@ -155,7 +157,7 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
   customHangingProtocols.forEach(({ name, protocol }) => {
     if (protocol) {
       hangingProtocolService.addProtocol(name, protocol);
-      console.log('✅ Registered custom hanging protocol:', name, 'with ID:', protocol.id);
+      // console.log('✅ Registered custom hanging protocol:', name, 'with ID:', protocol.id);
     }
   });
 

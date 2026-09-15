@@ -159,6 +159,21 @@ class ViewportGridService extends PubSubService {
   }
 
   public getState(): AppTypes.ViewportGrid.State {
+    if (typeof this.serviceImplementation._getState !== 'function') {
+      // ViewportGridProvider wires _getState after React mounts. Extension
+      // preRegistration runs earlier and must not throw.
+      return {
+        activeViewportId: null,
+        layout: {
+          numRows: 0,
+          numCols: 0,
+          layoutType: 'grid',
+        },
+        isHangingProtocolLayout: false,
+        viewports: new Map(),
+      };
+    }
+
     return this.serviceImplementation._getState();
   }
 

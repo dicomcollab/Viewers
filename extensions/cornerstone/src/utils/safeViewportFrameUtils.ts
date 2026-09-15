@@ -8,6 +8,18 @@
  * Always re-fetch by id and skip disabled viewports so this never reaches production.
  */
 
+import { Enums } from '@cornerstonejs/core';
+import { isStackFrameReady, pickSafeStackBindIndex } from './cineFrameLoadUtils';
+
+type SetViewportFrameOptions = {
+  viewportId?: string;
+  cornerstoneViewportService?: any;
+  generation?: number;
+  getGeneration?: () => number;
+  isCurrent?: () => boolean;
+  stackKey?: string | null;
+};
+
 function isViewportAlive(viewport: {
   isDisabled?: boolean;
   element?: HTMLElement;
@@ -53,6 +65,48 @@ function getViewportFrameIndex(viewport): number {
   }
 }
 
+function getViewportStackKey(viewport): string | null {
+  if (!isViewportAlive(viewport) || typeof viewport.getImageIds !== 'function') {
+    return null;
+  }
+
+  try {
+    return viewport.getImageIds()?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveLiveViewport(viewport, options?: SetViewportFrameOptions) {
+  if (options?.viewportId && options?.cornerstoneViewportService) {
+    return getAliveViewport(options.cornerstoneViewportService, options.viewportId) ?? viewport;
+  }
+
+  return viewport;
+}
+
+function isSetFrameStillValid(viewport, options?: SetViewportFrameOptions): boolean {
+  if (options?.isCurrent && !options.isCurrent()) {
+    return false;
+  }
+
+  if (options?.getGeneration && options.generation != null) {
+    if (options.getGeneration() !== options.generation) {
+      return false;
+    }
+  }
+
+  if (!isViewportAlive(viewport)) {
+    return false;
+  }
+
+  if (options?.stackKey) {
+    return getViewportStackKey(viewport) === options.stackKey;
+  }
+
+  return true;
+}
+
 /**
  * Set the current stack frame on a live viewport. No-ops if the instance was
  * destroyed between lookup and call (layout change). Never uses debounced
@@ -80,13 +134,65 @@ function setViewportFrameIndex(viewport, imageIndex: number): boolean {
       return true;
     }
 
+    // Do not call render() here — setImageIdIndex already renders, and a second
+    // render can paint the previous frame and cancel the in-flight swap.
     viewport.setImageIdIndex(clamped);
 
-    if (typeof viewport.render === 'function') {
-      viewport.render();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait until Cornerstone has applied the new stack image (load + set).
+ * Used by cine so the next frame is not requested while this one is still swapping.
+ *
+ * Re-fetches the viewport by id and refuses the swap when paging has replaced
+ * the stack or stopClip has bumped cine generation — otherwise setImageIdIndex
+ * aborts the new first-frame retrieve (status 0) and leaves a black canvas.
+ */
+async function setViewportFrameIndexAsync(
+  viewport,
+  imageIndex: number,
+  options?: SetViewportFrameOptions
+): Promise<boolean> {
+  const live = resolveLiveViewport(viewport, options);
+
+  if (!isSetFrameStillValid(live, options) || typeof live.setImageIdIndex !== 'function') {
+    return false;
+  }
+
+  const frameCount = getViewportFrameCount(live);
+
+  if (frameCount <= 0) {
+    return false;
+  }
+
+  const clamped = Math.max(0, Math.min(frameCount - 1, Math.round(imageIndex)));
+
+  try {
+    const imageIds =
+      typeof live.getImageIds === 'function' ? live.getImageIds() ?? [] : [];
+
+    if (!isStackFrameReady(imageIds[clamped])) {
+      return false;
     }
 
-    return true;
+    const current = getViewportFrameIndex(live);
+
+    if (current === clamped) {
+      return true;
+    }
+
+    const result = live.setImageIdIndex(clamped);
+
+    if (result != null && typeof result.then === 'function') {
+      await result;
+    }
+
+    const after = resolveLiveViewport(live, options);
+    return isSetFrameStillValid(after, options);
   } catch {
     return false;
   }
@@ -102,37 +208,74 @@ function setViewportFrameIndexById(
 
 function recoverBlankStackViewport(cornerstoneViewportService, viewportId: string): boolean {
   const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+  const frameCount = getViewportFrameCount(viewport);
 
-  if (!viewport || getViewportFrameCount(viewport) < 1) {
+  if (!viewport || frameCount < 1) {
     return false;
   }
 
   try {
-    if (typeof cornerstoneViewportService.resize === 'function') {
-      cornerstoneViewportService.resize();
+    const imageIds =
+      typeof viewport.getImageIds === 'function' ? viewport.getImageIds() ?? [] : [];
+    const current = getViewportFrameIndex(viewport);
+    const status = viewport.viewportStatus;
+    const rendered =
+      status == null ||
+      Enums.ViewportStatus?.RENDERED == null ||
+      status === Enums.ViewportStatus.RENDERED;
+    const hasPixels = Boolean(viewport.csImage);
+    const currentReady = isStackFrameReady(imageIds[current]);
+
+    if (rendered && hasPixels && currentReady) {
+      viewport.render?.();
+      return true;
     }
 
-    if (typeof viewport.resize === 'function') {
-      viewport.resize();
+    const firstReady = imageIds.findIndex(imageId => isStackFrameReady(imageId));
+    const target = currentReady ? current : firstReady;
+
+    if (target < 0) {
+      viewport.resize?.();
+      viewport.render?.();
+      return false;
     }
 
-    if (typeof viewport.render === 'function') {
-      viewport.render();
+    if (!hasPixels && typeof viewport.setStack === 'function') {
+      const bindIndex = pickSafeStackBindIndex(imageIds, target);
+      void Promise.resolve(viewport.setStack(imageIds, bindIndex)).catch(() => undefined);
+      viewport.resize?.();
+      return true;
     }
 
+    if (typeof viewport.setImageIdIndex === 'function' && target !== current) {
+      viewport.setImageIdIndex(target);
+    } else {
+      viewport.render?.();
+    }
+
+    viewport.resize?.();
     return true;
   } catch {
     return false;
   }
 }
 
+function recoverLayoutStackViewports(cornerstoneViewportService, viewportIds: string[]): void {
+  (viewportIds || []).forEach(viewportId => {
+    recoverBlankStackViewport(cornerstoneViewportService, viewportId);
+  });
+}
+
 export {
   getAliveViewport,
   getViewportFrameCount,
   getViewportFrameIndex,
+  getViewportStackKey,
   isViewportAlive,
   recoverBlankStackViewport,
+  recoverLayoutStackViewports,
   setViewportFrameIndex,
+  setViewportFrameIndexAsync,
   setViewportFrameIndexById,
 };
 

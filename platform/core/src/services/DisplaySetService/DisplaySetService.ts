@@ -264,6 +264,31 @@ export default class DisplaySetService extends PubSubService {
    * @returns
    */
   public makeDisplaySetForInstances(instancesSrc: InstanceMetadata[], settings): DisplaySet[] {
+    // QIDO/WADO metadata sometimes omits SOPClassUID for ultrasound instances.
+    // Grouping those under key "undefined" sends them to the unsupported handler
+    // as one blob, so 2×2 paging shows 27 slots instead of every US SOP.
+    const US_IMAGE_STORAGE = '1.2.840.10008.5.1.4.1.1.6.1';
+    const US_MULTIFRAME_STORAGE = '1.2.840.10008.5.1.4.1.1.3.1';
+    const missingSopClass = instancesSrc.filter(
+      instance => !instance.SOPClassUID && instance.Modality === 'US'
+    ).length;
+
+    if (missingSopClass && typeof window !== 'undefined') {
+      // console.info('[US display-sets] inferred SOPClassUID for instances missing it', {
+      //   missingSopClass,
+      //   studyInstanceUID: instancesSrc[0]?.StudyInstanceUID,
+      //   seriesInstanceUID: instancesSrc[0]?.SeriesInstanceUID,
+      // });
+    }
+
+    instancesSrc.forEach(instance => {
+      if (instance.SOPClassUID || instance.Modality !== 'US') {
+        return;
+      }
+
+      instance.SOPClassUID =
+        Number(instance.NumberOfFrames) > 1 ? US_MULTIFRAME_STORAGE : US_IMAGE_STORAGE;
+    });
     // creating a sopClassUID list and for each sopClass associate its respective
     // instance list
     const instancesForSetSOPClasses = instancesSrc.reduce((sopClassList, instance) => {

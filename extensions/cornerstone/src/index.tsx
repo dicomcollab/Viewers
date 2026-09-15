@@ -47,6 +47,7 @@ import {
   useSelectedSegmentationsForViewportStore,
 } from './stores';
 import { useToggleOneUpViewportGridStore } from '@ohif/extension-default';
+import { clearUsInstanceFrameState } from './utils/usInstanceFrameStateStore';
 import { useActiveViewportSegmentationRepresentations } from './hooks/useActiveViewportSegmentationRepresentations';
 import { useMeasurements } from './hooks/useMeasurements';
 import getPanelModule from './getPanelModule';
@@ -153,6 +154,7 @@ const cornerstoneExtension: Types.Extensions.Extension = {
     });
 
     cineService.setIsCineEnabled(false);
+    clearUsInstanceFrameState();
 
     enabledElementReset();
 

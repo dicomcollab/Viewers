@@ -1,4 +1,8 @@
-import OHIF, { errorHandler, isMissingInstanceLoadError } from '@ohif/core';
+import OHIF, {
+  errorHandler,
+  isMissingInstanceLoadError,
+  shouldSuppressBenignViewerError,
+} from '@ohif/core';
 import React from 'react';
 
 import * as cornerstone from '@cornerstonejs/core';
@@ -38,7 +42,9 @@ try {
 import { connectToolsToMeasurementService } from './initMeasurementService';
 import initCineService from './initCineService';
 import { initUsFrameDistribution } from './utils/usFrameDistributionUtils';
+import { initUsInstanceFrameState } from './utils/usInstanceFrameState';
 import patchStackViewportDestroyedGuard from './utils/patchStackViewportDestroyedGuard';
+import { isAbortedImageLoadError } from './utils/isAbortedImageLoadError';
 import initStudyPrefetcherService from './initStudyPrefetcherService';
 import interleaveCenterLoader from './utils/interleaveCenterLoader';
 import nthLoader from './utils/nthLoader';
@@ -235,6 +241,7 @@ export default async function init({
   });
 
   initCineService(servicesManager);
+  initUsInstanceFrameState(servicesManager);
   initUsFrameDistribution(servicesManager);
   initStudyPrefetcherService(servicesManager);
 
@@ -288,11 +295,20 @@ export default async function init({
    * @param event
    */
   const imageLoadFailedHandler = ({ detail }) => {
-    if (isMissingInstanceLoadError(detail?.error)) {
+    const error = detail?.error ?? detail;
+
+    // Cine/paging cancels in-flight frames (status 0 / status undefined).
+    // That is not CORS — do not log or treat as a failed study load.
+    if (
+      isMissingInstanceLoadError(error) ||
+      isAbortedImageLoadError(error) ||
+      shouldSuppressBenignViewerError(error)
+    ) {
       return;
     }
+
     const handler = errorHandler.getHTTPErrorHandler();
-    handler(detail.error);
+    handler(error);
   };
 
   eventTarget.addEventListener(EVENTS.IMAGE_LOAD_FAILED, imageLoadFailedHandler);

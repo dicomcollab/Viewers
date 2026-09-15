@@ -337,7 +337,7 @@ export default async function initCornerstoneTools(configuration = {}) {
     // Set the updated styles
     annotation.config.style.setDefaultToolStyles(newStyles);
 
-    console.log('Final tool styles:', annotation.config.style.getDefaultToolStyles());
+    // console.log('Final tool styles:', annotation.config.style.getDefaultToolStyles());
   } catch (error) {
     console.error('Error initializing Cornerstone tools:', error);
     throw error;

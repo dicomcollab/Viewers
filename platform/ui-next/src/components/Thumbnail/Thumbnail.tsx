@@ -59,8 +59,7 @@ const Thumbnail = ({
   // for display does not count as "downloaded" — only full series load does.
   const isFullyLoaded = normalizedLoadingProgress != null && normalizedLoadingProgress >= 1;
   const supportsPreload = modality !== 'SR';
-  const showPrefetchButton =
-    Boolean(onPrefetchDisplaySet) && supportsPreload && !isFullyLoaded;
+  const showPrefetchButton = Boolean(onPrefetchDisplaySet) && supportsPreload && !isFullyLoaded;
 
   const handlePrefetchClick = e => {
     e.stopPropagation();
@@ -102,8 +101,7 @@ const Thumbnail = ({
     return (
       <div
         className={classnames(
-          'flex h-full w-full flex-col items-center justify-center gap-[2px] p-[4px]',
-          isActive && 'bg-primary-light/30 rounded'
+          'flex h-full w-full flex-col items-center justify-center gap-[2px] p-[4px]'
         )}
       >
         <div className="h-[114px] w-[128px]">
@@ -124,7 +122,7 @@ const Thumbnail = ({
               <div
                 className={classnames(
                   'h-[8px] w-[2px] rounded-sm',
-                  isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight/80' : 'bg-white/35',
+                  isHydratedForDerivedDisplaySet ? 'bg-white/80' : 'bg-white/35',
                   showLoading && 'bg-white/20'
                 )}
               ></div>
@@ -141,9 +139,9 @@ const Thumbnail = ({
                 <Tooltip>
                   <TooltipTrigger>
                     <div className="group">
-                      <Icons.StatusTracking className="text-white h-[15px] w-[15px] group-hover:hidden" />
+                      <Icons.StatusTracking className="h-[15px] w-[15px] text-white group-hover:hidden" />
                       <Icons.Cancel
-                        className="text-white hidden h-[15px] w-[15px] group-hover:block"
+                        className="hidden h-[15px] w-[15px] text-white group-hover:block"
                         onClick={onClickUntrack}
                       />
                     </div>
@@ -207,8 +205,8 @@ const Thumbnail = ({
             </TooltipTrigger>
           </Tooltip>
           <div className="flex h-[12px] items-center gap-[7px] overflow-hidden">
-            <div className="text-white pl-1 text-[11px]"> S:{seriesNumber}</div>
-            <div className="text-white text-[11px]">
+            <div className="pl-1 text-[11px] text-white"> S:{seriesNumber}</div>
+            <div className="text-[11px] text-white">
               <div className="flex items-center gap-[4px]">
                 {countIcon ? (
                   React.createElement(Icons[countIcon] || Icons.MissingIcon, { className: 'w-3' })
@@ -221,7 +219,7 @@ const Thumbnail = ({
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className="text-white hover:text-primary-light flex h-4 w-4 items-center justify-center rounded outline-none transition-colors hover:bg-primary/30"
+                        className="hover:text-primary-light hover:bg-primary/30 flex h-4 w-4 items-center justify-center rounded text-white outline-none transition-colors"
                         onClick={handlePrefetchClick}
                         aria-label="Preload series"
                       >
@@ -252,105 +250,106 @@ const Thumbnail = ({
         <div
           className={classnames(
             'flex w-full min-w-0 items-center justify-between pr-[8px] pl-[8px] pt-[4px] pb-[4px]',
-            !showUserPreloadProgress && 'h-full',
-            isActive && 'bg-primary-light/30 rounded'
+            !showUserPreloadProgress && 'h-full'
           )}
         >
-        <div className="relative flex h-[32px] min-w-0 flex-1 items-center gap-[8px] overflow-hidden">
-          <div
-            className={classnames(
-              'h-[32px] w-[2px] min-w-[2px] rounded-sm',
-              isActive || isHydratedForDerivedDisplaySet ? 'bg-highlight/80' : 'bg-white/35',
-              showLoading && 'bg-white/20'
-            )}
-          ></div>
-          <div className="flex h-full min-w-0 w-[calc(100%-12px)] flex-col justify-start">
-            <div className="flex items-center gap-[7px] min-w-0">
-              <div className="shrink-0 text-[13px] font-semibold text-white">{modality}</div>
-              <Tooltip>
-                <TooltipContent>{description}</TooltipContent>
-                <TooltipTrigger
-                  className="min-w-0 flex-1 overflow-hidden"
-                  asChild
-                >
-                  <div className="min-w-0 overflow-hidden truncate whitespace-nowrap text-left text-[13px] font-normal text-white">
-                    {description}
-                  </div>
-                </TooltipTrigger>
-              </Tooltip>
-            </div>
+          <div className="relative flex h-[32px] min-w-0 flex-1 items-center gap-[8px] overflow-hidden">
+            <div
+              className={classnames(
+                'h-[32px] w-[2px] min-w-[2px] rounded-sm',
+                isHydratedForDerivedDisplaySet ? 'bg-white/80' : 'bg-white/35',
+                showLoading && 'bg-white/20'
+              )}
+            ></div>
+            <div className="flex h-full w-[calc(100%-12px)] min-w-0 flex-col justify-start">
+              <div className="flex min-w-0 items-center gap-[7px]">
+                <div className="shrink-0 text-[13px] font-semibold text-white">{modality}</div>
+                <Tooltip>
+                  <TooltipContent>{description}</TooltipContent>
+                  <TooltipTrigger
+                    className="min-w-0 flex-1 overflow-hidden"
+                    asChild
+                  >
+                    <div className="min-w-0 overflow-hidden truncate whitespace-nowrap text-left text-[13px] font-normal text-white">
+                      {description}
+                    </div>
+                  </TooltipTrigger>
+                </Tooltip>
+              </div>
 
-            <div className="flex h-[12px] items-center gap-[7px] overflow-hidden">
-              <div className="text-white text-[12px]"> S:{seriesNumber}</div>
-              <div className="text-white text-[12px]">
-                <div className="flex items-center gap-[4px]">
-                  {' '}
-                  {countIcon ? (
-                    React.createElement(Icons[countIcon] || Icons.MissingIcon, { className: 'w-3' })
-                  ) : (
-                    <Icons.InfoSeries className="w-3" />
-                  )}
-                  <div>{numInstances}</div>
-                  {showPrefetchButton && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="text-white hover:text-primary-light flex h-4 w-4 items-center justify-center rounded outline-none transition-colors hover:bg-primary/30"
-                          onClick={handlePrefetchClick}
-                          aria-label="Preload series"
-                        >
-                          <Icons.Download className="h-3 w-3" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left">
-                        <span className="text-white">Preload series</span>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+              <div className="flex h-[12px] items-center gap-[7px] overflow-hidden">
+                <div className="text-[12px] text-white"> S:{seriesNumber}</div>
+                <div className="text-[12px] text-white">
+                  <div className="flex items-center gap-[4px]">
+                    {' '}
+                    {countIcon ? (
+                      React.createElement(Icons[countIcon] || Icons.MissingIcon, {
+                        className: 'w-3',
+                      })
+                    ) : (
+                      <Icons.InfoSeries className="w-3" />
+                    )}
+                    <div>{numInstances}</div>
+                    {showPrefetchButton && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="hover:text-primary-light hover:bg-primary/30 flex h-4 w-4 items-center justify-center rounded text-white outline-none transition-colors"
+                            onClick={handlePrefetchClick}
+                            aria-label="Preload series"
+                          >
+                            <Icons.Download className="h-3 w-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          <span className="text-white">Preload series</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-        <div className="flex h-full shrink-0 items-center gap-[4px]">
-          <DisplaySetMessageListTooltip
-            messages={messages}
-            id={`display-set-tooltip-${displaySetInstanceUID}`}
-          />
-          {isTracked && (
-            <Tooltip>
-              <TooltipTrigger>
-                <div className="group">
-                  <Icons.StatusTracking className="text-white h-[20px] w-[15px] group-hover:hidden" />
-                  <Icons.Cancel
-                    className="text-white hidden h-[15px] w-[15px] group-hover:block"
-                    onClick={onClickUntrack}
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <div className="flex flex-1 flex-row">
-                  <div className="flex-2 flex items-center justify-center pr-4">
-                    <Icons.InfoLink className="text-white" />
+          <div className="flex h-full shrink-0 items-center gap-[4px]">
+            <DisplaySetMessageListTooltip
+              messages={messages}
+              id={`display-set-tooltip-${displaySetInstanceUID}`}
+            />
+            {isTracked && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <div className="group">
+                    <Icons.StatusTracking className="h-[20px] w-[15px] text-white group-hover:hidden" />
+                    <Icons.Cancel
+                      className="hidden h-[15px] w-[15px] text-white group-hover:block"
+                      onClick={onClickUntrack}
+                    />
                   </div>
-                  <div className="flex flex-1 flex-col">
-                    <span>
-                      <span className="text-white">
-                        {isTracked ? 'Series is tracked' : 'Series is untracked'}
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <div className="flex flex-1 flex-row">
+                    <div className="flex-2 flex items-center justify-center pr-4">
+                      <Icons.InfoLink className="text-white" />
+                    </div>
+                    <div className="flex flex-1 flex-col">
+                      <span>
+                        <span className="text-white">
+                          {isTracked ? 'Series is tracked' : 'Series is untracked'}
+                        </span>
                       </span>
-                    </span>
+                    </div>
                   </div>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <ThumbnailMenuItems
-            displaySetInstanceUID={displaySetInstanceUID}
-            canReject={canReject}
-            onReject={onReject}
-          />
-        </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <ThumbnailMenuItems
+              displaySetInstanceUID={displaySetInstanceUID}
+              canReject={canReject}
+              onReject={onReject}
+            />
+          </div>
         </div>
         {showUserPreloadProgress && (
           <div className="flex w-full flex-col gap-[2px] px-2 pb-1">
@@ -381,9 +380,10 @@ const Thumbnail = ({
     <div
       className={classnames(
         className,
-        'bg-muted hover:bg-primary/30 group flex cursor-pointer select-none flex-col rounded outline-none',
+        'bg-muted hover:bg-primary/30 group box-border flex cursor-pointer select-none flex-col rounded border outline-none',
         viewPreset === 'thumbnails' && 'h-[190px] w-[135px]',
-        viewPreset === 'list' && 'min-h-[40px] w-full'
+        viewPreset === 'list' && 'min-h-[40px] w-full',
+        isActive ? 'border-white' : 'border-transparent'
       )}
       id={`thumbnail-${displaySetInstanceUID}`}
       data-cy={
@@ -392,6 +392,7 @@ const Thumbnail = ({
           : 'study-browser-thumbnail'
       }
       data-series={seriesNumber}
+      data-on-viewport={isActive ? 'true' : 'false'}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onTouchEnd={handleTouchEnd}

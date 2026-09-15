@@ -86,17 +86,16 @@ function PanelStudyBrowser({
     : false;
 
   const [{ activeViewportId, viewports, isHangingProtocolLayout }] = useViewportGrid();
-  const activeDisplaySetInstanceUIDs = useMemo(() => {
-    const activeViewport = viewports.get(activeViewportId);
-    const displaySetUIDs = activeViewport?.displaySetInstanceUIDs || [];
-    const singleDisplaySetUID = activeViewport?.displaySetInstanceUID;
-
-    if (!singleDisplaySetUID) {
-      return displaySetUIDs;
-    }
-
-    return Array.from(new Set([...displaySetUIDs, singleDisplaySetUID]));
-  }, [viewports, activeViewportId]);
+  // Highlight every series/instance that is currently bound to a viewport,
+  // not only the focused pane — matches the on-screen layout (e.g. 2×2).
+  const activeDisplaySetInstanceUIDs = useMemo(
+    () => getDisplayedDisplaySetInstanceUIDs(viewports),
+    [viewports]
+  );
+  const displayedThumbnailsKey = useMemo(
+    () => [...activeDisplaySetInstanceUIDs].sort().join('|'),
+    [activeDisplaySetInstanceUIDs]
+  );
   const [activeTabName, setActiveTabName] = useState(studyMode);
   const [expandedStudyInstanceUIDs, setExpandedStudyInstanceUIDs] = useState(
     studyMode === 'primary' && StudyInstanceUIDs.length > 0
@@ -650,7 +649,7 @@ function PanelStudyBrowser({
 
       if (element && typeof element.scrollIntoView === 'function') {
         // TODO: Any way to support IE here?
-        element.scrollIntoView({ behavior: 'smooth' });
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         setJumpToDisplaySet(null);
       }
@@ -676,6 +675,21 @@ function PanelStudyBrowser({
       setExpandedStudyInstanceUIDs(updatedExpandedStudyInstanceUIDs);
     }
   }, [expandedStudyInstanceUIDs, jumpToDisplaySet, tabs]);
+
+  // Keep the study panel scrolled to the current layout page so page 3's
+  // four instances sit together instead of leaving the last one off-screen.
+  useEffect(() => {
+    if (!displayedThumbnailsKey) {
+      return;
+    }
+
+    const displayed = new Set(activeDisplaySetInstanceUIDs);
+    const firstOnViewport = displaySets.find(ds => displayed.has(ds.displaySetInstanceUID));
+
+    if (firstOnViewport?.displaySetInstanceUID) {
+      setJumpToDisplaySet(firstOnViewport.displaySetInstanceUID);
+    }
+  }, [activeDisplaySetInstanceUIDs, displaySets.length, displayedThumbnailsKey]);
 
   const studyLoadingPercent = useMemo(() => {
     const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
@@ -838,6 +852,32 @@ function _mapDataSourceStudies(studies) {
   });
 }
 
+function getDisplayedDisplaySetInstanceUIDs(viewports): string[] {
+  const uids = new Set<string>();
+
+  if (!viewports?.size) {
+    return [];
+  }
+
+  for (const viewport of viewports.values()) {
+    const list = viewport?.displaySetInstanceUIDs;
+
+    if (Array.isArray(list)) {
+      list.forEach(uid => {
+        if (uid) {
+          uids.add(uid);
+        }
+      });
+    }
+
+    if (viewport?.displaySetInstanceUID) {
+      uids.add(viewport.displaySetInstanceUID);
+    }
+  }
+
+  return Array.from(uids);
+}
+
 /**
  * Display set UIDs that are currently in viewports which are still loading (e.g. after switching to MPR/3D).
  */
@@ -856,7 +896,7 @@ function _getLayoutLoadingDisplaySetUIDs(viewports, isHangingProtocolLayout) {
 
 /**
  * Per-thumbnail instance load progress (bar + percent) is noisy if shown for every series.
- * Only show it for the active viewport's series or series the user explicitly preloaded.
+ * Only show it for series currently on a viewport or series the user explicitly preloaded.
  * `loadingProgress` is still passed through so preload / "fully loaded" logic stays correct.
  */
 function applyStudyBrowserSeriesProgressVisibility(
@@ -917,9 +957,18 @@ function _mapDisplaySets(
         displaySetInstanceUID,
         description: ds.SeriesDescription || '',
         seriesNumber: ds.SeriesNumber,
+        SeriesNumber: ds.SeriesNumber,
         InstanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
         instanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
+        SOPInstanceUID:
+          ds.SOPInstanceUID ?? ds.instance?.SOPInstanceUID ?? ds.instances?.[0]?.SOPInstanceUID,
+        acquisitionDatetime:
+          ds.acquisitionDatetime ??
+          ds.AcquisitionDateTime ??
+          ds.instance?.AcquisitionDateTime ??
+          ds.instances?.[0]?.AcquisitionDateTime,
         modality: ds.Modality,
+        Modality: ds.Modality,
         seriesDate: formatDate(ds.SeriesDate),
         numInstances: loadingNumInstances ?? ds.numImageFrames,
         loadingProgress,
