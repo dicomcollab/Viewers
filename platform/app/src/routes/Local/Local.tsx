@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import classnames from 'classnames';
 import { useNavigate } from 'react-router-dom';
 import { DicomMetadataStore, MODULE_TYPES, useSystem } from '@ohif/core';
 
@@ -10,28 +9,25 @@ import { extensionManager } from '../../App';
 
 import { Button, Icons } from '@ohif/ui-next';
 
-const DCM_ACCEPT = {
-  'application/dicom': ['.dcm'],
-};
+/** OS / folder noise — not DICOM content. */
+const SKIP_FILE_NAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
 
-const isDcmFile = (file: File) => Boolean(file?.name?.toLowerCase().endsWith('.dcm'));
-
-const dcmFileValidator = (file: File) => {
-  if (!isDcmFile(file)) {
-    return {
-      code: 'file-invalid-type',
-      message: 'Only .dcm files are allowed',
-    };
+const isSkippableFile = (file: File) => {
+  const name = (file?.name || '').toLowerCase();
+  if (!name || SKIP_FILE_NAMES.has(name)) {
+    return true;
   }
-  return null;
+  // Hidden macOS resource forks / AppleDouble
+  if (name.startsWith('._')) {
+    return true;
+  }
+  return false;
 };
 
 const getLoadButton = (onDrop, text, isDir) => {
   return (
     <Dropzone
       onDrop={onDrop}
-      accept={DCM_ACCEPT}
-      validator={dcmFileValidator}
       noDrag
     >
       {({ getRootProps, getInputProps }) => (
@@ -53,7 +49,6 @@ const getLoadButton = (onDrop, text, isDir) => {
             ) : (
               <input
                 {...getInputProps()}
-                accept=".dcm,application/dicom"
                 style={{ display: 'none' }}
               />
             )}
@@ -99,27 +94,44 @@ function Local({ modePath }: LocalProps) {
   );
 
   const onDrop = async (acceptedFiles, fileRejections = []) => {
-    const dcmFiles = (acceptedFiles || []).filter(isDcmFile);
-    const rejectedCount =
-      (fileRejections?.length || 0) + ((acceptedFiles?.length || 0) - dcmFiles.length);
+    const files = (acceptedFiles || []).filter(file => !isSkippableFile(file));
 
-    if (rejectedCount > 0) {
+    if (fileRejections?.length) {
       uiNotificationService.show({
-        title: 'Invalid file type',
-        message: 'Only .dcm DICOM files are supported. Other files were ignored.',
-        type: 'error',
-        duration: 5000,
+        title: 'Some files were skipped',
+        message: 'A few files could not be selected. Valid DICOM files will still be loaded.',
+        type: 'warning',
+        duration: 4000,
       });
     }
 
-    if (!dcmFiles.length) {
+    if (!files.length) {
+      uiNotificationService.show({
+        title: 'No files to load',
+        message: 'Select DICOM files or a folder that contains them (extension optional).',
+        type: 'error',
+        duration: 5000,
+      });
       setDropInitiated(false);
       return;
     }
 
     setDropInitiated(true);
 
-    const studies = await filesToStudies(dcmFiles, dataSource);
+    // Parse by DICOM content — .dcm extension is not required.
+    const studies = await filesToStudies(files, dataSource);
+
+    if (!studies?.length) {
+      setDropInitiated(false);
+      uiNotificationService.show({
+        title: 'No DICOM studies found',
+        message:
+          'None of the selected files could be read as DICOM. Check that they are valid DICOM instances.',
+        type: 'error',
+        duration: 6000,
+      });
+      return;
+    }
 
     const query = new URLSearchParams();
 
@@ -160,8 +172,6 @@ function Local({ modePath }: LocalProps) {
     <Dropzone
       ref={dropzoneRef}
       onDrop={onDrop}
-      accept={DCM_ACCEPT}
-      validator={dcmFileValidator}
       noClick
     >
       {({ getRootProps }) => (
@@ -182,11 +192,11 @@ function Local({ modePath }: LocalProps) {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-white pt-0 text-xl">
-                      Drag and drop your .dcm DICOM files & folders here <br />
+                      Drag and drop your DICOM files & folders here <br />
                       to load them locally.
                     </p>
                     <p className="text-muted-foreground text-base">
-                      Only .dcm files are supported.
+                      .dcm extension is optional — files are validated as DICOM by content.
                       <br />
                       Note: Your data remains locally within your browser
                       <br /> and is never uploaded to any server.

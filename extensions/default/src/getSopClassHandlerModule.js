@@ -244,8 +244,13 @@ function getDisplaySetsFromSeries(instances) {
         sopClassUids,
         numImageFrames: instance.NumberOfFrames,
         instanceNumber: instance.InstanceNumber,
+        InstanceNumber: instance.InstanceNumber,
+        AcquisitionNumber: instance.AcquisitionNumber,
         SOPInstanceUID: instance.SOPInstanceUID,
         acquisitionDatetime: instance.AcquisitionDateTime,
+        AcquisitionDateTime: instance.AcquisitionDateTime,
+        ContentDate: instance.ContentDate,
+        ContentTime: instance.ContentTime,
       });
       displaySets.push(displaySet);
     } else if (isPerInstanceDisplaySetModality(instance.Modality)) {
@@ -253,8 +258,13 @@ function getDisplaySetsFromSeries(instances) {
       displaySet.setAttributes({
         sopClassUids,
         instanceNumber: instance.InstanceNumber,
+        InstanceNumber: instance.InstanceNumber,
+        AcquisitionNumber: instance.AcquisitionNumber,
         SOPInstanceUID: instance.SOPInstanceUID,
         acquisitionDatetime: instance.AcquisitionDateTime,
+        AcquisitionDateTime: instance.AcquisitionDateTime,
+        ContentDate: instance.ContentDate,
+        ContentTime: instance.ContentTime,
       });
       displaySets.push(displaySet);
     } else {

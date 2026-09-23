@@ -3,6 +3,7 @@ import { ensureStructuredReportDisplaySet } from '@ohif/extension-default/src/ut
 import {
   buildViewportsUpdateForDisplaySet,
   isStructuredReportDisplaySet,
+  presentDisplaySetAfterStructuredReport,
   presentStructuredReportInOneUp,
   resolveViewportIdForStructuredReport,
 } from '@ohif/extension-default/src/utils/openStructuredReportInViewport';
@@ -71,6 +72,17 @@ const onDoubleClickHandler = {
           return;
         }
 
+        // SR forced 1×1 — restore prior layout (e.g. 2×2) before hanging the image.
+        if (
+          presentDisplaySetAfterStructuredReport({
+            displaySetInstanceUID,
+            commandsManager,
+            servicesManager,
+          })
+        ) {
+          return;
+        }
+
         const viewportId = resolveViewportIdForStructuredReport(displaySet, {
           activeViewportId,
           viewportGridService,
@@ -115,6 +127,16 @@ const customOnDropHandlerCallback = async props => {
       commandsManager,
       servicesManager,
     });
+    return { handled: true };
+  }
+
+  if (
+    presentDisplaySetAfterStructuredReport({
+      displaySetInstanceUID,
+      commandsManager,
+      servicesManager,
+    })
+  ) {
     return { handled: true };
   }
 

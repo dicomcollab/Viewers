@@ -15,6 +15,7 @@ import {
   savedHangingProtocolMatchesCurrent,
   subscribeViewerLayoutLoaded,
 } from '../utils/viewerLayoutPreferences';
+import { hasSrOneUpLayoutToRestore } from '../utils/openStructuredReportInViewport';
 
 /**
  * Restores saved hanging protocol after auto-match when Preferences → Viewer
@@ -27,6 +28,11 @@ export default function useViewerLayoutPersistence({ servicesManager, commandsMa
   const applySavedHangingProtocol = useCallback(
     (layout, modality) => {
       if (hasUrlHangingProtocolOverride()) {
+        return false;
+      }
+      // SR temporarily forced 1×1 — do not restore the saved multi-up layout
+      // until the user opens an image series again.
+      if (hasSrOneUpLayoutToRestore()) {
         return false;
       }
       if (!isStudyReadyForHangingProtocol(servicesManager)) {

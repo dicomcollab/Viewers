@@ -105,8 +105,57 @@ const ONE_UP_POLL_INTERVAL_MS = 50;
 const ONE_UP_MAX_POLLS = 20;
 const PROTOCOL_CHANGE_FALLBACK_MS = 500;
 
+/** Layout in effect before SR forced 1×1 — restored when opening images again. */
+let srOneUpLayoutSnapshot = null;
+/** True while restoring that layout so persistence does not force 1×1 mid-restore. */
+let srLayoutRestoreInFlight = false;
+
 function isOneUpGridState({ layout, viewports }) {
   return layout?.numRows === 1 && layout?.numCols === 1 && viewports?.size === 1;
+}
+
+function isMultiViewportLayout(snapshot) {
+  if (!snapshot) {
+    return false;
+  }
+  const tiles = (snapshot.numRows || 1) * (snapshot.numCols || 1);
+  if (tiles > 1) {
+    return true;
+  }
+  return Boolean(
+    snapshot.protocolId &&
+      snapshot.protocolId !== 'allModality1x1' &&
+      snapshot.protocolId !== 'usModality1x1'
+  );
+}
+
+function captureSrOneUpLayoutSnapshot(servicesManager) {
+  // Keep the first pre-SR layout when opening another SR from 1×1.
+  if (srOneUpLayoutSnapshot) {
+    return;
+  }
+
+  const { hangingProtocolService, viewportGridService } = servicesManager.services;
+  const hpState = hangingProtocolService?.getState?.() || {};
+  const layout = viewportGridService?.getState?.()?.layout || {};
+
+  srOneUpLayoutSnapshot = {
+    protocolId: hpState.protocolId,
+    stageId: hpState.stageId,
+    stageIndex: hpState.stageIndex,
+    numRows: layout.numRows,
+    numCols: layout.numCols,
+  };
+}
+
+function consumeSrOneUpLayoutSnapshot() {
+  const snapshot = srOneUpLayoutSnapshot;
+  srOneUpLayoutSnapshot = null;
+  return snapshot;
+}
+
+export function hasSrOneUpLayoutToRestore() {
+  return isMultiViewportLayout(srOneUpLayoutSnapshot) || srLayoutRestoreInFlight;
 }
 
 /**
@@ -114,8 +163,7 @@ function isOneUpGridState({ layout, viewports }) {
  * protocol change is stale — the layout rebuilds the viewport map with new ids, and dispatching
  * an unknown id leaves the grid without a matching viewport.
  */
-function assignStructuredReportToActiveViewport(displaySet, viewportGridService) {
-  const displaySetInstanceUID = displaySet?.displaySetInstanceUID;
+function assignDisplaySetToActiveViewport(displaySetInstanceUID, viewportGridService) {
   const { viewports, activeViewportId } = viewportGridService.getState();
 
   if (!displaySetInstanceUID || !viewports?.size) {
@@ -146,6 +194,10 @@ function assignStructuredReportToActiveViewport(displaySet, viewportGridService)
   ]);
 }
 
+function assignStructuredReportToActiveViewport(displaySet, viewportGridService) {
+  assignDisplaySetToActiveViewport(displaySet?.displaySetInstanceUID, viewportGridService);
+}
+
 /**
  * The grid applies a protocol change through a React reducer, so the state read synchronously
  * from PROTOCOL_CHANGED still describes the previous layout. Poll until the 1×1 grid is in place.
@@ -162,6 +214,39 @@ function assignWhenOneUpApplied(displaySet, viewportGridService, attempt = 0) {
   );
 }
 
+function isGridMatchingSnapshot(gridState, snapshot) {
+  const layout = gridState?.layout;
+  if (!layout || !snapshot) {
+    return false;
+  }
+  if (snapshot.numRows && snapshot.numCols) {
+    return layout.numRows === snapshot.numRows && layout.numCols === snapshot.numCols;
+  }
+  return !isOneUpGridState(gridState);
+}
+
+/**
+ * Poll until the restored multi-viewport grid is applied, then place the display set.
+ */
+function assignWhenLayoutRestored(
+  displaySetInstanceUID,
+  viewportGridService,
+  snapshot,
+  attempt = 0
+) {
+  if (isGridMatchingSnapshot(viewportGridService.getState(), snapshot) || attempt >= ONE_UP_MAX_POLLS) {
+    assignDisplaySetToActiveViewport(displaySetInstanceUID, viewportGridService);
+    srLayoutRestoreInFlight = false;
+    return;
+  }
+
+  window.setTimeout(
+    () =>
+      assignWhenLayoutRestored(displaySetInstanceUID, viewportGridService, snapshot, attempt + 1),
+    ONE_UP_POLL_INTERVAL_MS
+  );
+}
+
 /**
  * SR documents need a full-screen 1×1 viewport. Switch hanging protocol, then
  * put this SR in the single tile (HP may otherwise hang the first image series).
@@ -173,6 +258,8 @@ export function presentStructuredReportInOneUp({ displaySet, commandsManager, se
     assignStructuredReportToActiveViewport(displaySet, viewportGridService);
     return;
   }
+
+  captureSrOneUpLayoutSnapshot(servicesManager);
 
   let started = false;
   const startAssigning = () => {
@@ -208,4 +295,72 @@ export function presentStructuredReportInOneUp({ displaySet, commandsManager, se
     }
     startAssigning();
   }, PROTOCOL_CHANGE_FALLBACK_MS);
+}
+
+/**
+ * After SR forced 1×1, restore the prior multi-viewport layout (e.g. 2×2) and
+ * place the newly opened image series. Returns true when restore was started.
+ */
+export function presentDisplaySetAfterStructuredReport({
+  displaySetInstanceUID,
+  commandsManager,
+  servicesManager,
+}) {
+  if (!isMultiViewportLayout(srOneUpLayoutSnapshot)) {
+    return false;
+  }
+
+  const snapshot = consumeSrOneUpLayoutSnapshot();
+  srLayoutRestoreInFlight = true;
+
+  const { hangingProtocolService, viewportGridService } = servicesManager.services;
+
+  const protocolId = snapshot.protocolId || 'allModality2x2';
+  const stageId =
+    snapshot.stageId ||
+    (protocolId === 'allModality2x2'
+      ? '2x2'
+      : protocolId === 'allModality1x2'
+        ? '1x2'
+        : protocolId === 'allModality2x4'
+          ? '2x4'
+          : undefined);
+
+  let started = false;
+  const startAssigning = () => {
+    if (started) {
+      return;
+    }
+    started = true;
+    assignWhenLayoutRestored(displaySetInstanceUID, viewportGridService, snapshot);
+  };
+
+  const subscription = hangingProtocolService.subscribe(
+    hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
+    () => {
+      if (typeof subscription?.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+      startAssigning();
+    }
+  );
+
+  commandsManager.run({
+    commandName: 'setHangingProtocol',
+    commandOptions: {
+      protocolId,
+      ...(stageId ? { stageId } : {}),
+      ...(typeof snapshot.stageIndex === 'number' ? { stageIndex: snapshot.stageIndex } : {}),
+      reset: true,
+    },
+  });
+
+  window.setTimeout(() => {
+    if (typeof subscription?.unsubscribe === 'function') {
+      subscription.unsubscribe();
+    }
+    startAssigning();
+  }, PROTOCOL_CHANGE_FALLBACK_MS);
+
+  return true;
 }

@@ -1,4 +1,4 @@
-import { Types, DicomMetadataStore } from '@ohif/core';
+import { Types, DicomMetadataStore, utils } from '@ohif/core';
 
 import { ContextMenuController } from './CustomizableContextMenu';
 import DicomTagBrowser from './DicomTagBrowser/DicomTagBrowser';
@@ -24,6 +24,9 @@ import { useViewportsByPositionStore } from './stores/useViewportsByPositionStor
 import { useToggleOneUpViewportGridStore } from './stores/useToggleOneUpViewportGridStore';
 import requestDisplaySetCreationForStudy from './Panels/requestDisplaySetCreationForStudy';
 import promptSaveReport from './utils/promptSaveReport';
+import { getStudyPanelNavigationOrder } from './utils/studyPanelNavigationOrder';
+
+const { compareDisplaySetsByReviewOrder } = utils;
 
 export type HangingProtocolParams = {
   protocolId?: string;
@@ -745,60 +748,86 @@ const commandsModule = ({
     }: UpdateViewportDisplaySetParams) => {
       const nonImageModalities = ['SR', 'SEG', 'SM', 'RTSTRUCT', 'RTPLAN', 'RTDOSE'];
 
-      const currentDisplaySets = [...displaySetService.activeDisplaySets];
+      // Exact Study Panel thumbnail sequence (images grid, then SR/no-image list).
+      const panelOrderUIDs = getStudyPanelNavigationOrder();
+      let currentDisplaySets =
+        panelOrderUIDs.length > 0
+          ? panelOrderUIDs
+              .map(uid => {
+                try {
+                  return displaySetService.getDisplaySetByUID(uid);
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean)
+          : [];
 
-      const { activeViewportId, viewports, isHangingProtocolLayout } =
-        viewportGridService.getState();
-
-      const { displaySetInstanceUIDs } = viewports.get(activeViewportId);
-
-      const activeDisplaySetIndex = currentDisplaySets.findIndex(displaySet =>
-        displaySetInstanceUIDs.includes(displaySet.displaySetInstanceUID)
-      );
-
-      let displaySetIndexToShow: number;
-
-      for (
-        displaySetIndexToShow = activeDisplaySetIndex + direction;
-        displaySetIndexToShow > -1 && displaySetIndexToShow < currentDisplaySets.length;
-        displaySetIndexToShow += direction
-      ) {
-        if (
-          !excludeNonImageModalities ||
-          !nonImageModalities.includes(currentDisplaySets[displaySetIndexToShow].Modality)
-        ) {
-          break;
-        }
+      // Fallback before panel has published order — images, then other no-image, then SR
+      if (!currentDisplaySets.length) {
+        const reportModalities = new Set(nonImageModalities);
+        const sorted = [...displaySetService.activeDisplaySets]
+          .filter(ds => !ds?.excludeFromThumbnailBrowser)
+          .sort(compareDisplaySetsByReviewOrder);
+        const isReport = (ds: any) => reportModalities.has(ds.Modality);
+        const isNoImage = (ds: any) => isReport(ds) || ds.unsupported;
+        currentDisplaySets = [
+          ...sorted.filter(ds => !isNoImage(ds)),
+          ...sorted.filter(ds => isNoImage(ds) && !isReport(ds)),
+          ...sorted.filter(ds => isReport(ds)),
+        ];
       }
 
-      if (displaySetIndexToShow < 0 || displaySetIndexToShow >= currentDisplaySets.length) {
+      const { activeViewportId, viewports } = viewportGridService.getState();
+      const activeViewport = viewports.get(activeViewportId);
+      const displaySetInstanceUIDs = activeViewport?.displaySetInstanceUIDs || [];
+
+      // Primary viewport series (first UID) — avoids wrong index with overlay layers
+      const primaryUID = displaySetInstanceUIDs[0];
+      const activeDisplaySetIndex = primaryUID
+        ? currentDisplaySets.findIndex(ds => ds.displaySetInstanceUID === primaryUID)
+        : currentDisplaySets.findIndex(ds =>
+            displaySetInstanceUIDs.includes(ds.displaySetInstanceUID)
+          );
+
+      if (activeDisplaySetIndex < 0) {
         return;
       }
 
-      const { displaySetInstanceUID } = currentDisplaySets[displaySetIndexToShow];
+      utils.logDicomSortOrder?.(
+        'PgUp/PgDn navigation order',
+        currentDisplaySets,
+        `nav:${currentDisplaySets.map(ds => ds.displaySetInstanceUID).join(',')}`
+      );
 
-      let updatedViewports = [];
+      for (
+        let displaySetIndexToShow = activeDisplaySetIndex + direction;
+        displaySetIndexToShow > -1 && displaySetIndexToShow < currentDisplaySets.length;
+        displaySetIndexToShow += direction
+      ) {
+        const candidate = currentDisplaySets[displaySetIndexToShow];
 
-      try {
-        updatedViewports = hangingProtocolService.getViewportsRequireUpdate(
-          activeViewportId,
-          displaySetInstanceUID,
-          isHangingProtocolLayout
-        );
-      } catch (error) {
-        console.warn(error);
-        uiNotificationService.show({
-          title: 'Navigate Viewport Display Set',
-          message:
-            'The requested display sets could not be added to the viewport due to a mismatch in the Hanging Protocol rules.',
-          type: 'info',
-          duration: 3000,
+        if (
+          excludeNonImageModalities &&
+          nonImageModalities.includes(candidate.Modality)
+        ) {
+          continue;
+        }
+
+        // Direct assign — do not use HP matching here. HP empty/throw was skipping
+        // thumbnails (e.g. 3rd or 5th) that still appear in the study panel.
+        commandsManager.run('setDisplaySetsForViewports', {
+          viewportsToUpdate: [
+            {
+              viewportId: activeViewportId,
+              displaySetInstanceUIDs: [candidate.displaySetInstanceUID],
+            },
+          ],
         });
+
+        setTimeout(() => actions.scrollActiveThumbnailIntoView(), 0);
+        return;
       }
-
-      commandsManager.run('setDisplaySetsForViewports', { viewportsToUpdate: updatedViewports });
-
-      setTimeout(() => actions.scrollActiveThumbnailIntoView(), 0);
     },
   };
 

@@ -169,7 +169,7 @@ function WrappedCinePlayer({
         return;
       }
 
-      const validFrameRate = Math.max(fps, 1);
+      const validFrameRate = Math.max(1, Math.min(90, fps));
       const last = lastPlaybackRef.current;
       const clipRunning = isCineClipRunning(element, viewportId);
 

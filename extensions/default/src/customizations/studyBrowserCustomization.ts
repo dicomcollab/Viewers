@@ -4,6 +4,7 @@ import { ensureStructuredReportDisplaySet } from '../utils/ensureStructuredRepor
 import {
   buildViewportsUpdateForDisplaySet,
   isStructuredReportDisplaySet,
+  presentDisplaySetAfterStructuredReport,
   presentStructuredReportInOneUp,
   resolveViewportIdForStructuredReport,
 } from '../utils/openStructuredReportInViewport';
@@ -28,8 +29,21 @@ export default {
   ],
   'studyBrowser.sortFunctions': [
     {
-      label: i18n.t('StudyBrowser:Series Number'),
+      label: i18n.t('StudyBrowser:Series Order'),
       sortFunction: utils.compareDisplaySetsByReviewOrder,
+    },
+    {
+      label: i18n.t('StudyBrowser:Series Number'),
+      sortFunction: (a, b) => {
+        const seriesNumberA = Number.parseInt(String(a?.SeriesNumber ?? a?.seriesNumber ?? ''), 10);
+        const seriesNumberB = Number.parseInt(String(b?.SeriesNumber ?? b?.seriesNumber ?? ''), 10);
+        const safeA = Number.isFinite(seriesNumberA) ? seriesNumberA : Number.MAX_SAFE_INTEGER;
+        const safeB = Number.isFinite(seriesNumberB) ? seriesNumberB : Number.MAX_SAFE_INTEGER;
+        if (safeA !== safeB) {
+          return safeA - safeB;
+        }
+        return utils.compareDisplaySetsByReviewOrder(a, b);
+      },
     },
     {
       label: i18n.t('StudyBrowser:Series Date'),
@@ -100,6 +114,17 @@ export default {
               commandsManager,
               servicesManager,
             });
+            return;
+          }
+
+          // SR forced 1×1 — restore prior layout (e.g. 2×2) before hanging the image.
+          if (
+            presentDisplaySetAfterStructuredReport({
+              displaySetInstanceUID,
+              commandsManager,
+              servicesManager,
+            })
+          ) {
             return;
           }
 

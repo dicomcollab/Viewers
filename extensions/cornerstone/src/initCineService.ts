@@ -22,12 +22,15 @@ import {
   isStackFrameReady,
   prefetchStackFrame,
   prefetchUpcomingStackFrames,
+  getPrefetchCount,
 } from './utils/cineFrameLoadUtils';
 import { setCineWaitingForFrame } from './utils/cineFrameWaitStore';
 
 export const DEFAULT_FRAME_STEP = 4;
 export const STEP_INTERVAL_MS = 400;
-const LIVE_CLIP_TICK_MS = 16;
+/** Tick fast enough to hit 90 FPS (~11ms) without relying on display refresh alone. */
+const LIVE_CLIP_TICK_MS = 8;
+const FPS_MAX = 90;
 const liveClipCleanups = new Map<string, () => void>();
 
 function getEventImageId(evt: Event): string | undefined {
@@ -82,7 +85,10 @@ function getLiveClipPeriodMs(
     : NaN;
   const fps = Math.max(
     1,
-    Number.isFinite(fpsFromState) && fpsFromState > 0 ? fpsFromState : fallbackFps
+    Math.min(
+      FPS_MAX,
+      Number.isFinite(fpsFromState) && fpsFromState > 0 ? fpsFromState : fallbackFps
+    )
   );
 
   return 1000 / fps;
@@ -103,7 +109,7 @@ function startLiveStackClip(
   }
 ) {
   const viewportId = options.viewportId;
-  const fallbackFps = Math.max(1, Number(options.framesPerSecond) || 1);
+  const fallbackFps = Math.max(1, Math.min(FPS_MAX, Number(options.framesPerSecond) || 1));
   const frameStep = Math.max(
     1,
     Math.round(options.cinePlayMode === 'step' ? (options.frameStep ?? DEFAULT_FRAME_STEP) : 1)
@@ -128,6 +134,14 @@ function startLiveStackClip(
   let waitingImageId: string | null = null;
   let advanceInFlight = false;
   let expectedAdvanceIndex: number | null = null;
+
+  const scheduleNextFrame = (fromDeadline: number, periodMs: number) => {
+    const due = fromDeadline + periodMs;
+    const nowAfter = performance.now();
+    // Stay on cadence when the swap was fast; if more than one period late,
+    // resync to now so we do not burst-skip unpainted frames.
+    nextFrameAt = due < nowAfter - periodMs ? nowAfter : Math.max(due, nowAfter);
+  };
 
   const onImageLoaded = (evt: Event) => {
     const loadedId = getEventImageId(evt);
@@ -230,7 +244,7 @@ function startLiveStackClip(
 
     if (liveCount <= 1) {
       nextFrameAt = now + periodMs;
-      prefetchUpcomingStackFrames(imageIds, 0);
+      prefetchUpcomingStackFrames(imageIds, 0, getPrefetchCount(periodMs));
       return;
     }
 
@@ -261,12 +275,13 @@ function startLiveStackClip(
       return;
     }
 
-    prefetchUpcomingStackFrames(imageIds, index);
+    prefetchUpcomingStackFrames(imageIds, index, getPrefetchCount(periodMs));
 
     if (now < nextFrameAt) {
       return;
     }
 
+    const dueAt = nextFrameAt;
     const nextIndex = (index + frameStep) % liveCount;
     expectedAdvanceIndex = nextIndex;
     const nextImageId = imageIds[nextIndex];
@@ -287,7 +302,7 @@ function startLiveStackClip(
     setCineWaitingForFrame(viewportId, null);
 
     if (nextIndex === index) {
-      nextFrameAt = now + periodMs;
+      scheduleNextFrame(dueAt, periodMs);
       return;
     }
 
@@ -311,10 +326,10 @@ function startLiveStackClip(
         if (ok && getCineGeneration() === clipGeneration) {
           hasPaintedOnce = true;
         }
-        nextFrameAt = performance.now() + lastPeriodMs;
+        scheduleNextFrame(dueAt, lastPeriodMs);
       })
       .catch(() => {
-        nextFrameAt = performance.now() + lastPeriodMs;
+        scheduleNextFrame(dueAt, lastPeriodMs);
       })
       .finally(() => {
         window.clearTimeout(hangWatch);

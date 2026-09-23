@@ -32,8 +32,21 @@ export async function defaultRouteInit(
       return;
     }
 
+    // Keep viewport selection aligned with study-panel review order
+    const sortFunctions = customizationService.getCustomization('studyBrowser.sortFunctions') as
+      | { sortFunction: (a: unknown, b: unknown) => number }[]
+      | undefined;
+    const sortFn = sortFunctions?.[0]?.sortFunction;
+    if (typeof sortFn === 'function') {
+      displaySetService.sortDisplaySets(sortFn, 'ascending', true);
+      utils.logDicomSortOrder?.(
+        'defaultRouteInit before hanging protocol',
+        displaySetService.getActiveDisplaySets()
+      );
+    }
+
     // Gets the studies list to use
-    const studies = getStudies(studyInstanceUIDs, displaySets);
+    const studies = getStudies(studyInstanceUIDs, displaySetService.getActiveDisplaySets());
 
     // study being displayed, and is thus the "active" study.
     const activeStudy = studies[0];
@@ -45,9 +58,13 @@ export async function defaultRouteInit(
 
     // run the hanging protocol matching on the displaySets
     // If protocolIdToUse is undefined, it will automatically match the best protocol
-    hangingProtocolService.run({ studies, activeStudy, displaySets }, protocolIdToUse, {
-      stageIndex,
-    });
+    hangingProtocolService.run(
+      { studies, activeStudy, displaySets: displaySetService.getActiveDisplaySets() },
+      protocolIdToUse,
+      {
+        stageIndex,
+      }
+    );
   }
 
   const unsubscriptions = [];

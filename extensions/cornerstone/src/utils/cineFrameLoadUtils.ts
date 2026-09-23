@@ -1,6 +1,17 @@
 import { cache, imageLoader } from '@cornerstonejs/core';
 
 const PREFETCH_AHEAD = 6;
+const PREFETCH_AHEAD_MAX = 24;
+
+function getPrefetchCount(periodMs?: number): number {
+  if (periodMs == null || !Number.isFinite(periodMs) || periodMs <= 0) {
+    return PREFETCH_AHEAD;
+  }
+
+  const fps = 1000 / periodMs;
+  // Prefetch roughly half a second ahead so high FPS does not stall on decode.
+  return Math.min(PREFETCH_AHEAD_MAX, Math.max(PREFETCH_AHEAD, Math.ceil(fps * 0.5)));
+}
 
 function isStackFrameReady(imageId: string | undefined): boolean {
   if (!imageId) {
@@ -40,12 +51,18 @@ function prefetchStackFrame(imageId: string | undefined): void {
   }
 }
 
-function prefetchUpcomingStackFrames(imageIds: string[], fromIndex: number, count = PREFETCH_AHEAD): void {
+function prefetchUpcomingStackFrames(
+  imageIds: string[],
+  fromIndex: number,
+  count = PREFETCH_AHEAD
+): void {
   if (!imageIds?.length) {
     return;
   }
 
-  for (let i = 1; i <= count; i += 1) {
+  const ahead = Math.max(1, Math.round(count) || PREFETCH_AHEAD);
+
+  for (let i = 1; i <= ahead; i += 1) {
     prefetchStackFrame(imageIds[(fromIndex + i) % imageIds.length]);
   }
 }
@@ -73,4 +90,10 @@ function pickSafeStackBindIndex(imageIds: string[] | undefined, preferredIndex?:
   return firstReady >= 0 ? firstReady : 0;
 }
 
-export { isStackFrameReady, pickSafeStackBindIndex, prefetchStackFrame, prefetchUpcomingStackFrames };
+export {
+  getPrefetchCount,
+  isStackFrameReady,
+  pickSafeStackBindIndex,
+  prefetchStackFrame,
+  prefetchUpcomingStackFrames,
+};

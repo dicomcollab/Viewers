@@ -32,6 +32,11 @@ import isEqualWithin from './isEqualWithin';
 import addAccessors from './addAccessors';
 import {
   compareDisplaySetsByReviewOrder,
+  compareSeriesByDicomOrder,
+  compareInstancesByDicomOrder,
+  getModalityReviewRank,
+  getSeriesDateTimeStamp,
+  logDicomSortOrder,
   sortStudy,
   sortStudySeries,
   sortStudyInstances,
@@ -81,6 +86,11 @@ const utils = {
   sortStudySeries,
   sortStudyInstances,
   compareDisplaySetsByReviewOrder,
+  compareSeriesByDicomOrder,
+  compareInstancesByDicomOrder,
+  getModalityReviewRank,
+  getSeriesDateTimeStamp,
+  logDicomSortOrder,
   sortingCriteria,
   seriesSortCriteria,
   instancesSortCriteria,

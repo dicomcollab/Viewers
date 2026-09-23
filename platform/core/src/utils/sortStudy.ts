@@ -1,57 +1,304 @@
 import { vec3 } from 'gl-matrix';
-import isLowPriorityModality from './isLowPriorityModality';
 import calculateScanAxisNormal from './calculateScanAxisNormal';
 import areAllImageOrientationsEqual from './areAllImageOrientationsEqual';
 
-const compareSeriesDateTime = (a, b) => {
-  const seriesDateA = Date.parse(`${a.seriesDate ?? a.SeriesDate} ${a.seriesTime ?? a.SeriesTime}`);
-  const seriesDateB = Date.parse(`${b.seriesDate ?? b.SeriesDate} ${b.seriesTime ?? b.SeriesTime}`);
-  return seriesDateA - seriesDateB;
-};
+/**
+ * DICOM-standard chronological ordering for Study Panel, metadata load,
+ * hanging-protocol fill, and viewport / next-previous navigation.
+ *
+ * Series order:
+ *   1. AcquisitionDateTime (0008,002A)
+ *   2. SeriesDate (0008,0021) + SeriesTime (0008,0031)
+ *   3. SeriesNumber (0020,0011)
+ *   4. SeriesInstanceUID (0020,000E)
+ *
+ * Instance order (within a series; multi-frame frames stay native order):
+ *   1. AcquisitionDateTime (0008,002A)
+ *   2. AcquisitionNumber (0020,0012)
+ *   3. InstanceNumber (0020,0013)
+ *   4. SOPInstanceUID (0008,0018)
+ */
 
-const defaultSeriesSort = (a, b) => {
-  const seriesNumberA = a.SeriesNumber ?? a.seriesNumber;
-  const seriesNumberB = b.SeriesNumber ?? b.seriesNumber;
-  if (seriesNumberA === seriesNumberB) {
-    return compareSeriesDateTime(a, b);
+const DICOM_SORT_DEBUG = typeof process !== 'undefined' && process.env?.NODE_ENV !== 'production';
+const dicomSortDebugKeys = new Set<string>();
+
+function asTrimmedString(value): string {
+  if (value == null) {
+    return '';
   }
-  return seriesNumberA - seriesNumberB;
-};
+  const text = String(value).trim();
+  if (!text || text.toLowerCase() === 'undefined' || text.toLowerCase() === 'null') {
+    return '';
+  }
+  return text;
+}
+
+/** Normalize DICOM DA+TM / DT strings for lexicographic ascending compare. */
+function normalizeDicomDateTime(dateOrDateTime, time = ''): string {
+  const rawDateTime = asTrimmedString(dateOrDateTime);
+  if (!rawDateTime) {
+    return '';
+  }
+
+  // Already a DT (YYYYMMDDHHMMSS[.ffffff][+/-HHMM])
+  if (/^\d{8,}/.test(rawDateTime) && rawDateTime.length > 8 && !asTrimmedString(time)) {
+    return rawDateTime.replace(/[^0-9.]/g, '');
+  }
+
+  const datePart = rawDateTime.replace(/[^0-9]/g, '').slice(0, 8);
+  if (datePart.length !== 8) {
+    return '';
+  }
+
+  const timePart = asTrimmedString(time)
+    .replace(/[^0-9.]/g, '')
+    .slice(0, 13);
+  return `${datePart}${timePart}`;
+}
+
+function getFirstInstance(item) {
+  return item?.instance ?? item?.instances?.[0] ?? item?.images?.[0] ?? null;
+}
+
+function getAcquisitionDateTimeValue(item): string {
+  const instance = getFirstInstance(item);
+  return (
+    normalizeDicomDateTime(
+      item?.AcquisitionDateTime ??
+        item?.acquisitionDatetime ??
+        item?.acquisitionDateTime ??
+        instance?.AcquisitionDateTime ??
+        instance?.acquisitionDatetime
+    ) ||
+    normalizeDicomDateTime(
+      item?.AcquisitionDate ?? instance?.AcquisitionDate,
+      item?.AcquisitionTime ?? instance?.AcquisitionTime
+    ) ||
+    // US and some modalities populate ContentDate/Time when AcquisitionDateTime is absent
+    normalizeDicomDateTime(
+      item?.ContentDateTime ?? instance?.ContentDateTime ?? item?.contentDateTime
+    ) ||
+    normalizeDicomDateTime(
+      item?.ContentDate ?? instance?.ContentDate,
+      item?.ContentTime ?? instance?.ContentTime
+    )
+  );
+}
+
+function getSeriesDateTimeValue(item): string {
+  const instance = getFirstInstance(item);
+  return normalizeDicomDateTime(
+    item?.SeriesDate ?? item?.seriesDate ?? instance?.SeriesDate,
+    item?.SeriesTime ?? item?.seriesTime ?? instance?.SeriesTime
+  );
+}
+
+/** @deprecated use getSeriesDateTimeValue — kept for callers expecting a stamp string */
+function getSeriesDateTimeStamp(item): string {
+  return getSeriesDateTimeValue(item) || getAcquisitionDateTimeValue(item);
+}
+
+function getSeriesNumberValue(item): number | null {
+  const raw = item?.SeriesNumber ?? item?.seriesNumber;
+  if (raw == null || raw === '') {
+    return null;
+  }
+  const value = Number.parseInt(String(raw), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getAcquisitionNumberValue(item): number | null {
+  const instance = getFirstInstance(item);
+  const raw = item?.AcquisitionNumber ?? item?.acquisitionNumber ?? instance?.AcquisitionNumber;
+  if (raw == null || raw === '') {
+    return null;
+  }
+  const value = Number.parseInt(String(raw), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getInstanceNumberValue(item): number | null {
+  const instance = getFirstInstance(item);
+  const raw =
+    item?.InstanceNumber ??
+    item?.instanceNumber ??
+    instance?.InstanceNumber ??
+    instance?.instanceNumber;
+  if (raw == null || raw === '') {
+    return null;
+  }
+  const value = Number.parseInt(String(raw), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getSeriesInstanceUIDValue(item): string {
+  return asTrimmedString(
+    item?.SeriesInstanceUID ?? item?.seriesInstanceUID ?? getFirstInstance(item)?.SeriesInstanceUID
+  );
+}
+
+function getSopInstanceUIDValue(item): string {
+  return asTrimmedString(
+    item?.SOPInstanceUID ??
+      item?.sopInstanceUID ??
+      getFirstInstance(item)?.SOPInstanceUID ??
+      getFirstInstance(item)?.sopInstanceUID
+  );
+}
+
+function compareOptionalString(a: string, b: string): number | null {
+  if (!a && !b) {
+    return null;
+  }
+  if (!a) {
+    return 1;
+  }
+  if (!b) {
+    return -1;
+  }
+  if (a === b) {
+    return null;
+  }
+  return a.localeCompare(b);
+}
+
+function compareOptionalNumber(a: number | null, b: number | null): number | null {
+  if (a == null && b == null) {
+    return null;
+  }
+  if (a == null) {
+    return 1;
+  }
+  if (b == null) {
+    return -1;
+  }
+  if (a === b) {
+    return null;
+  }
+  return a - b;
+}
 
 /**
- * Series sorting criteria: series considered low priority are moved to the end
- * of the list and series number is used to break ties
- * @param {Object} firstSeries
- * @param {Object} secondSeries
+ * Series-level DICOM chronological compare for real Series objects (QIDO / study.series).
+ * Final fallback: SeriesInstanceUID only (never parse UID for time).
  */
-function seriesInfoSortingCriteria(firstSeries, secondSeries) {
-  const aLowPriority = isLowPriorityModality(firstSeries.Modality ?? firstSeries.modality);
-  const bLowPriority = isLowPriorityModality(secondSeries.Modality ?? secondSeries.modality);
-
-  if (aLowPriority) {
-    // Use the reverse sort order for low priority modalities so that the
-    // most recent one comes up first as usually that is the one of interest.
-    return bLowPriority ? defaultSeriesSort(secondSeries, firstSeries) : 1;
-  } else if (bLowPriority) {
+function compareSeriesByDicomOrder(a, b): number {
+  if (!a && !b) {
+    return 0;
+  }
+  if (!a) {
+    return 1;
+  }
+  if (!b) {
     return -1;
   }
 
-  return defaultSeriesSort(firstSeries, secondSeries);
+  const byAcq = compareOptionalString(getAcquisitionDateTimeValue(a), getAcquisitionDateTimeValue(b));
+  if (byAcq != null) {
+    return byAcq;
+  }
+
+  const bySeriesDate = compareOptionalString(getSeriesDateTimeValue(a), getSeriesDateTimeValue(b));
+  if (bySeriesDate != null) {
+    return bySeriesDate;
+  }
+
+  const bySeriesNumber = compareOptionalNumber(getSeriesNumberValue(a), getSeriesNumberValue(b));
+  if (bySeriesNumber != null) {
+    return bySeriesNumber;
+  }
+
+  const bySeriesUid = compareOptionalString(getSeriesInstanceUIDValue(a), getSeriesInstanceUIDValue(b));
+  if (bySeriesUid != null) {
+    return bySeriesUid;
+  }
+
+  return 0;
 }
 
-const seriesSortCriteria = {
-  default: seriesInfoSortingCriteria,
-  seriesInfoSortingCriteria,
-};
+/**
+ * Discriminate display sets that belong to different series.
+ * Returns null when both belong to the same series (or series keys cannot decide),
+ * so callers can apply instance-level order (critical for US: many SOPs, one SeriesNumber).
+ */
+function compareDisplaySetSeriesKeys(a, b): number | null {
+  const byAcq = compareOptionalString(getAcquisitionDateTimeValue(a), getAcquisitionDateTimeValue(b));
+  // Only treat AcquisitionDateTime as a *series* discriminator when SeriesInstanceUIDs differ.
+  // For US one-SOP-per-displaySet in the same series, AcqDT belongs in instance order below.
+  const seriesUidA = getSeriesInstanceUIDValue(a);
+  const seriesUidB = getSeriesInstanceUIDValue(b);
+  const differentSeries = Boolean(seriesUidA && seriesUidB && seriesUidA !== seriesUidB);
 
-const sortByInstanceNumber = (a, b) => compareDisplaySetsByReviewOrder(a, b);
+  if (differentSeries) {
+    if (byAcq != null) {
+      return byAcq;
+    }
+
+    const bySeriesDate = compareOptionalString(getSeriesDateTimeValue(a), getSeriesDateTimeValue(b));
+    if (bySeriesDate != null) {
+      return bySeriesDate;
+    }
+
+    const bySeriesNumber = compareOptionalNumber(getSeriesNumberValue(a), getSeriesNumberValue(b));
+    if (bySeriesNumber != null) {
+      return bySeriesNumber;
+    }
+
+    return seriesUidA.localeCompare(seriesUidB);
+  }
+
+  // Same series (typical US): do not sort by series-level AcqDT/UID here — use instance keys.
+  return null;
+}
 
 /**
- * Shared review order for study-panel thumbnails, hanging-protocol fill,
- * and US 2×2 paging. Same keys everywhere so page N is the next contiguous
- * block of thumbnails (first 4, next 4, …).
- *
- * Order: SR last, SeriesNumber, InstanceNumber, acquisition time, SOP UID.
+ * Instance-level DICOM chronological compare.
+ * Does not split multi-frame objects into frames — caller sorts instances only.
+ */
+function compareInstancesByDicomOrder(a, b): number {
+  if (!a && !b) {
+    return 0;
+  }
+  if (!a) {
+    return 1;
+  }
+  if (!b) {
+    return -1;
+  }
+
+  const byAcq = compareOptionalString(getAcquisitionDateTimeValue(a), getAcquisitionDateTimeValue(b));
+  if (byAcq != null) {
+    return byAcq;
+  }
+
+  const byAcqNumber = compareOptionalNumber(
+    getAcquisitionNumberValue(a),
+    getAcquisitionNumberValue(b)
+  );
+  if (byAcqNumber != null) {
+    return byAcqNumber;
+  }
+
+  const byInstanceNumber = compareOptionalNumber(
+    getInstanceNumberValue(a),
+    getInstanceNumberValue(b)
+  );
+  if (byInstanceNumber != null) {
+    return byInstanceNumber;
+  }
+
+  const bySop = compareOptionalString(getSopInstanceUIDValue(a), getSopInstanceUIDValue(b));
+  if (bySop != null) {
+    return bySop;
+  }
+
+  return 0;
+}
+
+/**
+ * Shared display-set / thumbnail / US paging / HP order.
+ * Different series → series DICOM chronology.
+ * Same series (US per-SOP thumbnails) → instance DICOM chronology (InstanceNumber, etc.).
  */
 function compareDisplaySetsByReviewOrder(a, b): number {
   if (!a && !b) {
@@ -64,31 +311,14 @@ function compareDisplaySetsByReviewOrder(a, b): number {
     return -1;
   }
 
-  const aSr = isLowPriorityReviewItem(a) ? 1 : 0;
-  const bSr = isLowPriorityReviewItem(b) ? 1 : 0;
-  if (aSr !== bSr) {
-    return aSr - bSr;
-  }
-
-  const seriesDiff = getSeriesNumber(a) - getSeriesNumber(b);
-  if (seriesDiff) {
+  const seriesDiff = compareDisplaySetSeriesKeys(a, b);
+  if (seriesDiff != null) {
     return seriesDiff;
   }
 
-  const instanceDiff = getInstanceNumber(a) - getInstanceNumber(b);
+  const instanceDiff = compareInstancesByDicomOrder(a, b);
   if (instanceDiff) {
     return instanceDiff;
-  }
-
-  const acqA = getAcquisitionStamp(a);
-  const acqB = getAcquisitionStamp(b);
-  if (acqA !== acqB) {
-    return acqA.localeCompare(acqB);
-  }
-
-  const sopDiff = getSopInstanceUID(a).localeCompare(getSopInstanceUID(b));
-  if (sopDiff) {
-    return sopDiff;
   }
 
   return String(a.displaySetInstanceUID ?? a.uid ?? '').localeCompare(
@@ -96,63 +326,21 @@ function compareDisplaySetsByReviewOrder(a, b): number {
   );
 }
 
-function isLowPriorityReviewItem(item): boolean {
-  const modality = item?.Modality ?? item?.modality;
-  return modality === 'SR' || modality === 'DOC' || modality === 'KO';
+function seriesInfoSortingCriteria(firstSeries, secondSeries) {
+  return compareSeriesByDicomOrder(firstSeries, secondSeries);
 }
 
-function getSeriesNumber(item): number {
-  const value = Number.parseInt(String(item?.SeriesNumber ?? item?.seriesNumber ?? ''), 10);
-  return Number.isFinite(value) ? value : 0;
-}
+const seriesSortCriteria = {
+  default: seriesInfoSortingCriteria,
+  seriesInfoSortingCriteria,
+};
 
-function getInstanceNumber(item): number {
-  const value = Number.parseInt(
-    String(
-      item?.instanceNumber ??
-        item?.InstanceNumber ??
-        item?.instances?.[0]?.InstanceNumber ??
-        item?.instance?.InstanceNumber ??
-        ''
-    ),
-    10
-  );
-  return Number.isFinite(value) ? value : 0;
-}
-
-function getSopInstanceUID(item): string {
-  return String(
-    item?.SOPInstanceUID ??
-      item?.sopInstanceUID ??
-      item?.instance?.SOPInstanceUID ??
-      item?.instances?.[0]?.SOPInstanceUID ??
-      ''
-  );
-}
-
-function getAcquisitionStamp(item): string {
-  const instance = item?.instance ?? item?.instances?.[0];
-  const dateTime =
-    item?.acquisitionDatetime ??
-    item?.AcquisitionDateTime ??
-    instance?.AcquisitionDateTime ??
-    instance?.ContentDateTime ??
-    item?.ContentDateTime;
-
-  if (dateTime) {
-    return String(dateTime);
-  }
-
-  const date = item?.AcquisitionDate ?? instance?.AcquisitionDate ?? item?.ContentDate ?? '';
-  const time =
-    item?.AcquisitionTime ?? instance?.AcquisitionTime ?? item?.ContentTime ?? instance?.ContentTime ?? '';
-
-  return `${date}${time}`;
-}
+const sortByInstanceNumber = (a, b) => compareInstancesByDicomOrder(a, b);
 
 const instancesSortCriteria = {
   default: sortByInstanceNumber,
   sortByInstanceNumber,
+  compareInstancesByDicomOrder,
 };
 
 const sortingCriteria = {
@@ -160,13 +348,63 @@ const sortingCriteria = {
   instancesSortCriteria,
 };
 
+function describeSortItem(item, index: number) {
+  const instance = getFirstInstance(item);
+  return {
+    index,
+    SeriesDescription:
+      item?.SeriesDescription ?? item?.seriesDescription ?? item?.description ?? '',
+    SeriesNumber: item?.SeriesNumber ?? item?.seriesNumber ?? null,
+    SeriesDate: item?.SeriesDate ?? item?.seriesDate ?? null,
+    SeriesTime: item?.SeriesTime ?? item?.seriesTime ?? null,
+    AcquisitionDateTime:
+      item?.AcquisitionDateTime ??
+      item?.acquisitionDatetime ??
+      instance?.AcquisitionDateTime ??
+      null,
+    AcquisitionNumber: item?.AcquisitionNumber ?? instance?.AcquisitionNumber ?? null,
+    InstanceNumber:
+      item?.InstanceNumber ?? item?.instanceNumber ?? instance?.InstanceNumber ?? null,
+    SeriesInstanceUID: getSeriesInstanceUIDValue(item) || null,
+    SOPInstanceUID: getSopInstanceUIDValue(item) || null,
+    Modality: item?.Modality ?? item?.modality ?? null,
+  };
+}
+
+/**
+ * Debug: log final sorted order once per unique key (dev builds).
+ * Filter console by `[DicomSort]`.
+ */
+function logDicomSortOrder(label: string, items: unknown[], dedupeKey?: string) {
+  if (!DICOM_SORT_DEBUG || typeof console === 'undefined' || !items?.length) {
+    return;
+  }
+  const key =
+    dedupeKey ||
+    `${label}:${items
+      .map(
+        (item: any) =>
+          getSeriesInstanceUIDValue(item) ||
+          getSopInstanceUIDValue(item) ||
+          item?.displaySetInstanceUID ||
+          ''
+      )
+      .join('|')}`;
+  if (dicomSortDebugKeys.has(key)) {
+    return;
+  }
+  dicomSortDebugKeys.add(key);
+
+  // eslint-disable-next-line no-console
+  console.info(
+    `[DicomSort] ${label}`,
+    items.map((item, index) => describeSortItem(item, index))
+  );
+}
+
 /**
  * Sorts given series (given param is modified)
- * The default criteria is based on series number in ascending order.
- *
- * @param {Array} series List of series
- * @param {function} seriesSortingCriteria method for sorting
- * @returns {Array} sorted series object
+ * Default: DICOM chronological series order.
  */
 const sortStudySeries = (
   series,
@@ -174,36 +412,30 @@ const sortStudySeries = (
   sortFunction = null
 ) => {
   if (typeof sortFunction === 'function') {
-    return sortFunction(series);
-  } else {
-    return series.sort(seriesSortingCriteria);
+    const sorted = sortFunction(series);
+    logDicomSortOrder('series (custom)', sorted || series);
+    return sorted;
   }
+  const sorted = series.sort(seriesSortingCriteria);
+  logDicomSortOrder('series', sorted);
+  return sorted;
 };
 
 /**
- * Sorts given instancesList (given param is modified)
- * The default criteria is based on instance number in ascending order.
- *
- * @param {Array} instancesList List of series
- * @param {function} instancesSortingCriteria method for sorting
- * @returns {Array} sorted instancesList object
+ * Sorts given instancesList (given param is modified).
+ * Multi-frame: each element is one SOP instance; frames stay in native order.
  */
 const sortStudyInstances = (
   instancesList,
   instancesSortingCriteria = instancesSortCriteria.default
 ) => {
-  return instancesList.sort(instancesSortingCriteria);
+  const sorted = instancesList.sort(instancesSortingCriteria);
+  logDicomSortOrder('instances', sorted);
+  return sorted;
 };
 
 /**
- * Sorts the series and instances (by default) inside a study instance based on sortingCriteria (given param is modified)
- * The default criteria is based on series and instance numbers in ascending order.
- *
- * @param {Object} study The study instance
- * @param {boolean} [deepSort = true] to sort instance also
- * @param {function} [seriesSortingCriteria = seriesSortCriteria.default] method for sorting series
- * @param {function} [instancesSortingCriteria = instancesSortCriteria.default] method for sorting instances
- * @returns {Object} sorted study object
+ * Sorts the series and instances inside a study (param modified).
  */
 export default function sortStudy(
   study,
@@ -219,7 +451,9 @@ export default function sortStudy(
 
   if (deepSort) {
     study.series.forEach(series => {
-      sortStudyInstances(series.instances, instancesSortingCriteria);
+      if (series?.instances?.length) {
+        sortStudyInstances(series.instances, instancesSortingCriteria);
+      }
     });
   }
 
@@ -228,10 +462,9 @@ export default function sortStudy(
 
 function isValidForPositionSort(images): boolean {
   if (images.length <= 1) {
-    return false; // No need to sort if there's only one image
+    return false;
   }
 
-  // Use the first image as a reference
   const referenceImagePositionPatient = images[0].ImagePositionPatient;
   const imageOrientationPatient = images[0].ImageOrientationPatient;
 
@@ -247,20 +480,15 @@ function isValidForPositionSort(images): boolean {
 }
 
 /**
- * Sort by image position, calculated using imageOrientationPatient and ImagePositionPatient
- * If imageOrientationPatient or ImagePositionPatient is not available, Images will be sorted by the provided sortingCriteria
- * Note: Images are sorted in-place and a reference to the sorted image array is returned.
- *
- * @returns images - reference to images after sorting
+ * Sort by image position (reconstructable volumes).
+ * Used only when spatial geometry is valid; otherwise callers use DICOM instance order.
  */
 const sortImagesByPatientPosition = images => {
   const referenceImagePositionPatient = images[0].ImagePositionPatient;
   const imageOrientationPatient = images[0].ImageOrientationPatient;
 
-  // Calculate the scan axis normal using the cross product
   const scanAxisNormal = calculateScanAxisNormal(imageOrientationPatient);
 
-  // Compute distances from each image to the reference image
   const distanceInstancePairs = images.map(image => {
     const imagePositionPatient = image.ImagePositionPatient;
     const deltaVector = vec3.create();
@@ -270,13 +498,9 @@ const sortImagesByPatientPosition = images => {
     );
     return { distance, image };
   });
-  // Candidate orders by patient position (both directions are valid geometrically).
   const descendingByDistance = [...distanceInstancePairs].sort((a, b) => b.distance - a.distance);
   const ascendingByDistance = [...descendingByDistance].reverse();
 
-  // If InstanceNumber is available, pick direction that keeps it increasing.
-  // This prevents reversed stack navigation when server ordering and spatial
-  // direction are opposite.
   const getInstanceNumber = image => {
     const value = parseInt(image?.InstanceNumber, 10);
     return Number.isFinite(value) ? value : null;
@@ -304,10 +528,9 @@ const sortImagesByPatientPosition = images => {
     hasAscendingInstanceRange && !hasDescendingInstanceRange
       ? ascendingByDistance
       : hasDescendingInstanceRange && !hasAscendingInstanceRange
-      ? descendingByDistance
-      : descendingByDistance;
+        ? descendingByDistance
+        : descendingByDistance;
 
-  // Reorder the images in the original array
   for (const [index, item] of chosenOrder.entries()) {
     images[index] = item.image;
   }
@@ -315,8 +538,24 @@ const sortImagesByPatientPosition = images => {
   return images;
 };
 
+/** @deprecated modality rank is no longer used for review order */
+function getModalityReviewRank(modality): number {
+  return 0;
+}
+
 export {
   compareDisplaySetsByReviewOrder,
+  compareSeriesByDicomOrder,
+  compareInstancesByDicomOrder,
+  getAcquisitionDateTimeValue,
+  getSeriesDateTimeStamp,
+  getSeriesDateTimeValue,
+  getSeriesInstanceUIDValue,
+  getSopInstanceUIDValue,
+  getSeriesNumberValue,
+  getInstanceNumberValue,
+  getModalityReviewRank,
+  logDicomSortOrder,
   sortStudy,
   sortStudySeries,
   sortStudyInstances,

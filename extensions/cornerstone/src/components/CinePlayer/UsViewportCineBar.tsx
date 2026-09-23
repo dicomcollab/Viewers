@@ -11,7 +11,7 @@ const ICON_BTN =
   'h-5 w-5 shrink-0 p-0 transition-colors [&_svg]:h-3 [&_svg]:w-3';
 const FRAME_BTN = `${ICON_BTN} text-white/80 hover:bg-white/10 hover:text-white`;
 const FPS_STEP_BTN =
-  'flex h-4 w-3.5 shrink-0 items-center justify-center rounded text-[11px] font-normal leading-none text-white/90 hover:bg-white/10 hover:text-white/90';
+  'flex h-4 w-3.5 shrink-0 items-center justify-center rounded text-[11px] font-normal leading-none text-white/90 hover:bg-white/10 hover:text-white/90 disabled:pointer-events-none disabled:opacity-40 disabled:hover:bg-transparent';
 const ULTRA_COMPACT_WIDTH_PX = 280;
 const FPS_MIN = 1;
 const FPS_MAX = 90;
@@ -117,10 +117,12 @@ function UsViewportCineBar({
   const handleFpsChange = useCallback(
     (next: number) => {
       const clamped = Math.max(FPS_MIN, Math.min(FPS_MAX, Math.round(next)));
-      setLocalFps(clamped);
-      onFrameRateChange?.(clamped);
+      setLocalFps(prev => (prev === clamped ? prev : clamped));
+      if (clamped !== localFps) {
+        onFrameRateChange?.(clamped);
+      }
     },
-    [onFrameRateChange]
+    [localFps, onFrameRateChange]
   );
 
   // Intentionally do not open the Cine "Frame Rate" settings panel from here.
@@ -133,6 +135,8 @@ function UsViewportCineBar({
 
   const isUltraCompact = barWidth > 0 && barWidth < ULTRA_COMPACT_WIDTH_PX;
   const showFpsControl = localFps != null && localFps > 0 && !!onFrameRateChange;
+  const canDecreaseFps = localFps != null && localFps > FPS_MIN;
+  const canIncreaseFps = localFps != null && localFps < FPS_MAX;
   // Reserve width for the widest "current/total" label so 115/170 does not
   // overflow the old 32px box and paint over the FPS control.
   const frameLabelCh = Math.max(String(numFrames).length, String(currentFrame).length, 1) * 2 + 1;
@@ -201,7 +205,9 @@ function UsViewportCineBar({
               type="button"
               className={FPS_STEP_BTN}
               onClick={() => handleFpsChange(localFps - 1)}
+              disabled={!canDecreaseFps}
               aria-label="Decrease FPS"
+              title={canDecreaseFps ? 'Decrease FPS' : 'Minimum 1 FPS'}
               data-cy="cine-player-viewport-fps-decrease"
             >
               −
@@ -222,7 +228,9 @@ function UsViewportCineBar({
               type="button"
               className={FPS_STEP_BTN}
               onClick={() => handleFpsChange(localFps + 1)}
+              disabled={!canIncreaseFps}
               aria-label="Increase FPS"
+              title={canIncreaseFps ? 'Increase FPS' : 'Maximum 90 FPS'}
               data-cy="cine-player-viewport-fps-increase"
             >
               +

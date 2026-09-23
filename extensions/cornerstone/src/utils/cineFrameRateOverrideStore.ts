@@ -15,7 +15,7 @@ function setUserCineFrameRate(
     return;
   }
 
-  const valid = Math.max(1, Math.round(Number(frameRate) || 1));
+  const valid = Math.max(1, Math.min(90, Math.round(Number(frameRate) || 1)));
   userFrameRates.set(overrideKey(viewportId, displaySetUid), valid);
 }
 

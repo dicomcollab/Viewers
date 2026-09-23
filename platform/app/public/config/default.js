@@ -1917,8 +1917,8 @@ window.config = {
   createReportAppBaseUrl: isDev ? RIS_DEV_PORTAL_ORIGIN : undefined,
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: true,
-  redirectToRisOn401: true,
+  redirectRootToRis: false,
+  redirectToRisOn401: false,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1928,8 +1928,6 @@ window.config = {
   risApiBase: RIS_API_BASE,
   // SR text push endpoint (used by SR text viewport "Send SR Text to RIS" button)
   risSrTextUploadPath: '/api/v1/structured-report/send-text',
-  keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images-user/upload`,
-  // JWT session auth via cookie (see getKeyImagesAuthHeader) — no Basic credentials in client config.
   // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,

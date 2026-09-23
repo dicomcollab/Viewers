@@ -12,6 +12,7 @@ import {
   isStackFrameReady,
   prefetchStackFrame,
   prefetchUpcomingStackFrames,
+  getPrefetchCount,
 } from './cineFrameLoadUtils';
 import { getCineGeneration } from './cineClipStateUtils';
 
@@ -258,20 +259,24 @@ export function startSyncStartDriver(
       const imageIds = viewport?.getImageIds?.() ?? [];
       const nextImageId = imageIds[nextIndex];
 
-      prefetchUpcomingStackFrames(imageIds, state.frameIndex);
+      const periodMs = 1000 / state.frameRate;
+      prefetchUpcomingStackFrames(imageIds, state.frameIndex, getPrefetchCount(periodMs));
 
       if (!isStackFrameReady(nextImageId)) {
         prefetchStackFrame(nextImageId);
         return;
       }
 
+      const dueAt = state.nextFrameAt;
       state.advanceInFlight = true;
       void setViewportFrameIndexAsync(viewport, nextIndex, frameOptions(state.viewportId, viewport))
         .then(ok => {
           if (ok) {
             state.frameIndex = nextIndex;
           }
-          state.nextFrameAt = performance.now() + 1000 / state.frameRate;
+          const due = dueAt + periodMs;
+          const nowAfter = performance.now();
+          state.nextFrameAt = due < nowAfter - periodMs ? nowAfter : Math.max(due, nowAfter);
         })
         .finally(() => {
           state.advanceInFlight = false;
@@ -316,7 +321,7 @@ export function startSyncStartDriver(
           state.advanceInFlight = false;
         });
     });
-  }, 16);
+  }, 8);
 
   driver = {
     mode: 'syncStart',

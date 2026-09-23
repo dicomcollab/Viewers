@@ -11,8 +11,9 @@ import { CallbackCustomization } from 'platform/core/src/types';
 import { type TabsProps } from '@ohif/core/src/utils/createStudyBrowserTabs';
 import { normalizeJpegImageId } from '../../DicomWebDataSource/utils/getImageId';
 import { getViewerLayoutSync, mergeAndSaveViewerLayout } from '../../utils/viewerLayoutPreferences';
+import { setStudyPanelNavigationOrder } from '../../utils/studyPanelNavigationOrder';
 
-const { sortStudyInstances, formatDate, createStudyBrowserTabs } = utils;
+const { formatDate, createStudyBrowserTabs, compareDisplaySetsByReviewOrder } = utils;
 
 const thumbnailNoImageModalities = ['SR', 'SEG', 'RTSTRUCT', 'RTPLAN', 'RTDOSE', 'DOC', 'PMAP'];
 
@@ -26,6 +27,51 @@ const studyPanelLoadSession = {
 
 function getStudySessionKey(studyInstanceUIDs: string[]) {
   return studyInstanceUIDs.length ? [...studyInstanceUIDs].sort().join('|') : '';
+}
+
+/**
+ * Final study-panel order: DICOM review sort, then images before SR/SEG/etc.
+ * Matches ThumbnailList (thumbnail grid, then no-image list) so PgUp/PgDn can follow it.
+ * Non-report no-image rows (e.g. unsupported OT) stay before SR so they are not skipped.
+ */
+function finalizeStudyPanelThumbnailOrder(mappedDisplaySets: any[]): any[] {
+  const sorted = [...(mappedDisplaySets || [])].sort(compareDisplaySetsByReviewOrder);
+  // Prefer mapped componentType (thumbnail / thumbnailTracked / thumbnailNoImage)
+  // so Tracking panel and ThumbnailList stay in lockstep with navigation.
+  const isNoImage = (ds: any) => {
+    if (ds?.componentType) {
+      return ds.componentType === 'thumbnailNoImage';
+    }
+    return (
+      thumbnailNoImageModalities.includes(ds?.modality || ds?.Modality) ||
+      Boolean(ds?.unsupported)
+    );
+  };
+  const isReportOrDerived = (ds: any) => {
+    const modality = ds?.modality || ds?.Modality;
+    return thumbnailNoImageModalities.includes(modality);
+  };
+
+  const images = sorted.filter(ds => !isNoImage(ds));
+  const noImage = sorted.filter(isNoImage);
+  const noImageNonReport = noImage.filter(ds => !isReportOrDerived(ds));
+  const reports = noImage.filter(ds => isReportOrDerived(ds));
+
+  return [...images, ...noImageNonReport, ...reports];
+}
+
+/**
+ * Study header count should match visible study-panel rows:
+ * - US/CR/DX/MG: one display set per SOP → count ≈ instances
+ * - CT/PT/OT/…: one display set per series → count ≈ series
+ * Prefer that over QIDO NumberOfStudyRelatedInstances (0020,1208).
+ */
+function countVisibleDisplaySetsForStudy(displaySets: any[], studyInstanceUid: string): number {
+  return (displaySets || []).filter(
+    ds =>
+      ds?.StudyInstanceUID === studyInstanceUid &&
+      !ds?.excludeFromThumbnailBrowser
+  ).length;
 }
 
 function isStructuredReportDisplaySet(displaySet) {
@@ -183,7 +229,53 @@ function PanelStudyBrowser({
       return;
     }
     displaySetService.sortDisplaySets(sortFn, 'ascending', true);
+    if (typeof utils.logDicomSortOrder === 'function') {
+      utils.logDicomSortOrder('studyPanel activeDisplaySets', displaySetService.activeDisplaySets);
+    }
   }, [actionIcons, customizationService, displaySetService]);
+
+  const syncStudyHeaderCountsFromDisplaySets = useCallback(
+    (activeDisplaySets: any[]) => {
+      setStudyDisplayList(prevArray => {
+        if (!prevArray?.length) {
+          return prevArray;
+        }
+        let changed = false;
+        const next = prevArray.map(study => {
+          const visibleCount = countVisibleDisplaySetsForStudy(
+            activeDisplaySets,
+            study.studyInstanceUid
+          );
+          if (!visibleCount || visibleCount === study.numInstances) {
+            return study;
+          }
+          changed = true;
+          return { ...study, numInstances: visibleCount };
+        });
+        if (!changed) {
+          return prevArray;
+        }
+        if (sessionKey) {
+          studyPanelLoadSession.studyDisplayLists.set(sessionKey, next);
+        }
+        return next;
+      });
+    },
+    [sessionKey]
+  );
+
+  // Keep header count aligned with visible thumbnails once both QIDO studies and display sets exist
+  useEffect(() => {
+    if (!studyDisplayList?.length) {
+      return;
+    }
+    syncStudyHeaderCountsFromDisplaySets(displaySetService.activeDisplaySets || []);
+  }, [
+    studyDisplayList,
+    displaySetService.activeDisplaySets,
+    syncStudyHeaderCountsFromDisplaySets,
+    displaySetService,
+  ]);
 
   const mapDisplaySetsWithState = customMapDisplaySets || _mapDisplaySets;
 
@@ -396,6 +488,8 @@ function PanelStudyBrowser({
           date: formatDate(qidoStudy.StudyDate) || '',
           description: qidoStudy.StudyDescription,
           modalities: qidoStudy.ModalitiesInStudy,
+          // Placeholder until display sets load; then replaced with visible thumbnail count
+          // (US: per-instance display sets; CT/PT/OT: per-series display sets).
           numInstances: Number(qidoStudy.NumInstances),
         };
       });
@@ -508,11 +602,13 @@ function PanelStudyBrowser({
       )
     );
 
-    if (!customMapDisplaySets) {
-      sortStudyInstances(mappedDisplaySets);
-    }
+    // Same visual order as ThumbnailList: DICOM sort, then images, then SR/no-image
+    const panelThumbnails = finalizeStudyPanelThumbnailOrder(mappedDisplaySets);
 
-    setDisplaySets(mappedDisplaySets);
+    syncStudyHeaderCountsFromDisplaySets(currentDisplaySets);
+    utils.logDicomSortOrder?.('studyPanel thumbnails', panelThumbnails);
+    setStudyPanelNavigationOrder(panelThumbnails.map(ds => ds.displaySetInstanceUID));
+    setDisplaySets(panelThumbnails);
   }, [
     applyDefaultStudyBrowserSortIfNeeded,
     displaySetService.activeDisplaySets,
@@ -523,6 +619,7 @@ function PanelStudyBrowser({
     isHangingProtocolLayout,
     studyPrefetcherService,
     finalizeMappedDisplaySetsForProgressVisibility,
+    syncStudyHeaderCountsFromDisplaySets,
   ]);
 
   // ~~ subscriptions --> displaySets
@@ -584,11 +681,12 @@ function PanelStudyBrowser({
           )
         );
 
-        if (!customMapDisplaySets) {
-          sortStudyInstances(mappedDisplaySets);
-        }
+        const panelThumbnails = finalizeStudyPanelThumbnailOrder(mappedDisplaySets);
 
-        setDisplaySets(mappedDisplaySets);
+        syncStudyHeaderCountsFromDisplaySets(changedDisplaySets);
+        utils.logDicomSortOrder?.('studyPanel thumbnails (DISPLAY_SETS_CHANGED)', panelThumbnails);
+        setStudyPanelNavigationOrder(panelThumbnails.map(ds => ds.displaySetInstanceUID));
+        setDisplaySets(panelThumbnails);
       }
     );
 
@@ -596,9 +694,10 @@ function PanelStudyBrowser({
       displaySetService.EVENTS.DISPLAY_SET_SERIES_METADATA_INVALIDATED,
       () => {
         applyDefaultStudyBrowserSortIfNeeded();
+        const activeSets = displaySetService.getActiveDisplaySets();
         const mappedDisplaySets = finalizeMappedDisplaySetsForProgressVisibility(
           mapDisplaySetsWithState(
-            displaySetService.getActiveDisplaySets(),
+            activeSets,
             displaySetsLoadingState,
             thumbnailImageSrcMap,
             viewports,
@@ -606,11 +705,15 @@ function PanelStudyBrowser({
           )
         );
 
-        if (!customMapDisplaySets) {
-          sortStudyInstances(mappedDisplaySets);
-        }
+        const panelThumbnails = finalizeStudyPanelThumbnailOrder(mappedDisplaySets);
 
-        setDisplaySets(mappedDisplaySets);
+        syncStudyHeaderCountsFromDisplaySets(activeSets);
+        utils.logDicomSortOrder?.(
+          'studyPanel thumbnails (METADATA_INVALIDATED)',
+          panelThumbnails
+        );
+        setStudyPanelNavigationOrder(panelThumbnails.map(ds => ds.displaySetInstanceUID));
+        setDisplaySets(panelThumbnails);
       }
     );
 
@@ -627,9 +730,18 @@ function PanelStudyBrowser({
     customMapDisplaySets,
     isHangingProtocolLayout,
     finalizeMappedDisplaySetsForProgressVisibility,
+    syncStudyHeaderCountsFromDisplaySets,
   ]);
 
   const tabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
+
+  // Keep PgUp/PgDn in sync with whatever the panel is actually rendering
+  useEffect(() => {
+    if (!displaySets?.length) {
+      return;
+    }
+    setStudyPanelNavigationOrder(displaySets.map(ds => ds.displaySetInstanceUID));
+  }, [displaySets]);
 
   function _handleStudyClick(StudyInstanceUID) {
     if (expandedStudyInstanceUIDs.includes(StudyInstanceUID)) {
@@ -958,15 +1070,26 @@ function _mapDisplaySets(
         description: ds.SeriesDescription || '',
         seriesNumber: ds.SeriesNumber,
         SeriesNumber: ds.SeriesNumber,
+        SeriesInstanceUID: ds.SeriesInstanceUID,
+        SeriesDate: ds.SeriesDate,
+        SeriesTime: ds.SeriesTime,
         InstanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
         instanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
-        SOPInstanceUID:
-          ds.SOPInstanceUID ?? ds.instance?.SOPInstanceUID ?? ds.instances?.[0]?.SOPInstanceUID,
+        AcquisitionNumber: ds.AcquisitionNumber ?? ds.instances?.[0]?.AcquisitionNumber,
+        AcquisitionDateTime:
+          ds.AcquisitionDateTime ??
+          ds.acquisitionDatetime ??
+          ds.instance?.AcquisitionDateTime ??
+          ds.instances?.[0]?.AcquisitionDateTime,
         acquisitionDatetime:
           ds.acquisitionDatetime ??
           ds.AcquisitionDateTime ??
           ds.instance?.AcquisitionDateTime ??
           ds.instances?.[0]?.AcquisitionDateTime,
+        ContentDate: ds.ContentDate ?? ds.instance?.ContentDate ?? ds.instances?.[0]?.ContentDate,
+        ContentTime: ds.ContentTime ?? ds.instance?.ContentTime ?? ds.instances?.[0]?.ContentTime,
+        SOPInstanceUID:
+          ds.SOPInstanceUID ?? ds.instance?.SOPInstanceUID ?? ds.instances?.[0]?.SOPInstanceUID,
         modality: ds.Modality,
         Modality: ds.Modality,
         seriesDate: formatDate(ds.SeriesDate),

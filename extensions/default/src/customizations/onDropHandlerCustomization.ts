@@ -1,5 +1,6 @@
 import {
   isStructuredReportDisplaySet,
+  presentDisplaySetAfterStructuredReport,
   presentStructuredReportInOneUp,
 } from '../utils/openStructuredReportInViewport';
 
@@ -18,6 +19,16 @@ export default {
         commandsManager,
         servicesManager,
       });
+      return Promise.resolve({ handled: true });
+    }
+
+    if (
+      presentDisplaySetAfterStructuredReport({
+        displaySetInstanceUID,
+        commandsManager,
+        servicesManager,
+      })
+    ) {
       return Promise.resolve({ handled: true });
     }
 

@@ -487,16 +487,22 @@ function NumberStepper({ className, children, direction, inputWidth, buttonColor
 
 // New components for left and right controls
 function LeftControl({ min, step, value, setValue, buttonColor = 'primary' }) {
+  const disabled = value <= min;
   const decrement = useCallback(() => {
+    if (disabled) {
+      return;
+    }
     const newValue = Math.max(value - step, min);
     setValue(newValue);
-  }, [value, min, step, setValue]);
+  }, [disabled, value, min, step, setValue]);
 
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={decrement}
+      disabled={disabled}
+      aria-label="Decrease"
       className={cn(
         buttonColor === 'white' ? 'text-white' : 'text-primary',
         'h-full w-4 cursor-pointer p-0'
@@ -508,16 +514,22 @@ function LeftControl({ min, step, value, setValue, buttonColor = 'primary' }) {
 }
 
 function RightControl({ max, step, value, setValue, buttonColor = 'primary' }) {
+  const disabled = value >= max;
   const increment = useCallback(() => {
+    if (disabled) {
+      return;
+    }
     const newValue = Math.min(value + step, max);
     setValue(newValue);
-  }, [value, max, step, setValue]);
+  }, [disabled, value, max, step, setValue]);
 
   return (
     <Button
       variant="ghost"
       size="icon"
       onClick={increment}
+      disabled={disabled}
+      aria-label="Increase"
       className={cn(
         buttonColor === 'white' ? 'text-white' : 'text-primary',
         'h-full w-4 cursor-pointer p-0'

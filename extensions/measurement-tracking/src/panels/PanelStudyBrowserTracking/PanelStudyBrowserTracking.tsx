@@ -114,7 +114,27 @@ export default function PanelStudyBrowserTracking({
           displaySetInstanceUID,
           description: ds.SeriesDescription || '',
           seriesNumber: ds.SeriesNumber,
+          SeriesNumber: ds.SeriesNumber,
+          SeriesInstanceUID: ds.SeriesInstanceUID,
+          SeriesDate: ds.SeriesDate,
+          SeriesTime: ds.SeriesTime,
+          InstanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
+          instanceNumber: ds.instanceNumber ?? ds.InstanceNumber,
+          AcquisitionNumber: ds.AcquisitionNumber ?? ds.instances?.[0]?.AcquisitionNumber,
+          AcquisitionDateTime:
+            ds.AcquisitionDateTime ??
+            ds.acquisitionDatetime ??
+            ds.instances?.[0]?.AcquisitionDateTime,
+          acquisitionDatetime:
+            ds.acquisitionDatetime ??
+            ds.AcquisitionDateTime ??
+            ds.instances?.[0]?.AcquisitionDateTime,
+          ContentDate: ds.ContentDate ?? ds.instances?.[0]?.ContentDate,
+          ContentTime: ds.ContentTime ?? ds.instances?.[0]?.ContentTime,
+          SOPInstanceUID:
+            ds.SOPInstanceUID ?? ds.instance?.SOPInstanceUID ?? ds.instances?.[0]?.SOPInstanceUID,
           modality: ds.Modality,
+          Modality: ds.Modality,
           seriesDate: ds.SeriesDate ? new Date(ds.SeriesDate).toLocaleDateString() : '',
           numInstances: ds.numImageFrames,
           loadingProgress,

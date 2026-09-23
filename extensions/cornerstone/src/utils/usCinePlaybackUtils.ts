@@ -144,7 +144,7 @@ function restartPlayingCineClips(
     }
 
     cineService.playClip(element, {
-      framesPerSecond: Math.max(1, Number(current.frameRate) || 1),
+      framesPerSecond: Math.max(1, Math.min(90, Number(current.frameRate) || 1)),
       viewportId,
       cinePlayMode: current.cinePlayMode ?? 'fps',
       frameStep: current.frameStep,
@@ -304,7 +304,7 @@ function applyCineFrameRate(
   frameRate: number
 ): void {
   const { cineService } = servicesManager.services;
-  const validFrameRate = Math.max(1, Math.round(Number(frameRate) || 1));
+  const validFrameRate = Math.max(1, Math.min(90, Math.round(Number(frameRate) || 1)));
 
   setUserCineFrameRate(
     srcViewportId,

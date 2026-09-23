@@ -2,6 +2,12 @@ import cloneDeep from 'lodash.clonedeep';
 
 import { PubSubService } from '../_shared/pubSubServiceInterface';
 import sortBy from '../../utils/sortBy';
+import {
+  getAcquisitionDateTimeValue,
+  getSeriesDateTimeValue,
+  getSeriesInstanceUIDValue,
+  logDicomSortOrder,
+} from '../../utils/sortStudy';
 import ProtocolEngine from './ProtocolEngine';
 import { StudyMetadata } from '../../types/StudyMetadata';
 import DisplaySet from '../DisplaySetService/DisplaySet';
@@ -1186,7 +1192,14 @@ export default class HangingProtocolService extends PubSubService {
       const seriesA = this._getSeriesSortInfoForDisplaySetSort(displaySetA);
       const seriesB = this._getSeriesSortInfoForDisplaySetSort(displaySetB);
 
-      return sortBy(this._getSeriesFieldForDisplaySetSort())(seriesA, seriesB);
+      return sortBy(
+        { name: 'acquisitionDateTime' },
+        { name: 'seriesDateTime' },
+        { name: 'seriesNumber' },
+        { name: 'seriesInstanceUID' },
+        { name: 'instanceNumber' },
+        { name: 'sopInstanceUID' }
+      )(seriesA, seriesB);
     };
   }
 
@@ -1611,7 +1624,7 @@ export default class HangingProtocolService extends PubSubService {
       console.log('No match found', id);
     }
 
-    // Sort the matchingScores
+    // Sort matching scores with the same DICOM chronological keys as the study panel
     const sortingFunction = sortBy(
       {
         name: 'score',
@@ -1621,16 +1634,29 @@ export default class HangingProtocolService extends PubSubService {
         name: 'study',
         reverse: true,
       },
-      this._getSeriesFieldForDisplaySetSort(),
+      { name: 'acquisitionDateTime' },
+      { name: 'seriesDateTime' },
+      { name: 'seriesNumber' },
+      { name: 'seriesInstanceUID' },
       { name: 'instanceNumber' },
-      { name: 'acquisitionStamp' },
       { name: 'sopInstanceUID' }
     );
     matchingScores.sort((a, b) => sortingFunction(a.sortingInfo, b.sortingInfo));
 
     const bestMatch = matchingScores[0];
 
-    // console.log('ProtocolEngine::matchImages bestMatch', bestMatch, matchingScores);
+    logDicomSortOrder(
+      'hangingProtocol matches',
+      matchingScores.map(score => {
+        const displaySetService = this._servicesManager?.services?.displaySetService;
+        const ds = displaySetService?.getDisplaySetByUID?.(score.displaySetInstanceUID) || {};
+        return {
+          ...ds,
+          SeriesInstanceUID: score.SeriesInstanceUID,
+          displaySetInstanceUID: score.displaySetInstanceUID,
+        };
+      })
+    );
 
     return {
       bestMatch,
@@ -1639,7 +1665,7 @@ export default class HangingProtocolService extends PubSubService {
   }
 
   private _getSeriesSortInfoForDisplaySetSort(displaySet) {
-    const seriesNumber =
+    const seriesNumberRaw =
       displaySet.SeriesNumber != null
         ? parseInt(displaySet.SeriesNumber, 10)
         : parseInt(displaySet.seriesNumber, 10);
@@ -1650,30 +1676,23 @@ export default class HangingProtocolService extends PubSubService {
         0
     );
     const instance = displaySet.instance ?? displaySet.instances?.[0];
-    const acquisitionStamp = String(
-      displaySet.acquisitionDatetime ??
-        displaySet.AcquisitionDateTime ??
-        instance?.AcquisitionDateTime ??
-        instance?.ContentDateTime ??
-        ''
-    );
     const sopInstanceUID = String(
       displaySet.SOPInstanceUID ?? instance?.SOPInstanceUID ?? ''
     );
 
     return {
-      [this._getSeriesFieldForDisplaySetSort().name]: Number.isFinite(seriesNumber)
-        ? seriesNumber
-        : 0,
-      // Keeps one-SOP-per-displaySet US studies in the same order as the study panel / 2×2 pager.
-      instanceNumber: Number.isFinite(instanceNumber) ? instanceNumber : 0,
-      acquisitionStamp,
+      // Missing timestamps sort last (after real DICOM DT values)
+      acquisitionDateTime: getAcquisitionDateTimeValue(displaySet) || '\uffff',
+      seriesDateTime: getSeriesDateTimeValue(displaySet) || '\uffff',
+      seriesNumber: Number.isFinite(seriesNumberRaw) ? seriesNumberRaw : Number.MAX_SAFE_INTEGER,
+      seriesInstanceUID: getSeriesInstanceUIDValue(displaySet) || sopInstanceUID,
+      instanceNumber: Number.isFinite(instanceNumber) ? instanceNumber : Number.MAX_SAFE_INTEGER,
       sopInstanceUID,
     };
   }
 
   private _getSeriesFieldForDisplaySetSort() {
-    return { name: 'series' };
+    return { name: 'seriesNumber' };
   }
 
   /**
