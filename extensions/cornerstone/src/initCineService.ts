@@ -25,6 +25,7 @@ import {
   getPrefetchCount,
 } from './utils/cineFrameLoadUtils';
 import { setCineWaitingForFrame } from './utils/cineFrameWaitStore';
+import { syncUsViewportGridToReviewOrder } from './utils/usBatchNavigationUtils';
 
 export const DEFAULT_FRAME_STEP = 4;
 export const STEP_INTERVAL_MS = 400;
@@ -440,9 +441,27 @@ function initCineService(servicesManager: AppTypes.ServicesManager) {
     stopClip,
   });
 
-  const { viewportGridService } = servicesManager.services;
+  const { viewportGridService, hangingProtocolService } = servicesManager.services;
   let ensureTimer: ReturnType<typeof setTimeout> | null = null;
   let ensureAttempts = 0;
+  let reviewOrderSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleUsReviewOrderSync = () => {
+    if (reviewOrderSyncTimer) {
+      window.clearTimeout(reviewOrderSyncTimer);
+    }
+
+    // Wait for ViewportGrid to apply PROTOCOL_CHANGED → setLayout first.
+    reviewOrderSyncTimer = window.setTimeout(() => {
+      reviewOrderSyncTimer = null;
+      syncUsViewportGridToReviewOrder(servicesManager);
+    }, 80);
+  };
+
+  hangingProtocolService?.subscribe?.(
+    hangingProtocolService.EVENTS.PROTOCOL_CHANGED,
+    scheduleUsReviewOrderSync
+  );
 
   viewportGridService.subscribe(viewportGridService.EVENTS.GRID_STATE_CHANGED, () => {
     validateSyncPlaybackDriver(servicesManager);

@@ -70,15 +70,29 @@ function StudyCineHeaderControls({ servicesManager }: StudyCineHeaderControlsPro
     return null;
   }
 
-  const handleRetreat = () => {
-    advanceUsBatch(servicesManager, -1);
+  const navigate = (direction: 1 | -1) => {
+    const next = advanceUsBatch(servicesManager, direction, { wrap: false });
+
+    if (next) {
+      setPageInfo(prev =>
+        prev
+          ? {
+              ...prev,
+              currentPage: next.currentPage,
+              totalPages: next.totalPages,
+              hasNextBatch: next.hasNextBatch,
+              hasPrevBatch: next.hasPrevBatch,
+            }
+          : prev
+      );
+    }
+
     window.setTimeout(refreshPageInfo, 400);
   };
 
-  const handleAdvance = () => {
-    advanceUsBatch(servicesManager, 1);
-    window.setTimeout(refreshPageInfo, 400);
-  };
+  const handleRetreat = () => navigate(-1);
+
+  const handleAdvance = () => navigate(1);
 
   const navBtnClass =
     'h-6 w-6 shrink-0 p-0 text-white hover:bg-primary-active disabled:opacity-30 [&_svg]:h-3 [&_svg]:w-3';

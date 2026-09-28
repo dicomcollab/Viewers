@@ -4,6 +4,7 @@ import { ensureStructuredReportDisplaySet } from '../utils/ensureStructuredRepor
 import {
   buildViewportsUpdateForDisplaySet,
   isStructuredReportDisplaySet,
+  isStructuredReportSopClassUID,
   presentDisplaySetAfterStructuredReport,
   presentStructuredReportInOneUp,
   resolveViewportIdForStructuredReport,
@@ -79,11 +80,31 @@ export default {
 
           let displaySet = displaySetService.getDisplaySetByUID(displaySetInstanceUID);
 
+          const mayBeStructuredReport =
+            isStructuredReportDisplaySet(displaySet) ||
+            (displaySet?.unsupported &&
+              (displaySet?.Modality === 'SR' ||
+                isStructuredReportSopClassUID(displaySet?.SOPClassUID)));
+          if (mayBeStructuredReport) {
+            utils.startStructuredReportLoading(displaySetInstanceUID);
+          }
+
           if (displaySet?.unsupported) {
-            displaySet = await ensureStructuredReportDisplaySet(displaySet, {
-              dataSource,
-              displaySetService,
-            });
+            try {
+              displaySet = await ensureStructuredReportDisplaySet(displaySet, {
+                dataSource,
+                displaySetService,
+              });
+            } catch (error) {
+              utils.finishStructuredReportLoading();
+              throw error;
+            }
+          }
+
+          if (!displaySet || displaySet.unsupported || !isStructuredReportDisplaySet(displaySet)) {
+            utils.finishStructuredReportLoading();
+          } else if (!mayBeStructuredReport) {
+            utils.startStructuredReportLoading(displaySet.displaySetInstanceUID);
           }
 
           if (!displaySet || displaySet.unsupported) {

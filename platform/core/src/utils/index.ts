@@ -44,6 +44,19 @@ import {
   seriesSortCriteria,
   instancesSortCriteria,
 } from './sortStudy';
+import {
+  clearStudyPanelNavigationOrder,
+  getStudyPanelNavigationOrder,
+  setStudyPanelNavigationOrder,
+  subscribeStudyPanelNavigationOrder,
+} from './studyPanelNavigationOrder';
+import {
+  finishStructuredReportLoading,
+  getStructuredReportLoading,
+  markStructuredReportAssigned,
+  startStructuredReportLoading,
+  subscribeStructuredReportLoading,
+} from './structuredReportLoading';
 import { splitComma, getSplitParam } from './splitComma';
 import { createStudyBrowserTabs } from './createStudyBrowserTabs';
 import { sopClassDictionary } from './sopClassDictionary';
@@ -94,6 +107,15 @@ const utils = {
   sortingCriteria,
   seriesSortCriteria,
   instancesSortCriteria,
+  getStudyPanelNavigationOrder,
+  setStudyPanelNavigationOrder,
+  clearStudyPanelNavigationOrder,
+  subscribeStudyPanelNavigationOrder,
+  startStructuredReportLoading,
+  markStructuredReportAssigned,
+  finishStructuredReportLoading,
+  getStructuredReportLoading,
+  subscribeStructuredReportLoading,
   writeScript,
   formatDate,
   formatTime,

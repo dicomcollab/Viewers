@@ -4,6 +4,7 @@ import { ExtensionManager, useSystem } from '@ohif/core';
 import { useViewportGrid } from '@ohif/ui-next';
 import { OHIFCornerstoneSRContainer } from './OHIFCornerstoneSRContainer';
 import { utils } from '@ohif/core';
+import { useFinishStructuredReportLoading } from '../utils/useFinishStructuredReportLoading';
 
 function OHIFCornerstoneSRTextViewport(props: withAppTypes) {
   const { displaySets, viewportId, viewportOptions } = props;
@@ -14,28 +15,32 @@ function OHIFCornerstoneSRTextViewport(props: withAppTypes) {
   const [instance, setInstance] = useState(
     displaySet.instance || displaySet.instances[displaySet.instances.length - 1]
   );
+  const [isContentReady, setIsContentReady] = useState(false);
+
+  useFinishStructuredReportLoading(displaySet?.displaySetInstanceUID, isContentReady && !!instance);
 
   useEffect(() => {
     let cancelled = false;
+    setIsContentReady(false);
 
     const loadStructuredReport = async () => {
-      if (!displaySet?.load) {
-        return;
-      }
-
-      const hasContentSequence = Boolean(displaySet.instance?.ContentSequence);
-      if (!displaySet.isLoaded || !hasContentSequence) {
-        await displaySet.load();
+      if (displaySet?.load) {
+        const hasContentSequence = Boolean(displaySet.instance?.ContentSequence);
+        if (!displaySet.isLoaded || !hasContentSequence) {
+          await displaySet.load();
+        }
       }
 
       if (!cancelled) {
         setInstance(displaySet.instance || displaySet.instances[displaySet.instances.length - 1]);
+        setIsContentReady(true);
       }
     };
 
     loadStructuredReport().catch(() => {
       if (!cancelled) {
         setInstance(displaySet.instance || displaySet.instances[displaySet.instances.length - 1]);
+        setIsContentReady(true);
       }
     });
 

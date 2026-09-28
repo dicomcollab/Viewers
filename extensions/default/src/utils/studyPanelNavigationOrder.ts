@@ -1,21 +1,21 @@
 /**
- * Exact Study Panel thumbnail order for PgUp/PgDn next-series navigation.
- * Updated whenever the study panel finishes mapping/sorting thumbnails so
- * keyboard navigation matches what the user sees (including images-then-SR).
+ * Study Panel thumbnail order — thin wrappers around @ohif/core utils so
+ * default-extension call sites keep a stable import path.
  */
-
-let orderedDisplaySetInstanceUIDs: string[] = [];
+import { utils } from '@ohif/core';
 
 export function setStudyPanelNavigationOrder(displaySetInstanceUIDs: string[]): void {
-  orderedDisplaySetInstanceUIDs = Array.isArray(displaySetInstanceUIDs)
-    ? [...displaySetInstanceUIDs]
-    : [];
+  utils.setStudyPanelNavigationOrder(displaySetInstanceUIDs);
 }
 
 export function getStudyPanelNavigationOrder(): string[] {
-  return [...orderedDisplaySetInstanceUIDs];
+  return utils.getStudyPanelNavigationOrder();
 }
 
 export function clearStudyPanelNavigationOrder(): void {
-  orderedDisplaySetInstanceUIDs = [];
+  utils.clearStudyPanelNavigationOrder();
+}
+
+export function subscribeStudyPanelNavigationOrder(listener: () => void): () => void {
+  return utils.subscribeStudyPanelNavigationOrder(listener);
 }

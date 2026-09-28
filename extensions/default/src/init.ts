@@ -5,6 +5,7 @@ import getPTImageIdInstanceMetadata from './getPTImageIdInstanceMetadata';
 import getRelatedImageIds, { isJpegRenderedImageId } from './utils/getRelatedImageIds';
 import { registerHangingProtocolAttributes } from './hangingprotocols';
 import { HotkeysManager } from '@ohif/core';
+import { initStudyPanelViewportOrderSync } from './utils/syncViewportGridToStudyPanelOrder';
 
 // Import image cache module to ensure it initializes early
 // This sets up window.__OHIF_IMAGE_CACHE__ before image loading starts
@@ -41,6 +42,9 @@ export default function init({
 
   // Adds extra custom attributes for use by hanging protocols
   registerHangingProtocolAttributes({ servicesManager });
+
+  // Keep multi-viewport tiles in the same order as the Study Panel thumbnails.
+  initStudyPanelViewportOrderSync(servicesManager);
 
   // Function to process and subscribe to events for a given set of commands and listeners
   const eventSubscriptions = [];

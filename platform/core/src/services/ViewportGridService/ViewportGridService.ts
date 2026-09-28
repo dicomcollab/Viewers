@@ -339,14 +339,21 @@ class ViewportGridService extends PubSubService {
   public getLayoutOptionsFromState(
     state: any
   ): { x: number; y: number; width: number; height: number }[] {
-    return Array.from(state.viewports.entries()).map(([_, viewport]) => {
-      return {
+    // Row-major: top-to-bottom, then left-to-right (matches 2×2 sequence 1 2 / 3 4).
+    return Array.from(state.viewports.entries())
+      .map(([_, viewport]) => ({
         x: viewport.x,
         y: viewport.y,
         width: viewport.width,
         height: viewport.height,
-      };
-    });
+      }))
+      .sort((a, b) => {
+        const rowDiff = (a.y ?? 0) - (b.y ?? 0);
+        if (rowDiff !== 0) {
+          return rowDiff;
+        }
+        return (a.x ?? 0) - (b.x ?? 0);
+      });
   }
 }
 

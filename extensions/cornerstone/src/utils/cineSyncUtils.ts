@@ -1,4 +1,5 @@
 import { cache, Types } from '@cornerstonejs/core';
+import { getDisplaySetsInStudyPanelOrder } from '@ohif/extension-default';
 
 const CINE_SYNC_GROUP_TYPES = new Set(['frameview', 'imageslice', 'stackimage', 'image_slice']);
 
@@ -165,9 +166,8 @@ export function shouldUsePerViewportUsCine(servicesManager: AppTypes.ServicesMan
 }
 
 /**
- * Show study-level US cine controls in the viewer header (page nav + sync + FPS/fr).
- * Ultrasound only — CT/MR multi-slice must not show US header cine chrome.
- * Autoplay stays US-only (CinePlayer / isUsMultiframeDisplaySet).
+ * Show study-level header controls (series/page nav).
+ * Visible for multi-series studies of any modality, and for US multiframe/cine.
  */
 export function shouldShowStudyCineHeaderControls(
   servicesManager: AppTypes.ServicesManager
@@ -180,13 +180,13 @@ export function shouldShowStudyCineHeaderControls(
       (ds.Modality === 'SR' || (ds.Modality === 'US' && (ds.numImageFrames ?? 0) >= 1))
   );
 
-  // Pager / study transport when the study has multiple US/SR slots,
-  // even if the current hanging-protocol page only has static tiles.
-  if (usStudySlots.length > 1) {
+  if (usStudySlots.length > 1 || usMultiframeSets.length > 0) {
     return true;
   }
 
-  return usMultiframeSets.length > 0;
+  // CT/MR/PT/OT/… — page when there is more than one hangable series.
+  const hangable = getDisplaySetsInStudyPanelOrder?.(displaySetService) || [];
+  return hangable.length > 1;
 }
 
 export function activeViewportUsesMultiframeCine(

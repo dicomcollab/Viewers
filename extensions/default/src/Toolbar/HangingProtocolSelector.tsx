@@ -6,8 +6,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  Button,
-  Icons,
 } from '@ohif/ui-next';
 import { saveHangingProtocolChoice } from '../utils/viewerLayoutPreferences';
 
@@ -40,7 +38,10 @@ const LEGACY_PROTOCOL_ID_MAP: Record<string, string> = {
   usModality2x4: 'allModality2x4',
 };
 
-function labelForLayout(numRows: number, numCols: number): { label: string; protocolId: string | null } {
+function labelForLayout(
+  numRows: number,
+  numCols: number
+): { label: string; protocolId: string | null } {
   if (numRows === 1 && numCols === 1) {
     return { label: '1×1', protocolId: 'allModality1x1' };
   }
@@ -145,20 +146,6 @@ function HangingProtocolSelectorWithServices({
     [commandsManager, servicesManager]
   );
 
-  const cycleProtocol = useCallback(
-    (direction: 1 | -1) => {
-      const currentIndex = protocolOptions.findIndex(opt => opt.protocolId === currentProtocolId);
-      const fallbackIndex = currentIndex >= 0 ? currentIndex : 0;
-      const nextIndex =
-        (fallbackIndex + direction + protocolOptions.length) % protocolOptions.length;
-      handleProtocolChange(protocolOptions[nextIndex]);
-    },
-    [currentProtocolId, handleProtocolChange]
-  );
-
-  const navBtnClass =
-    'h-6 w-6 shrink-0 p-0 text-white hover:bg-primary-active [&_svg]:h-3 [&_svg]:w-3';
-
   return (
     <div
       className={`flex items-center ${isCompact ? 'iframe-hanging-protocol mr-0.5 gap-0.5' : 'gap-1'}`}
@@ -166,16 +153,6 @@ function HangingProtocolSelectorWithServices({
       data-cy="HangingProtocol"
     >
       {!isCompact && <span className="whitespace-nowrap text-sm text-white">HP</span>}
-      <Button
-        variant="ghost"
-        size="icon"
-        className={navBtnClass}
-        onClick={() => cycleProtocol(-1)}
-        title="Previous hanging protocol"
-        data-cy="hanging-protocol-prev"
-      >
-        <Icons.ChevronLeft />
-      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -214,16 +191,6 @@ function HangingProtocolSelectorWithServices({
           })}
         </DropdownMenuContent>
       </DropdownMenu>
-      <Button
-        variant="ghost"
-        size="icon"
-        className={navBtnClass}
-        onClick={() => cycleProtocol(1)}
-        title="Next hanging protocol"
-        data-cy="hanging-protocol-next"
-      >
-        <Icons.ChevronRight />
-      </Button>
     </div>
   );
 }

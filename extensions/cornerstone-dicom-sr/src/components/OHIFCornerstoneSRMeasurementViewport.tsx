@@ -7,6 +7,7 @@ import { usePositionPresentationStore, OHIFCornerstoneViewport } from '@ohif/ext
 import { useViewportGrid } from '@ohif/ui-next';
 import { useSystem } from '@ohif/core/src/contextProviders/SystemProvider';
 import OHIFCornerstoneSRTextViewport from './OHIFCornerstoneSRTextViewport';
+import { useFinishStructuredReportLoading } from '../utils/useFinishStructuredReportLoading';
 
 const SR_TOOLGROUP_BASE_NAME = 'SRToolGroup';
 
@@ -38,7 +39,10 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
   const [referencedDisplaySetMetadata, setReferencedDisplaySetMetadata] = useState(null);
   const [element, setElement] = useState(null);
   const [useTextFallback, setUseTextFallback] = useState(false);
+  const [isImageRendered, setIsImageRendered] = useState(false);
   const { viewports, activeViewportId } = viewportGrid;
+
+  useFinishStructuredReportLoading(srDisplaySet?.displaySetInstanceUID, isImageRendered);
 
   const setTrackingIdentifiers = useCallback(
     measurementSelected => {
@@ -135,6 +139,10 @@ function OHIFCornerstoneSRMeasurementViewport(props) {
         onElementEnabled={evt => {
           props.onElementEnabled?.(evt);
           onElementEnabled(evt);
+        }}
+        onFirstImageRendered={() => {
+          props.onFirstImageRendered?.();
+          setIsImageRendered(true);
         }}
         isJumpToMeasurementDisabled={true}
       />

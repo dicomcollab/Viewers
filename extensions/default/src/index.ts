@@ -52,6 +52,11 @@ import {
   captureFrameDistributionLayoutSnapshot,
   consumeFrameDistributionLayoutSnapshot,
 } from './utils/usFrameDistributionStore';
+import { getStudyPanelNavigationOrder } from './utils/studyPanelNavigationOrder';
+import {
+  getDisplaySetsInStudyPanelOrder,
+  syncViewportGridToStudyPanelOrder,
+} from './utils/syncViewportGridToStudyPanelOrder';
 
 const defaultExtension: Types.Extensions.Extension = {
   /**
@@ -133,4 +138,7 @@ export {
   getSrDisplaySets,
   captureFrameDistributionLayoutSnapshot,
   consumeFrameDistributionLayoutSnapshot,
+  getStudyPanelNavigationOrder,
+  getDisplaySetsInStudyPanelOrder,
+  syncViewportGridToStudyPanelOrder,
 };

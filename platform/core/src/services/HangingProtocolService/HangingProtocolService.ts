@@ -1,13 +1,14 @@
 import cloneDeep from 'lodash.clonedeep';
 
 import { PubSubService } from '../_shared/pubSubServiceInterface';
-import sortBy from '../../utils/sortBy';
 import {
+  compareDisplaySetsByReviewOrder,
   getAcquisitionDateTimeValue,
   getSeriesDateTimeValue,
   getSeriesInstanceUIDValue,
   logDicomSortOrder,
 } from '../../utils/sortStudy';
+import { getStudyPanelNavigationOrder } from '../../utils/studyPanelNavigationOrder';
 import ProtocolEngine from './ProtocolEngine';
 import { StudyMetadata } from '../../types/StudyMetadata';
 import DisplaySet from '../DisplaySetService/DisplaySet';
@@ -1184,23 +1185,11 @@ export default class HangingProtocolService extends PubSubService {
 
   /**
    * Gets a sort function that is consistent with the display set sorting performed
-   * to match display sets to viewports.
+   * to match display sets to viewports (same order as study panel / US paging).
    * @returns a display set sort function
    */
   public getDisplaySetSortFunction(): (displaySetA: DisplaySet, displaySetB: DisplaySet) => number {
-    return (displaySetA, displaySetB) => {
-      const seriesA = this._getSeriesSortInfoForDisplaySetSort(displaySetA);
-      const seriesB = this._getSeriesSortInfoForDisplaySetSort(displaySetB);
-
-      return sortBy(
-        { name: 'acquisitionDateTime' },
-        { name: 'seriesDateTime' },
-        { name: 'seriesNumber' },
-        { name: 'seriesInstanceUID' },
-        { name: 'instanceNumber' },
-        { name: 'sopInstanceUID' }
-      )(seriesA, seriesB);
-    };
+    return (displaySetA, displaySetB) => compareDisplaySetsByReviewOrder(displaySetA, displaySetB);
   }
 
   /**
@@ -1624,32 +1613,60 @@ export default class HangingProtocolService extends PubSubService {
       console.log('No match found', id);
     }
 
-    // Sort matching scores with the same DICOM chronological keys as the study panel
-    const sortingFunction = sortBy(
-      {
-        name: 'score',
-        reverse: true,
-      },
-      {
-        name: 'study',
-        reverse: true,
-      },
-      { name: 'acquisitionDateTime' },
-      { name: 'seriesDateTime' },
-      { name: 'seriesNumber' },
-      { name: 'seriesInstanceUID' },
-      { name: 'instanceNumber' },
-      { name: 'sopInstanceUID' }
-    );
-    matchingScores.sort((a, b) => sortingFunction(a.sortingInfo, b.sortingInfo));
+    // Prefer higher match score / active study, then Study Panel thumbnail order
+    // (exact UI sequence), then shared DICOM review order as fallback.
+    const displaySetByUID = new Map<string, DisplaySet>();
+    matchingScores.forEach(score => {
+      const fromProtocol = this.displaySets.find(
+        ds => ds.displaySetInstanceUID === score.displaySetInstanceUID
+      );
+      const fromService =
+        this._servicesManager?.services?.displaySetService?.getDisplaySetByUID?.(
+          score.displaySetInstanceUID
+        );
+      displaySetByUID.set(score.displaySetInstanceUID, fromProtocol || fromService);
+    });
+
+    const panelOrder = getStudyPanelNavigationOrder();
+    const panelIndex = new Map(panelOrder.map((uid, index) => [uid, index]));
+
+    matchingScores.sort((a, b) => {
+      const scoreDiff = (b.sortingInfo?.score ?? 0) - (a.sortingInfo?.score ?? 0);
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+
+      const studyDiff = String(b.sortingInfo?.study ?? '').localeCompare(
+        String(a.sortingInfo?.study ?? '')
+      );
+      if (studyDiff !== 0) {
+        return studyDiff;
+      }
+
+      const panelA = panelIndex.get(a.displaySetInstanceUID);
+      const panelB = panelIndex.get(b.displaySetInstanceUID);
+      if (panelA != null && panelB != null && panelA !== panelB) {
+        return panelA - panelB;
+      }
+      if (panelA != null && panelB == null) {
+        return -1;
+      }
+      if (panelA == null && panelB != null) {
+        return 1;
+      }
+
+      return compareDisplaySetsByReviewOrder(
+        displaySetByUID.get(a.displaySetInstanceUID),
+        displaySetByUID.get(b.displaySetInstanceUID)
+      );
+    });
 
     const bestMatch = matchingScores[0];
 
     logDicomSortOrder(
       'hangingProtocol matches',
       matchingScores.map(score => {
-        const displaySetService = this._servicesManager?.services?.displaySetService;
-        const ds = displaySetService?.getDisplaySetByUID?.(score.displaySetInstanceUID) || {};
+        const ds = displaySetByUID.get(score.displaySetInstanceUID) || {};
         return {
           ...ds,
           SeriesInstanceUID: score.SeriesInstanceUID,
@@ -1689,10 +1706,6 @@ export default class HangingProtocolService extends PubSubService {
       instanceNumber: Number.isFinite(instanceNumber) ? instanceNumber : Number.MAX_SAFE_INTEGER,
       sopInstanceUID,
     };
-  }
-
-  private _getSeriesFieldForDisplaySetSort() {
-    return { name: 'seriesNumber' };
   }
 
   /**

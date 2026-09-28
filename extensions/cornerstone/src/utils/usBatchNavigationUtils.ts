@@ -14,6 +14,9 @@ import { getUsLayoutGridSize, getUsLayoutViewportIds } from './usGridViewportUti
 import {
   isUsFrameDistributionEnabled,
   setUsFrameDistributionBatchStart,
+  syncViewportGridToStudyPanelOrder,
+  getDisplaySetsInStudyPanelOrder,
+  getStudyPanelNavigationOrder,
 } from '@ohif/extension-default';
 import {
   applyUsFrameDistribution,
@@ -26,6 +29,31 @@ import { eventTarget, EVENTS } from '@cornerstonejs/core';
 import { utils } from '@ohif/core';
 
 let lastPagingInventoryKey = '';
+
+const PENDING_BATCH_TTL_MS = 2000;
+
+// setDisplaySetsForViewports lands asynchronously, so rapid clicks must page from the
+// last requested batch rather than the grid state that has not caught up yet.
+let pendingInstanceBatch: {
+  studyUid: string;
+  batchSize: number;
+  batchStart: number;
+  at: number;
+} | null = null;
+
+function getPendingInstanceBatchStart(studyUid: string, batchSize: number): number | null {
+  if (
+    !pendingInstanceBatch ||
+    pendingInstanceBatch.studyUid !== studyUid ||
+    pendingInstanceBatch.batchSize !== batchSize ||
+    Date.now() - pendingInstanceBatch.at > PENDING_BATCH_TTL_MS
+  ) {
+    pendingInstanceBatch = null;
+    return null;
+  }
+
+  return pendingInstanceBatch.batchStart;
+}
 
 type UsBatchNavigationInfo = {
   batchSize: number;
@@ -65,6 +93,72 @@ function getUsStudyViewportSlotFromViewport(displaySetService, viewportState) {
   return displaySetInstanceUIDs
     .map(uid => displaySetService.getDisplaySetByUID(uid))
     .find(isUsStudyViewportSlotDisplaySet);
+}
+
+function isHangableImageDisplaySet(displaySet) {
+  if (!displaySet || displaySet.unsupported || displaySet.excludeFromThumbnailBrowser) {
+    return false;
+  }
+
+  const modality = String(displaySet.Modality || '').toUpperCase();
+  const nonImage = new Set(['SR', 'SEG', 'RTSTRUCT', 'RTPLAN', 'RTDOSE', 'DOC', 'PMAP', 'PR', 'KO']);
+  if (nonImage.has(modality)) {
+    return false;
+  }
+
+  const frames =
+    displaySet.numImageFrames ?? displaySet.instances?.length ?? displaySet.imageIds?.length ?? 0;
+  if (frames > 0) {
+    return true;
+  }
+
+  return Array.isArray(displaySet.images) && displaySet.images.length > 0;
+}
+
+/** Series/instance that can occupy a layout tile for study-level paging. */
+function isPageableStudyDisplaySet(displaySet) {
+  return isUsStudyViewportSlotDisplaySet(displaySet) || isHangableImageDisplaySet(displaySet);
+}
+
+function getPageableDisplaySetFromViewport(displaySetService, viewportState) {
+  const displaySetInstanceUIDs = viewportState?.displaySetInstanceUIDs ?? [];
+
+  return displaySetInstanceUIDs
+    .map(uid => displaySetService.getDisplaySetByUID(uid))
+    .find(isPageableStudyDisplaySet);
+}
+
+/**
+ * Pageable display sets in Study Panel order (all modalities).
+ * Falls back to US/SR review order, then hangable panel images.
+ */
+function getPageableStudyDisplaySets(displaySetService, studyInstanceUID?: string) {
+  const matchesStudy = (ds: any) =>
+    !studyInstanceUID || ds?.StudyInstanceUID === studyInstanceUID;
+
+  const panelOrderUIDs = getStudyPanelNavigationOrder();
+  if (panelOrderUIDs.length) {
+    const fromPanel = panelOrderUIDs
+      .map(uid => {
+        try {
+          return displaySetService.getDisplaySetByUID(uid);
+        } catch {
+          return null;
+        }
+      })
+      .filter(ds => ds && matchesStudy(ds) && isPageableStudyDisplaySet(ds));
+
+    if (fromPanel.length) {
+      return fromPanel;
+    }
+  }
+
+  const usSlots = getAllCineCapableStudyDisplaySets(displaySetService, studyInstanceUID);
+  if (usSlots.length) {
+    return usSlots;
+  }
+
+  return getDisplaySetsInStudyPanelOrder(displaySetService).filter(matchesStudy);
 }
 
 function getFrameViewIndex(viewportState): number | null {
@@ -145,7 +239,7 @@ function getDisplaySetIndex(displaySets, displaySet) {
 }
 
 /**
- * Prefer a layout viewport that currently shows a study slot (US or SR).
+ * Prefer a layout viewport that currently shows a pageable series.
  * Falls back to cine control viewport for frame-paging mode.
  */
 function getUsBatchControlViewportId(servicesManager: AppTypes.ServicesManager): string | null {
@@ -154,7 +248,7 @@ function getUsBatchControlViewportId(servicesManager: AppTypes.ServicesManager):
   const { viewports, activeViewportId } = viewportGridService.getState();
 
   if (activeViewportId && layoutViewportIds.includes(activeViewportId)) {
-    const activeDs = getUsStudyViewportSlotFromViewport(
+    const activeDs = getPageableDisplaySetFromViewport(
       displaySetService,
       viewports.get(activeViewportId)
     );
@@ -165,7 +259,7 @@ function getUsBatchControlViewportId(servicesManager: AppTypes.ServicesManager):
   }
 
   for (const viewportId of layoutViewportIds) {
-    const ds = getUsStudyViewportSlotFromViewport(displaySetService, viewports.get(viewportId));
+    const ds = getPageableDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
 
     if (ds) {
       return viewportId;
@@ -177,8 +271,9 @@ function getUsBatchControlViewportId(servicesManager: AppTypes.ServicesManager):
 
 function resolveNavigationTarget(
   batchInfo: UsBatchNavigationInfo,
-  direction: 1 | -1
-): NavigationTarget {
+  direction: 1 | -1,
+  wrap = true
+): NavigationTarget | null {
   const { batchStart, batchSize, totalCount, mode } = batchInfo;
   const nextBatchStart = batchStart + direction * batchSize;
 
@@ -187,7 +282,7 @@ function resolveNavigationTarget(
       return { type: 'instance', instanceDirection: 1, framePreset: 'start' };
     }
 
-    return { type: 'batch', batchStart: 0 };
+    return wrap ? { type: 'batch', batchStart: 0 } : null;
   }
 
   if (direction === -1 && nextBatchStart < 0) {
@@ -195,7 +290,9 @@ function resolveNavigationTarget(
       return { type: 'instance', instanceDirection: -1, framePreset: 'end' };
     }
 
-    return { type: 'batch', batchStart: getLastBatchStart(totalCount, batchSize) };
+    return wrap
+      ? { type: 'batch', batchStart: getLastBatchStart(totalCount, batchSize) }
+      : null;
   }
 
   return { type: 'batch', batchStart: nextBatchStart };
@@ -401,7 +498,7 @@ function buildUsBatchNavigationInfo(
 
   const { viewports } = viewportGridService.getState();
   const controlViewportState = viewports.get(controlViewportId);
-  const controlSlotDisplaySet = getUsStudyViewportSlotFromViewport(
+  const controlSlotDisplaySet = getPageableDisplaySetFromViewport(
     displaySetService,
     controlViewportState
   );
@@ -416,8 +513,8 @@ function buildUsBatchNavigationInfo(
     return null;
   }
 
-  const studyDisplaySets = getAllCineCapableStudyDisplaySets(displaySetService, studyUid);
-  // Page by SOP/SR slot for every grid size. Leftover empty tiles on the last page stay valid.
+  const studyDisplaySets = getPageableStudyDisplaySets(displaySetService, studyUid);
+  // Page by series/SOP slot for every grid size. Leftover empty tiles on the last page stay valid.
   const isInstanceBatchMode = studyDisplaySets.length > 1;
 
   if (typeof window !== 'undefined') {
@@ -431,25 +528,13 @@ function buildUsBatchNavigationInfo(
 
     if (inventoryKey !== lastPagingInventoryKey) {
       lastPagingInventoryKey = inventoryKey;
-      // console.info('[US paging inventory]', {
-      //   studyInstanceUID: studyUid,
-      //   studyBrowserHint:
-      //     'SR/US count in the left panel is QIDO NumberOfStudyRelatedInstances (0020,1208)',
-      //   pagingSlots: studyDisplaySets.length,
-      //   pagingUS: studyDisplaySets.filter(ds => ds.Modality === 'US').length,
-      //   pagingSR: studyDisplaySets.filter(ds => ds.Modality === 'SR').length,
-      //   activeDisplaySets: all.length,
-      //   byModality,
-      //   layout: `${batchSize}-up`,
-      //   totalPages: Math.max(1, Math.ceil(studyDisplaySets.length / batchSize)),
-      // });
     }
   }
 
   if (isInstanceBatchMode) {
     const indices = layoutViewportIds
       .map(viewportId => {
-        const ds = getUsStudyViewportSlotFromViewport(displaySetService, viewports.get(viewportId));
+        const ds = getPageableDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
 
         if (!ds) {
           return -1;
@@ -463,7 +548,16 @@ function buildUsBatchNavigationInfo(
       return null;
     }
 
-    const batchStart = Math.min(...indices);
+    // Snap to layout page boundaries so 2×2 / 1×2 / 1×1 pages stay aligned.
+    const rawStart = Math.min(...indices);
+    const gridBatchStart = Math.floor(rawStart / batchSize) * batchSize;
+    const pendingBatchStart = getPendingInstanceBatchStart(studyUid, batchSize);
+
+    if (pendingBatchStart === gridBatchStart) {
+      pendingInstanceBatch = null;
+    }
+
+    const batchStart = pendingBatchStart ?? gridBatchStart;
     const totalCount = studyDisplaySets.length;
     const batchEnd = Math.min(batchStart + batchSize, totalCount);
     const pageInfo = getPageInfo(batchStart, batchSize, totalCount);
@@ -515,7 +609,8 @@ function buildUsBatchNavigationInfo(
 
 function advanceUsBatch(
   servicesManager: AppTypes.ServicesManager,
-  direction: 1 | -1 = 1
+  direction: 1 | -1 = 1,
+  { wrap = true }: { wrap?: boolean } = {}
 ): UsBatchNavigationInfo | null {
   if (isUsFrameDistributionEnabled()) {
     const batchInfo = getUsFrameDistributionPageInfo(servicesManager);
@@ -524,13 +619,17 @@ function advanceUsBatch(
       return null;
     }
 
+    const target = resolveNavigationTarget(batchInfo, direction, wrap);
+
+    if (!target) {
+      return batchInfo;
+    }
+
     const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
     const { cineService } = servicesManager.services;
     const { cines } = cineService.getState();
     const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
     stopCineOnViewports(servicesManager, layoutViewportIds);
-
-    const target = resolveNavigationTarget(batchInfo, direction);
 
     if (target.type === 'batch') {
       setUsFrameDistributionBatchStart(target.batchStart);
@@ -562,11 +661,17 @@ function advanceUsBatch(
   const { viewports } = viewportGridService.getState();
   const layoutViewportIds = getUsLayoutViewportIds(servicesManager);
   const controlDisplaySet =
-    getUsStudyViewportSlotFromViewport(displaySetService, viewports.get(controlViewportId)) ||
+    getPageableDisplaySetFromViewport(displaySetService, viewports.get(controlViewportId)) ||
     getCineDisplaySetFromViewport(displaySetService, viewports.get(controlViewportId));
 
   if (!controlDisplaySet) {
     return null;
+  }
+
+  const target = resolveNavigationTarget(batchInfo, direction, wrap);
+
+  if (!target) {
+    return batchInfo;
   }
 
   // Resume play state after paging; each new display set re-derives its own FPS on load.
@@ -576,8 +681,7 @@ function advanceUsBatch(
 
   stopCineOnViewports(servicesManager, layoutViewportIds);
 
-  const target = resolveNavigationTarget(batchInfo, direction);
-  const studyDisplaySets = getAllCineCapableStudyDisplaySets(
+  const studyDisplaySets = getPageableStudyDisplaySets(
     displaySetService,
     controlDisplaySet.StudyInstanceUID
   );
@@ -604,6 +708,12 @@ function advanceUsBatch(
   }
 
   if (batchInfo.mode === 'instances') {
+    pendingInstanceBatch = {
+      studyUid: controlDisplaySet.StudyInstanceUID,
+      batchSize: batchInfo.batchSize,
+      batchStart: target.batchStart,
+      at: Date.now(),
+    };
     applyInstanceBatch(servicesManager, layoutViewportIds, target.batchStart, studyDisplaySets);
   } else {
     applyFrameBatch(servicesManager, layoutViewportIds, target.batchStart, batchInfo.totalCount);
@@ -614,6 +724,18 @@ function advanceUsBatch(
   return buildUsBatchNavigationInfo(servicesManager);
 }
 
+/**
+ * After a hanging-protocol layout change, re-assign viewports so they match
+ * Study Panel thumbnail order (row-major: 1 2 / 3 4).
+ */
+function syncUsViewportGridToReviewOrder(servicesManager: AppTypes.ServicesManager): boolean {
+  if (isUsFrameDistributionEnabled()) {
+    return false;
+  }
+
+  return syncViewportGridToStudyPanelOrder(servicesManager);
+}
+
 function getUsSeriesPositionInStudy(
   servicesManager: AppTypes.ServicesManager,
   viewportId: string
@@ -621,14 +743,17 @@ function getUsSeriesPositionInStudy(
   const { displaySetService, viewportGridService } = servicesManager.services;
   const { viewports } = viewportGridService.getState();
   const displaySet =
-    getUsStudyViewportSlotFromViewport(displaySetService, viewports.get(viewportId)) ||
+    getPageableDisplaySetFromViewport(displaySetService, viewports.get(viewportId)) ||
     getCineDisplaySetFromViewport(displaySetService, viewports.get(viewportId));
 
   if (!displaySet) {
     return null;
   }
 
-  const studyDisplaySets = getAllUsStudyDisplaySets(displaySetService, displaySet.StudyInstanceUID);
+  const studyDisplaySets = getPageableStudyDisplaySets(
+    displaySetService,
+    displaySet.StudyInstanceUID
+  );
   const seriesIndex = getDisplaySetIndex(studyDisplaySets, displaySet);
 
   if (seriesIndex < 0 || !studyDisplaySets.length) {
@@ -649,5 +774,6 @@ export {
   getLayoutBatchSize,
   getUsSeriesPositionInStudy,
   shouldSuppressCineAutoplay,
+  syncUsViewportGridToReviewOrder,
 };
 export type { UsBatchNavigationInfo };

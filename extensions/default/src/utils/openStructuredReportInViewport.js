@@ -1,3 +1,4 @@
+import { utils } from '@ohif/core';
 import {
   SOPClassHandlerId,
   SOPClassHandlerId3D,
@@ -196,6 +197,7 @@ function assignDisplaySetToActiveViewport(displaySetInstanceUID, viewportGridSer
 
 function assignStructuredReportToActiveViewport(displaySet, viewportGridService) {
   assignDisplaySetToActiveViewport(displaySet?.displaySetInstanceUID, viewportGridService);
+  utils.markStructuredReportAssigned(displaySet?.displaySetInstanceUID);
 }
 
 /**

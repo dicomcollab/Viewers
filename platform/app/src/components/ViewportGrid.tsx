@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useRef, useMemo, useState } from 'react';
-import { Types } from '@ohif/core';
+import { Types, utils } from '@ohif/core';
 import { ViewportGrid, ViewportPane } from '@ohif/ui-next';
 import { useViewportGrid } from '@ohif/ui-next';
 import { useLocation } from 'react-router-dom';
@@ -904,6 +904,15 @@ function ViewerViewportGrid(props: withAppTypes) {
     return false;
   }, [isHangingProtocolLayout, viewports]);
 
+  const [structuredReportLoading, setStructuredReportLoading] = useState(() =>
+    utils.getStructuredReportLoading()
+  );
+  useEffect(() => {
+    const sync = () => setStructuredReportLoading(utils.getStructuredReportLoading());
+    sync();
+    return utils.subscribeStructuredReportLoading(sync);
+  }, []);
+
   // Debounce the overlay so it doesn't flash for instant cached switches.
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [hasRenderedAnyViewport, setHasRenderedAnyViewport] = useState(false);
@@ -1278,6 +1287,14 @@ function ViewerViewportGrid(props: withAppTypes) {
                 viewportGridService.setViewportIsReady(viewportId, true);
               }}
               onFirstImageRendered={() => {
+                const pendingReport = utils.getStructuredReportLoading();
+                if (
+                  pendingReport?.phase === 'assigned' &&
+                  pendingReport.displaySetInstanceUID &&
+                  displaySetInstanceUIDsToUse.includes(pendingReport.displaySetInstanceUID)
+                ) {
+                  utils.finishStructuredReportLoading(pendingReport.displaySetInstanceUID);
+                }
                 viewportFirstPaintedRef.current[viewportId] = true;
                 setHasRenderedAnyViewport(true);
                 setViewportFirstImageRenderedById(prev => ({ ...prev, [viewportId]: true }));
@@ -2031,6 +2048,19 @@ function ViewerViewportGrid(props: withAppTypes) {
             <p className="text-primary-light mt-3 text-sm font-medium">Preparing view...</p>
             <p className="text-primary-light/80 mt-1 text-xs">Loading data for this layout</p>
           </>
+        </div>
+      )}
+      {structuredReportLoading && (
+        <div
+          className="absolute inset-0 z-[110] flex flex-col items-center justify-center bg-black/70"
+          aria-busy="true"
+          aria-label="Loading structured report"
+        >
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-light border-t-transparent" />
+          <p className="text-primary-light mt-3 text-sm font-medium">Loading report...</p>
+          <p className="text-primary-light/80 mt-1 text-xs">
+            Preparing the structured report for display
+          </p>
         </div>
       )}
     </div>
