@@ -1928,6 +1928,8 @@ window.config = {
   risApiBase: RIS_API_BASE,
   // SR text push endpoint (used by SR text viewport "Send SR Text to RIS" button)
   risSrTextUploadPath: '/api/v1/structured-report/send-text',
+  keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images-user/upload`,
+  // JWT session auth via cookie (see getKeyImagesAuthHeader) — no Basic credentials in client config.
   // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
   // some windows systems have issues with more than 3 web workers
   maxNumberOfWebWorkers: 3,
