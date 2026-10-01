@@ -1,0 +1,134 @@
+name: Production approval
+description: >
+  Opens an issue assigned to the approvers and waits until one of them replies.
+  Only the first non-empty line of the reply is checked, so email replies that
+  include quoted text or a signature still count.
+
+inputs:
+  component:
+    description: Name shown in the issue title (e.g. VIEWER)
+    required: true
+  approvers:
+    description: Comma-separated GitHub usernames allowed to approve
+    required: true
+  timeout-minutes:
+    description: >
+      Minutes to wait before closing the issue and failing. Keep it below the
+      job's timeout-minutes so the issue gets closed cleanly.
+    required: false
+    default: '110'
+  poll-seconds:
+    description: Seconds between checks for new comments
+    required: false
+    default: '15'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/github-script@v9
+      env:
+        COMPONENT: ${{ inputs.component }}
+        APPROVERS: ${{ inputs.approvers }}
+        TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+        POLL_SECONDS: ${{ inputs.poll-seconds }}
+      with:
+        script: |
+          const APPROVE_WORDS = ['approve', 'approved', 'lgtm', 'yes'];
+          const DENY_WORDS = ['deny', 'denied', 'no', 'reject', 'rejected'];
+
+          const approvers = (process.env.APPROVERS || '')
+            .split(',')
+            .map((a) => a.trim().replace(/^@/, ''))
+            .filter(Boolean);
+          if (approvers.length === 0) {
+            core.setFailed('Repository variable PROD_APPROVERS is empty. Set it under Settings > Secrets and variables > Actions > Variables.');
+            return;
+          }
+          const approverSet = new Set(approvers.map((a) => a.toLowerCase()));
+
+          const { owner, repo } = context.repo;
+          const component = process.env.COMPONENT;
+          const shortSha = context.sha.slice(0, 7);
+          const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+          const commitUrl = `${context.serverUrl}/${owner}/${repo}/commit/${context.sha}`;
+          const timeoutMs = Number(process.env.TIMEOUT_MINUTES) * 60 * 1000;
+          const pollMs = Number(process.env.POLL_SECONDS) * 1000;
+
+          const body = [
+            `**${context.actor}** pushed to \`${context.ref.replace('refs/heads/', '')}\` and wants to deploy the **${component}** to production.`,
+            '',
+            `- Commit: ${commitUrl}`,
+            `- Workflow run: ${runUrl}`,
+            `- Approvers: ${approvers.map((a) => '@' + a).join(', ')}`,
+            '',
+            'Reply to this email (or comment here) with **`approve`** on the first line to deploy, or **`deny`** to cancel.',
+            'Anything below the first line (quoted email, signature) is ignored.',
+            '',
+            `This request expires after ${process.env.TIMEOUT_MINUTES} minutes.`,
+          ].join('\n');
+
+          const issueParams = {
+            owner,
+            repo,
+            title: `Approve ${component} prod deploy ${shortSha}`,
+            body,
+          };
+          let issue;
+          try {
+            ({ data: issue } = await github.rest.issues.create({ ...issueParams, assignees: approvers }));
+          } catch (err) {
+            core.warning(`Could not assign approvers (${err.message}). Creating the issue without assignees; approvers are still @mentioned.`);
+            ({ data: issue } = await github.rest.issues.create(issueParams));
+          }
+          core.info(`Approval issue: ${issue.html_url}`);
+
+          const closeIssue = async (message, reason) => {
+            await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: message });
+            await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed', state_reason: reason });
+          };
+
+          const firstWord = (text) => {
+            const firstLine = (text || '')
+              .split(/\r?\n/)
+              .map((l) => l.trim())
+              .find((l) => l.length > 0) || '';
+            return firstLine.toLowerCase().replace(/[\s.!,:;]+$/, '');
+          };
+
+          const deadline = Date.now() + timeoutMs;
+          while (Date.now() < deadline) {
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issue.number,
+              per_page: 100,
+            });
+
+            for (const c of comments) {
+              const login = c.user?.login || '';
+              if (!approverSet.has(login.toLowerCase())) continue;
+              const decision = firstWord(c.body);
+              if (APPROVE_WORDS.includes(decision)) {
+                await closeIssue(`Approved by @${login}. Deploy is starting: ${runUrl}`, 'completed');
+                core.info(`Approved by ${login}.`);
+                return;
+              }
+              if (DENY_WORDS.includes(decision)) {
+                await closeIssue(`Denied by @${login}. Nothing was deployed.`, 'not_planned');
+                core.setFailed(`Deployment denied by ${login}.`);
+                return;
+              }
+            }
+
+            const { data: current } = await github.rest.issues.get({ owner, repo, issue_number: issue.number });
+            if (current.state === 'closed') {
+              core.setFailed('Approval issue was closed without an approval. Nothing was deployed.');
+              return;
+            }
+
+            core.info(`Waiting for approval from ${approvers.join(', ')}...`);
+            await new Promise((r) => setTimeout(r, pollMs));
+          }
+
+          await closeIssue(`No approval within ${process.env.TIMEOUT_MINUTES} minutes. Nothing was deployed. Re-run the workflow to request approval again: ${runUrl}`, 'not_planned');
+          core.setFailed('Timed out waiting for approval.');

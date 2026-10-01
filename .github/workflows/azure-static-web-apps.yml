@@ -1,3 +1,8 @@
+# Production deploys (push to my-changes / manual run) wait for a manual approval:
+# an issue is opened for the approvers in repo variable PROD_APPROVERS and the
+# build + deploy only starts after one of them replies "approve".
+# Pull request preview deploys are not production and skip the approval.
+
 name: Azure Static Web Apps CI/CD
 
 on:
@@ -8,14 +13,71 @@ on:
     types: [opened, synchronize, reopened, closed]
     branches:
       - my-changes
+  workflow_dispatch:
 
+# Production runs must not cancel each other: a cancelled run would leave its approval issue open.
 concurrency:
   group: azure-swa-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  approval:
+    name: Wait for production approval
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/my-changes')
+    runs-on: ubuntu-latest
+    # Approval must arrive within this window or the run fails (re-run to request again).
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    outputs:
+      deploy: ${{ steps.dedupe.outputs.duplicate == 'false' }}
+    steps:
+      # GitHub occasionally starts the same push twice; let only the earliest run ask for approval.
+      - id: dedupe
+        uses: actions/github-script@v9
+        with:
+          script: |
+            let duplicate = false;
+            if (context.eventName === 'push') {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'azure-static-web-apps.yml',
+                head_sha: context.sha,
+                event: 'push',
+                per_page: 50,
+              });
+              const failed = ['cancelled', 'failure', 'timed_out', 'skipped'];
+              const earlier = data.workflow_runs.find(
+                (r) => r.id < context.runId && !(r.status === 'completed' && failed.includes(r.conclusion)),
+              );
+              if (earlier) {
+                core.notice(`Duplicate of run #${earlier.run_number} (${earlier.html_url}) for the same commit; skipping.`);
+                duplicate = true;
+              }
+            }
+            core.setOutput('duplicate', String(duplicate));
+
+      - if: steps.dedupe.outputs.duplicate == 'false'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - if: steps.dedupe.outputs.duplicate == 'false'
+        uses: ./.github/actions/prod-approval
+        with:
+          component: VIEWER
+          approvers: ${{ vars.PROD_APPROVERS }}
+
   build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    needs: approval
+    if: >-
+      !cancelled() && (
+        (github.event_name != 'pull_request' && needs.approval.result == 'success' && needs.approval.outputs.deploy == 'true') ||
+        (github.event_name == 'pull_request' && github.event.action != 'closed')
+      )
     runs-on: ubuntu-latest
     name: Build and Deploy
     environment: viewer-frontend
@@ -72,7 +134,7 @@ jobs:
 
       - name: Deploy to Azure Static Web Apps
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
             swa deploy ./platform/app/dist --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }} --env production
           else
             swa deploy ./platform/app/dist --deployment-token ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
