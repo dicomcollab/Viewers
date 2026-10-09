@@ -2537,14 +2537,16 @@ window.config = {
     // @ts-expect-error - augmented error from dicomweb-client
     const status = error?.status ?? error?.statusCode;
     const message = String(error?.message ?? '');
+    // No status means no HTTP response: cine / paging cancelled the GET, or the
+    // rejection carried no error at all. Not CORS, not a server failure.
     const isCancelledRetrieve =
+      status == null ||
+      status === '' ||
       status === 0 ||
       status === '0' ||
       /abort/i.test(message) ||
-      /cannot convert undefined or null to object/i.test(message) ||
-      ((status == null || status === '') && /request failed/i.test(message));
+      /cannot convert undefined or null to object/i.test(message);
 
-    // Cine / paging cancels in-flight frame GETs. Not CORS. Do not spam the console.
     if (isCancelledRetrieve) {
       return;
     }
@@ -2556,6 +2558,19 @@ window.config = {
     if (status === 404) {
       return;
     }
+
+    // Cine retries a failing frame every tick; report each status + URL once per 30s.
+    const logKey = `${status} ${url}`;
+    const now = Date.now();
+    const loggedAt = (window.__ohifHttpErrorLoggedAt = window.__ohifHttpErrorLoggedAt || new Map());
+    if (now - (loggedAt.get(logKey) || 0) < 30000) {
+      return;
+    }
+    loggedAt.set(logKey, now);
+    if (loggedAt.size > 500) {
+      loggedAt.clear();
+    }
+
     console.error('[DICOMweb] request failed', {
       status,
       url,
