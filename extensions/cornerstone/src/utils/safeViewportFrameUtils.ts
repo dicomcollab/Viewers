@@ -313,6 +313,107 @@ function recoverBlankStackViewport(cornerstoneViewportService, viewportId: strin
   }
 }
 
+const UNBOUND_REPAIR_COOLDOWN_MS = 1500;
+const lastUnboundRepairAt = new WeakMap<object, number>();
+
+function getBoundStackImage(viewport) {
+  try {
+    return typeof viewport.getCornerstoneImage === 'function'
+      ? viewport.getCornerstoneImage()
+      : viewport.csImage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load `imageIndex` again and display it with a fresh image actor, keeping the
+ * viewport's properties. setImageIdIndex ignores the index the viewport already
+ * holds, so a frame whose load failed (or whose actor went stale) is never
+ * redrawn by it.
+ */
+function reloadStackFrame(viewport, imageIndex: number): boolean {
+  if (!isViewportAlive(viewport)) {
+    return false;
+  }
+
+  const imageIds: string[] =
+    typeof viewport.getImageIds === 'function' ? (viewport.getImageIds() ?? []) : [];
+  const imageId = imageIds[imageIndex];
+
+  if (!imageId) {
+    return false;
+  }
+
+  try {
+    if (getViewportFrameIndex(viewport) !== imageIndex) {
+      void Promise.resolve(viewport.setImageIdIndex(imageIndex)).catch(() => undefined);
+      return true;
+    }
+
+    if (typeof viewport.calibrateSpacing === 'function') {
+      viewport.calibrateSpacing(imageId);
+      return true;
+    }
+  } catch {
+    // Destroyed between the check and the call.
+  }
+
+  return false;
+}
+
+/**
+ * A tile whose bound frame failed to load keeps its stack but never gets an image.
+ * Sync followers, the sync-start driver and the paging recovery all skip such a
+ * tile, so it stayed black while its clip finished downloading. Show a decoded
+ * frame on it, `preferredIndex` first. Returns true when a frame was put up.
+ */
+function repairUnboundStackViewport(viewport, preferredIndex?: number | null): boolean {
+  if (
+    !isViewportAlive(viewport) ||
+    isAwaitingFirstImage(viewport.id) ||
+    typeof viewport.setImageIdIndex !== 'function' ||
+    getBoundStackImage(viewport)
+  ) {
+    return false;
+  }
+
+  const imageIds: string[] =
+    typeof viewport.getImageIds === 'function' ? (viewport.getImageIds() ?? []) : [];
+
+  if (!imageIds.length) {
+    return false;
+  }
+
+  const now = performance.now();
+
+  if (now - (lastUnboundRepairAt.get(viewport) ?? -Infinity) < UNBOUND_REPAIR_COOLDOWN_MS) {
+    return false;
+  }
+
+  const current = getViewportFrameIndex(viewport);
+  const isReadyIndex = (index: number | null | undefined) =>
+    index != null &&
+    Number.isFinite(index) &&
+    index >= 0 &&
+    index < imageIds.length &&
+    isStackFrameReady(imageIds[index]);
+
+  let target = [preferredIndex, current, 0].find(isReadyIndex) ?? -1;
+
+  if (target < 0) {
+    target = imageIds.findIndex(imageId => isStackFrameReady(imageId));
+  }
+
+  if (target < 0) {
+    prefetchStackFrame(imageIds[current]);
+    return false;
+  }
+
+  lastUnboundRepairAt.set(viewport, now);
+  return reloadStackFrame(viewport, target);
+}
+
 function viewportLacksPixels(viewport): boolean {
   if (!viewport.csImage) {
     return true;
@@ -374,6 +475,8 @@ export {
   isViewportAlive,
   recoverBlankStackViewport,
   recoverLayoutStackViewports,
+  reloadStackFrame,
+  repairUnboundStackViewport,
   restoreStackViewportImage,
   setViewportFrameIndex,
   setViewportFrameIndexAsync,

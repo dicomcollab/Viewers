@@ -72,8 +72,9 @@ import initCineService from './initCineService';
 import { initUsFrameDistribution } from './utils/usFrameDistributionUtils';
 import { initUsInstanceFrameState } from './utils/usInstanceFrameState';
 import { initUsClipBuffering } from './utils/usClipBufferStore';
+import { installTileDiagnostics } from './utils/tileDiagnostics';
 import patchStackViewportDestroyedGuard from './utils/patchStackViewportDestroyedGuard';
-import { isAbortedImageLoadError } from './utils/isAbortedImageLoadError';
+import { isAbortedImageLoadError, toHttpLoadFailure } from './utils/isAbortedImageLoadError';
 import {
   installMemoryPressureManager,
   isOutOfMemoryError,
@@ -291,6 +292,7 @@ export default async function init({
   initCineService(servicesManager);
   initUsInstanceFrameState(servicesManager);
   initUsClipBuffering(servicesManager);
+  installTileDiagnostics(servicesManager);
   initUsFrameDistribution(servicesManager);
   initStudyPrefetcherService(servicesManager);
 
@@ -348,16 +350,20 @@ export default async function init({
 
     // Cine/paging cancels in-flight frames (status 0 / status undefined).
     // That is not CORS — do not log or treat as a failed study load.
+    // Rejections without an HTTP status (empty reason, decode failure) are not HTTP
+    // errors; cine re-requests the frame every tick, so forwarding them floods the console.
+    const httpFailure = toHttpLoadFailure(error);
     if (
-      isMissingInstanceLoadError(error) ||
-      isAbortedImageLoadError(error) ||
-      shouldSuppressBenignViewerError(error)
+      !httpFailure ||
+      isMissingInstanceLoadError(httpFailure) ||
+      isAbortedImageLoadError(httpFailure) ||
+      shouldSuppressBenignViewerError(httpFailure)
     ) {
       return;
     }
 
     const handler = errorHandler.getHTTPErrorHandler();
-    handler(error);
+    handler(httpFailure);
   };
 
   eventTarget.addEventListener(EVENTS.IMAGE_LOAD_FAILED, imageLoadFailedHandler);

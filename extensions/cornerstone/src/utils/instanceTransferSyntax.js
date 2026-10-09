@@ -326,16 +326,26 @@ function loadFrameFromOriginalInstance(imageId, options, request, fallbackLoader
   const generation = getImageRequestGeneration();
   let released = false;
 
-  const promise = imageLoadObject.promise.catch(reason => {
-    released = true;
-    dataSetCacheManager.unload(dataSetKey);
-    // Study switched, or the download was cut: fail this frame; the next request retries.
-    if (generation !== getImageRequestGeneration() || isTransportFailure(reason)) {
-      throw reason;
+  const promise = imageLoadObject.promise.then(
+    image => {
+      // loadImageFromPromise tags every frame with the file key. Cornerstone treats tagged
+      // images as volume members: never evicted and not counted as purgeable, so a few
+      // clips filled the cache for good and every later frame was dropped (black tiles).
+      // The file is still released through `decache` when the frame is evicted.
+      image.sharedCacheKey = undefined;
+      return image;
+    },
+    reason => {
+      released = true;
+      dataSetCacheManager.unload(dataSetKey);
+      // Study switched, or the download was cut: fail this frame; the next request retries.
+      if (generation !== getImageRequestGeneration() || isTransportFailure(reason)) {
+        throw reason;
+      }
+      markInstanceFallback(request, describeFailure(reason));
+      return fallbackLoader(imageId, options).promise;
     }
-    markInstanceFallback(request, describeFailure(reason));
-    return fallbackLoader(imageId, options).promise;
-  });
+  );
 
   return {
     promise,

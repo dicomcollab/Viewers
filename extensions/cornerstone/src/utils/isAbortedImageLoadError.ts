@@ -50,4 +50,39 @@ function isAbortedImageLoadError(error: unknown): boolean {
   );
 }
 
-export { isAbortedImageLoadError };
+type HttpLoadFailure = Error & { status: number; request?: unknown; response?: unknown };
+
+/**
+ * Normalizes an image-load rejection into the dicomweb-client error shape the app's
+ * httpErrorHandler expects. Returns null when the rejection carries no HTTP status:
+ * loaders reject with the raw XHR, `{ error: xhr, dataSet }`, an Error, or nothing.
+ */
+function toHttpLoadFailure(error: unknown): HttpLoadFailure | null {
+  if (error == null || typeof error !== 'object') {
+    return null;
+  }
+
+  const record = error as Record<string, unknown>;
+  const nested = record.error;
+  const inner = (
+    nested && typeof nested === 'object' && record.status == null ? nested : record
+  ) as Record<string, unknown>;
+  const request = (inner.request ??
+    (typeof XMLHttpRequest !== 'undefined' && inner instanceof XMLHttpRequest
+      ? inner
+      : undefined)) as Record<string, unknown> | undefined;
+  const status = Number(inner.status ?? inner.statusCode ?? inner.httpStatus ?? request?.status);
+
+  if (!Number.isFinite(status) || status < 100) {
+    return null;
+  }
+
+  const message = typeof inner.message === 'string' && inner.message ? inner.message : 'request failed';
+  return Object.assign(new Error(message), {
+    status,
+    request,
+    response: inner.response ?? request?.response,
+  });
+}
+
+export { isAbortedImageLoadError, toHttpLoadFailure };

@@ -238,6 +238,27 @@ function patchCacheEviction(): void {
   target.__ohifEvictionPatched = true;
 }
 
+/**
+ * Other extensions set their own cache size at registration (dynamic-volume: 5 GB).
+ * Past the grow ceiling a 2x2 cine page piles up gigabytes of decoded frames, the
+ * renderer runs out of memory and tiles go black, so every caller is capped.
+ */
+function patchMaxCacheSize(): void {
+  const target = cache as unknown as {
+    setMaxCacheSize: (bytes: number) => void;
+    __ohifMaxSizePatched?: boolean;
+  };
+  if (target.__ohifMaxSizePatched) {
+    return;
+  }
+  const setMaxCacheSize = target.setMaxCacheSize.bind(cache);
+  target.setMaxCacheSize = bytes => {
+    const cap = Math.max(growCeiling, visibleBudget);
+    setMaxCacheSize(Number(bytes) > cap ? cap : bytes);
+  };
+  target.__ohifMaxSizePatched = true;
+}
+
 function trimCacheTo(maxBytes: number): void {
   try {
     cache.setMaxCacheSize(maxBytes);
@@ -423,7 +444,11 @@ export function installMemoryPressureManager({
   visibleBudget = computeVisibleBudget(configuredMaxCacheSize);
   growCeiling = computeGrowCeiling(configuredMaxCacheSize);
   deviceGrowCeiling = growCeiling;
+  patchMaxCacheSize();
   cache.setMaxCacheSize(visibleBudget);
+  if (cache.getCacheSize() > visibleBudget) {
+    trimCacheTo(visibleBudget);
+  }
 
   if (installed || typeof document === 'undefined') {
     return;

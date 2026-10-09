@@ -90,6 +90,7 @@ const OHIFCornerstoneViewport = React.memo(
     const elementRef = useRef() as React.MutableRefObject<HTMLDivElement>;
     const viewportRef = useViewportRef(viewportId);
     const hasMarkedReadyRef = useRef(false);
+    const viewportLoadIdRef = useRef(0);
     const prevViewportDepsRef = useRef<{
       orientation: string;
       displaySetUIDs: string;
@@ -500,8 +501,16 @@ const OHIFCornerstoneViewport = React.memo(
         }
       }
 
+      // Fast paging starts a load per page; a slow older one (a long clip) must not
+      // resolve last and bind the previous page's instance over the current one.
+      const loadId = ++viewportLoadIdRef.current;
+      const isCurrentLoad = () => loadId === viewportLoadIdRef.current;
+
       const loadViewportData = async () => {
         await cornerstoneViewportService.recoverRenderingAfterWebGlContextLoss();
+        if (!isCurrentLoad()) {
+          return;
+        }
 
         const viewportData = await cornerstoneCacheService.createViewportData(
           displaySets,
@@ -509,6 +518,9 @@ const OHIFCornerstoneViewport = React.memo(
           dataSource,
           initialImageIndex
         );
+        if (!isCurrentLoad()) {
+          return;
+        }
 
         const presentations = getViewportPresentations(viewportId, viewportOptions);
 
@@ -531,7 +543,11 @@ const OHIFCornerstoneViewport = React.memo(
         );
       };
 
-      loadViewportData();
+      loadViewportData().catch(error => {
+        if (isCurrentLoad()) {
+          console.warn(`[OHIFCornerstoneViewport] Loading viewport ${viewportId} failed:`, error);
+        }
+      });
     }, [viewportOptions, displaySets, dataSource]);
 
     const Notification = customizationService.getCustomization('ui.notificationComponent');

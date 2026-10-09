@@ -6,6 +6,7 @@ import {
   getViewportFrameIndex,
   getViewportStackKey,
   hasViewportPaintedFirstImage,
+  repairUnboundStackViewport,
   setViewportFrameIndex,
   setViewportFrameIndexAsync,
 } from './safeViewportFrameUtils';
@@ -142,17 +143,19 @@ export function alignFollowersToFrame(
       viewportId
     );
 
-    // A follower still binding must not be moved: that cancels its first load
-    // and leaves the tile black under the overlay.
-    if (
-      !viewport ||
-      frameCount <= 1 ||
-      !hasViewportPaintedFirstImage(viewport, { allowSwapInFlight: true })
-    ) {
+    if (!viewport || frameCount <= 1) {
       return;
     }
 
     const targetIndex = getCorrespondingFrameIndex(masterFrameIndex, masterFrameCount, frameCount);
+
+    // A follower still binding must not be moved: that cancels its first load
+    // and leaves the tile black under the overlay. One whose bind ended without
+    // an image gets the matching decoded frame put up instead.
+    if (!hasViewportPaintedFirstImage(viewport, { allowSwapInFlight: true })) {
+      repairUnboundStackViewport(viewport, targetIndex);
+      return;
+    }
 
     if (onlyDecodedFrames) {
       const imageIds = viewport.getImageIds?.() ?? [];
@@ -372,6 +375,7 @@ export function startSyncStartDriver(
       !hasViewportPaintedFirstImage(viewport, { allowSwapInFlight: true })
     ) {
       state.inactive = true;
+      repairUnboundStackViewport(viewport, 0);
       return;
     }
 

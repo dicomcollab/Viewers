@@ -44,6 +44,7 @@ import { isUsMultiframeDisplaySet } from '../../utils/cineSyncUtils';
 import { isUsClipViewport } from '../../utils/usClipBufferStore';
 import { recoverBlankStackViewport } from '../../utils/safeViewportFrameUtils';
 import { isOutOfMemoryError, relieveMemoryPressure } from '../../utils/memoryPressure';
+import { getTextureUnitUsage } from '../../utils/renderLoopGuard';
 import {
   resolveUsStackInitialImageIndex,
   scheduleUsInstanceFrameRestore,
@@ -56,6 +57,7 @@ const EVENTS = {
 
 const MIN_STACK_VIEWPORTS_TO_ENQUEUE_RESIZE = 12;
 const MIN_VOLUME_VIEWPORTS_TO_ENQUEUE_RESIZE = 6;
+const SET_VIEWPORT_DATA_RETRY_MS = 500;
 
 export const WITH_NAVIGATION = { withNavigation: true, withOrientation: false };
 export const WITH_ORIENTATION = { withNavigation: true, withOrientation: true };
@@ -155,6 +157,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
   /** Set when a canvas under our viewport fires `webglcontextlost` (e.g. browser cap on concurrent WebGL tabs). */
   private _gpuContextLossPending = false;
 
+  /** Latest bind per viewportId; an older bind still awaiting its first frame is stale. */
+  private _viewportBindTokens = new Map<string, number>();
+
   /** Serialize GPU recovery so parallel callers do not double-destroy the engine. */
   private _webGlRecoveryInFlight: Promise<void> | null = null;
 
@@ -247,6 +252,124 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
 
   public markWebGlContextPossiblyLost(): void {
     this._gpuContextLossPending = true;
+  }
+
+  public hasLostWebGlContext(): boolean {
+    return this._gpuContextLossPending || this._anyRenderingEngineWebGlContextLost();
+  }
+
+  /**
+   * Pending WebGL errors of the rendering contexts (e.g. OUT_OF_MEMORY: a texture
+   * upload failed and the tile draws black while the context stays alive). Reading clears them.
+   */
+  public readWebGlErrors(): string[] {
+    const names: Record<number, string> = {
+      0x0500: 'INVALID_ENUM',
+      0x0501: 'INVALID_VALUE',
+      0x0502: 'INVALID_OPERATION',
+      0x0505: 'OUT_OF_MEMORY',
+      0x0506: 'INVALID_FRAMEBUFFER_OPERATION',
+      0x9242: 'CONTEXT_LOST',
+    };
+    const errors: string[] = [];
+    this._getRenderingEngineGlContexts().forEach((gl, contextIndex) => {
+      for (let i = 0; i < 8; i++) {
+        const code = gl.getError();
+        if (!code) {
+          break;
+        }
+        errors.push(`context ${contextIndex}: ${names[code] ?? `0x${code.toString(16)}`}`);
+      }
+    });
+    return errors;
+  }
+
+  /**
+   * Where the context-pool engine draws a viewport before copying it onto the tile.
+   * The copy reads the bottom rows of a buffer sized `maxSize`; a smaller real drawing
+   * buffer (the browser shrinks it under memory pressure, without a GL error) copies black.
+   */
+  public describeRenderTarget(viewportId: string): Record<string, unknown> | null {
+    const eng = this.renderingEngine as unknown as {
+      hasBeenDestroyed?: boolean;
+      contextPool?: {
+        getContextIndexForViewport?: (id: string) => number | undefined;
+        getContextByIndex?: (index: number) => { context?: unknown; container?: HTMLCanvasElement };
+        getMaxSizeForContext?: (index: number) => { width: number; height: number };
+      };
+    } | null;
+    const pool = eng && !eng.hasBeenDestroyed ? eng.contextPool : null;
+    if (!pool) {
+      return null;
+    }
+    try {
+      const contextIndex = pool.getContextIndexForViewport?.(viewportId);
+      if (contextIndex === undefined) {
+        return { contextIndex: 'not assigned' };
+      }
+      const contextData = pool.getContextByIndex?.(contextIndex);
+      const maxSize = pool.getMaxSizeForContext?.(contextIndex);
+      const openGLRenderWindow = (
+        contextData?.context as {
+          getOpenGLRenderWindow?: () => {
+            getContext?: () => WebGLRenderingContext | null;
+          } & Parameters<typeof getTextureUnitUsage>[0];
+        }
+      )?.getOpenGLRenderWindow?.();
+      const gl = openGLRenderWindow?.getContext?.();
+      const textureUnits = getTextureUnitUsage(openGLRenderWindow);
+      return {
+        contextIndex,
+        maxSize: maxSize ? `${maxSize.width}x${maxSize.height}` : null,
+        container: contextData?.container
+          ? `${contextData.container.width}x${contextData.container.height}`
+          : null,
+        glCanvas: gl ? `${gl.canvas.width}x${gl.canvas.height}` : null,
+        drawingBuffer: gl ? `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}` : null,
+        contextLost: gl?.isContextLost?.() ?? null,
+        textureUnitsInUse: textureUnits ? `${textureUnits.inUse}/${textureUnits.total}` : null,
+      };
+    } catch (error) {
+      return { error: String((error as Error)?.message ?? error) };
+    }
+  }
+
+  private _getRenderingEngineGlContexts(): WebGLRenderingContext[] {
+    const eng = this.renderingEngine as unknown as {
+      hasBeenDestroyed?: boolean;
+      contextPool?: { getAllContexts?: () => Array<{ context?: unknown }> };
+      offscreenMultiRenderWindow?: unknown;
+    } | null;
+    if (!eng || eng.hasBeenDestroyed) {
+      return [];
+    }
+    const windows: unknown[] = [];
+    try {
+      eng.contextPool?.getAllContexts?.()?.forEach(entry => windows.push(entry?.context));
+    } catch {
+      // pool unreadable
+    }
+    if (eng.offscreenMultiRenderWindow) {
+      windows.push(eng.offscreenMultiRenderWindow);
+    }
+    const contexts: WebGLRenderingContext[] = [];
+    windows.forEach(win => {
+      try {
+        const gl = (
+          win as {
+            getOpenGLRenderWindow?: () => { getContext?: () => WebGLRenderingContext | null };
+          }
+        )
+          ?.getOpenGLRenderWindow?.()
+          ?.getContext?.();
+        if (gl) {
+          contexts.push(gl);
+        }
+      } catch {
+        // ignore unreadable context
+      }
+    });
+    return contexts;
   }
 
   /**
@@ -731,7 +854,8 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     viewportData: StackViewportData | VolumeViewportData,
     publicViewportOptions: PublicViewportOptions,
     publicDisplaySetOptions: DisplaySetOptions[],
-    presentations?: Presentations
+    presentations?: Presentations,
+    isRetry = false
   ): void {
     void this.applySetViewportData(
       viewportId,
@@ -742,6 +866,26 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     ).catch(err => {
       console.warn('[CornerstoneViewportService] setViewportData failed:', err);
       recoverBlankStackViewport(this, viewportId);
+      if (isRetry) {
+        return;
+      }
+      // A failed enable leaves the tile without a viewport, showing the previous page's
+      // last frame; nothing else binds it again until the user pages.
+      const bindTokenAtFailure = this._viewportBindTokens.get(viewportId);
+      window.setTimeout(() => {
+        const element = this.viewportsById.get(viewportId)?.getElement?.();
+        if (!element?.isConnected || this._viewportBindTokens.get(viewportId) !== bindTokenAtFailure) {
+          return;
+        }
+        this.setViewportData(
+          viewportId,
+          viewportData,
+          publicViewportOptions,
+          publicDisplaySetOptions,
+          presentations,
+          true
+        );
+      }, SET_VIEWPORT_DATA_RETRY_MS);
     });
   }
 
@@ -828,6 +972,10 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     // case
     viewportInfo.setRenderingEngineId(renderingEngine.id);
 
+    const bindToken = (this._viewportBindTokens.get(viewportId) ?? 0) + 1;
+    this._viewportBindTokens.set(viewportId, bindToken);
+    const isSuperseded = () => this._viewportBindTokens.get(viewportId) !== bindToken;
+
     // Todo: this is not optimal at all, we are re-enabling the already enabled
     // element which is not what we want. But enabledElement as part of the
     // renderingEngine is designed to be used like this. This will trigger
@@ -857,6 +1005,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       endFirstImageWait(viewportId, firstImageWaitToken);
     } catch (error) {
       endFirstImageWait(viewportId, firstImageWaitToken);
+      if (isSuperseded()) {
+        return;
+      }
       if (allowWebGlSelfHeal && isLikelyWebGlContextError(error)) {
         this._gpuContextLossPending = true;
         await this.recoverRenderingAfterWebGlContextLoss();
@@ -870,6 +1021,12 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         );
       }
       throw error;
+    }
+
+    // A newer bind of this tile (fast paging) owns it now; announcing this one
+    // would point cine, overlays and the clip download at the previous page's instance.
+    if (isSuperseded()) {
+      return;
     }
 
     // The broadcast event here ensures that listeners have a valid, up to date

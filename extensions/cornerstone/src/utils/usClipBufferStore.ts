@@ -847,6 +847,26 @@ function getViewportClipProgress(viewportId: string): ClipBufferProgress | null 
   };
 }
 
+/** Download state of the clip a tile is attached to, for console diagnostics. */
+function getViewportClipDebugInfo(viewportId: string, imageIds: string[] = []) {
+  const key = clipKeyByViewport.get(viewportId) ?? null;
+  const clip = key ? clips.get(key) : undefined;
+
+  return {
+    attached: Boolean(clip),
+    attachedToShownStack: Boolean(key) && imageIds.length > 1 && key === getClipKey(imageIds),
+    blocked: blockedKeyByViewport.has(viewportId),
+    status: clip?.status ?? null,
+    decoded: clip?.loaded ?? 0,
+    downloaded: clip?.downloadedCount ?? 0,
+    total: clip?.imageIds.length ?? 0,
+    inFlight: clip?.inFlight.size ?? 0,
+    failed: clip?.failed.size ?? 0,
+    viewers: clip ? Array.from(clip.viewers) : [],
+    totalInFlight,
+  };
+}
+
 function isUsClipViewport(servicesManager: AppTypes.ServicesManager, viewportId: string): boolean {
   const { displaySetService, viewportGridService } = servicesManager.services;
   const viewportState = viewportGridService.getState()?.viewports?.get(viewportId);
@@ -968,6 +988,7 @@ export {
   canShowClipFrame,
   clearClipBuffers,
   ensureViewportClipBuffered,
+  getViewportClipDebugInfo,
   getViewportClipProgress,
   initUsClipBuffering,
   isUsClipViewport,

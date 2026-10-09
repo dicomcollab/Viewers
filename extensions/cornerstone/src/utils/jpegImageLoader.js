@@ -202,6 +202,16 @@ function createCornerstoneJpegImage(imageId, { width, height, color, pixelData }
     numberOfComponents: samplesPerPixel,
     planarConfiguration: 0,
     pixelRepresentation: 0,
+    // Cornerstone's post-load step deletes imageFrame.pixelData; without an imageFrame
+    // it throws, so IMAGE_LOADED never fires and every frame counts as a failed load.
+    imageFrame: {
+      rows: height,
+      columns: width,
+      samplesPerPixel,
+      photometricInterpretation: color ? 'RGB' : 'MONOCHROME2',
+      bitsAllocated: 8,
+      pixelData,
+    },
   };
 
   syncImageNumberOfComponents(image);
