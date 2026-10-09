@@ -7,14 +7,181 @@ import { activeTransportClass, setViewportUsCineLayout } from './usCineUiUtils';
 import CineSyncModeControl from './CineSyncModeControl';
 import './usViewportCine.css';
 
-const ICON_BTN =
-  'h-5 w-5 shrink-0 p-0 transition-colors [&_svg]:h-3 [&_svg]:w-3';
+const ICON_BTN = 'h-5 w-5 shrink-0 p-0 transition-colors [&_svg]:h-3 [&_svg]:w-3';
 const FRAME_BTN = `${ICON_BTN} text-white/80 hover:bg-white/10 hover:text-white`;
 const FPS_STEP_BTN =
-  'flex h-4 w-3.5 shrink-0 items-center justify-center rounded text-[11px] font-normal leading-none text-white/90 hover:bg-white/10 hover:text-white/90 disabled:pointer-events-none disabled:opacity-40 disabled:hover:bg-transparent';
+  'flex h-4 w-4 shrink-0 select-none items-center justify-center rounded text-[11px] font-normal leading-none text-white/90 hover:bg-white/10 active:bg-white/20 disabled:pointer-events-none disabled:opacity-40';
 const ULTRA_COMPACT_WIDTH_PX = 280;
 const FPS_MIN = 1;
 const FPS_MAX = 90;
+/** Press-and-hold: wait before repeating, then repeat, then speed up after a while. */
+const FPS_HOLD_DELAY_MS = 400;
+const FPS_HOLD_REPEAT_MS = 90;
+const FPS_HOLD_FAST_REPEAT_MS = 40;
+const FPS_HOLD_FAST_AFTER_STEPS = 10;
+/** Each FPS apply restarts the running clip; throttle applies while holding. */
+const FPS_HOLD_APPLY_MS = 150;
+
+const clampFps = (value: number) => Math.max(FPS_MIN, Math.min(FPS_MAX, Math.round(value)));
+
+/**
+ * Per-viewport FPS stepper: single click = ±1, press and hold = repeat (accelerating).
+ * The value keeps a fixed two-digit width so the bar does not shift between 9 and 10.
+ */
+function ViewportFpsControl({
+  fps,
+  showSteppers,
+  onFpsChange,
+}: {
+  fps: number;
+  showSteppers: boolean;
+  onFpsChange: (fps: number) => void;
+}) {
+  const [draftFps, setDraftFps] = useState(fps);
+  const draftFpsRef = useRef(fps);
+  const appliedFpsRef = useRef(fps);
+  const isHoldingRef = useRef(false);
+  const holdTimerRef = useRef<number | null>(null);
+  const applyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    appliedFpsRef.current = fps;
+    // Throttled applies echo back mid-hold; keep showing the value being stepped.
+    if (!isHoldingRef.current) {
+      draftFpsRef.current = fps;
+      setDraftFps(fps);
+    }
+  }, [fps]);
+
+  const flushApply = useCallback(() => {
+    if (applyTimerRef.current != null) {
+      window.clearTimeout(applyTimerRef.current);
+      applyTimerRef.current = null;
+    }
+    const latest = draftFpsRef.current;
+    if (latest !== appliedFpsRef.current) {
+      appliedFpsRef.current = latest;
+      onFpsChange(latest);
+    }
+  }, [onFpsChange]);
+
+  const step = useCallback(
+    (direction: 1 | -1) => {
+      const next = clampFps(draftFpsRef.current + direction);
+      if (next === draftFpsRef.current) {
+        return false;
+      }
+      draftFpsRef.current = next;
+      setDraftFps(next);
+      if (applyTimerRef.current == null) {
+        applyTimerRef.current = window.setTimeout(() => {
+          applyTimerRef.current = null;
+          flushApply();
+        }, FPS_HOLD_APPLY_MS);
+      }
+      return true;
+    },
+    [flushApply]
+  );
+
+  const stopHold = useCallback(() => {
+    if (holdTimerRef.current != null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (isHoldingRef.current) {
+      isHoldingRef.current = false;
+      flushApply();
+    }
+  }, [flushApply]);
+
+  const startHold = useCallback(
+    (direction: 1 | -1) => {
+      stopHold();
+      isHoldingRef.current = true;
+      step(direction);
+
+      let repeats = 0;
+      const repeat = () => {
+        holdTimerRef.current = null;
+        if (!step(direction)) {
+          // At 1 or 90 the button disables and may never receive pointerup.
+          stopHold();
+          return;
+        }
+        repeats += 1;
+        holdTimerRef.current = window.setTimeout(
+          repeat,
+          repeats >= FPS_HOLD_FAST_AFTER_STEPS ? FPS_HOLD_FAST_REPEAT_MS : FPS_HOLD_REPEAT_MS
+        );
+      };
+      holdTimerRef.current = window.setTimeout(repeat, FPS_HOLD_DELAY_MS);
+    },
+    [step, stopHold]
+  );
+
+  useEffect(
+    () => () => {
+      if (holdTimerRef.current != null) {
+        window.clearTimeout(holdTimerRef.current);
+      }
+      if (applyTimerRef.current != null) {
+        window.clearTimeout(applyTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const renderStepper = (direction: 1 | -1) => {
+    const disabled = direction < 0 ? draftFps <= FPS_MIN : draftFps >= FPS_MAX;
+    const label = direction < 0 ? 'Decrease FPS' : 'Increase FPS';
+    return (
+      <button
+        type="button"
+        className={FPS_STEP_BTN}
+        disabled={disabled}
+        aria-label={label}
+        title={`${label} (hold to change faster)`}
+        data-cy={`cine-player-viewport-fps-${direction < 0 ? 'decrease' : 'increase'}`}
+        onPointerDown={event => {
+          if (event.button !== 0) {
+            return;
+          }
+          event.preventDefault();
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+          startHold(direction);
+        }}
+        onPointerUp={stopHold}
+        onPointerCancel={stopHold}
+        onLostPointerCapture={stopHold}
+        onClick={event => {
+          // Pointer clicks were already handled on pointerdown; only keyboard activates here.
+          if (event.detail === 0) {
+            step(direction);
+            flushApply();
+          }
+        }}
+      >
+        {direction < 0 ? '−' : '+'}
+      </button>
+    );
+  };
+
+  return (
+    <div
+      className="inline-flex h-5 shrink-0 items-center gap-px rounded bg-black/40 px-0.5 text-[9px] leading-none text-white/90"
+      data-cy="cine-player-viewport-fps"
+      title="FPS for this viewport only"
+    >
+      {showSteppers && renderStepper(-1)}
+      <span className="flex h-4 shrink-0 items-center gap-0.5 rounded px-0.5">
+        <span className="inline-block w-[2ch] text-center tabular-nums">{draftFps}</span>
+        <span className="text-[8px] font-normal text-white/90">FPS</span>
+      </span>
+      {showSteppers && renderStepper(1)}
+    </div>
+  );
+}
 
 type UsViewportCineBarProps = {
   viewportId: string;
@@ -116,17 +283,15 @@ function UsViewportCineBar({
 
   const handleFpsChange = useCallback(
     (next: number) => {
-      const clamped = Math.max(FPS_MIN, Math.min(FPS_MAX, Math.round(next)));
-      setLocalFps(prev => (prev === clamped ? prev : clamped));
-      if (clamped !== localFps) {
-        onFrameRateChange?.(clamped);
-      }
+      const clamped = clampFps(next);
+      setLocalFps(clamped);
+      onFrameRateChange?.(clamped);
     },
-    [localFps, onFrameRateChange]
+    [onFrameRateChange]
   );
 
   // Intentionally do not open the Cine "Frame Rate" settings panel from here.
-  // The FPS controls (-/+) are sufficient and avoid an extra menu cluttering
+  // The per-viewport FPS popover is enough and avoids an extra menu cluttering
   // the measurements/side panel area.
 
   if (!stackCineInfo || numFrames <= 1) {
@@ -135,8 +300,6 @@ function UsViewportCineBar({
 
   const isUltraCompact = barWidth > 0 && barWidth < ULTRA_COMPACT_WIDTH_PX;
   const showFpsControl = localFps != null && localFps > 0 && !!onFrameRateChange;
-  const canDecreaseFps = localFps != null && localFps > FPS_MIN;
-  const canIncreaseFps = localFps != null && localFps < FPS_MAX;
   // Reserve width for the widest "current/total" label so 115/170 does not
   // overflow the old 32px box and paint over the FPS control.
   const frameLabelCh = Math.max(String(numFrames).length, String(currentFrame).length, 1) * 2 + 1;
@@ -144,7 +307,7 @@ function UsViewportCineBar({
   return (
     <div
       ref={barRef}
-      className="us-viewport-cine-bar pointer-events-auto z-50 flex min-w-0 items-center gap-0.5 border-t border-white/15 bg-black/95 px-1"
+      className="us-viewport-cine-bar pointer-events-auto z-50 flex min-w-0 items-center gap-0.5 rounded-md border border-white/10 bg-black/90 px-1 shadow-[0_2px_6px_rgba(0,0,0,0.5)]"
       data-cy={`us-viewport-cine-bar-${viewportId}`}
     >
       <div className="flex shrink-0 items-center gap-px">
@@ -160,7 +323,10 @@ function UsViewportCineBar({
         </Button>
       </div>
 
-      <span className="mx-px h-3.5 w-px shrink-0 bg-white/20" aria-hidden />
+      <span
+        className="mx-px h-3.5 w-px shrink-0 bg-white/20"
+        aria-hidden
+      />
 
       {!isUltraCompact && (
         <div className="flex shrink-0 items-center gap-px">
@@ -187,7 +353,7 @@ function UsViewportCineBar({
         </div>
       )}
       <span
-        className="mx-0.5 shrink-0 text-center text-[9px] leading-none text-white/90 tabular-nums whitespace-nowrap"
+        className="mx-0.5 shrink-0 whitespace-nowrap text-center text-[9px] tabular-nums leading-none text-white/90"
         style={{ width: `${frameLabelCh}ch` }}
         data-cy="cine-player-frames-trigger"
       >
@@ -195,51 +361,14 @@ function UsViewportCineBar({
       </span>
 
       {showFpsControl ? (
-        <div
-          className="inline-flex h-5 shrink-0 items-center gap-px rounded bg-black/40 px-0.5 text-[9px] leading-none text-white/90"
-          data-cy="cine-player-viewport-fps"
-          title="FPS for this viewport only"
-        >
-          {!isUltraCompact ? (
-            <button
-              type="button"
-              className={FPS_STEP_BTN}
-              onClick={() => handleFpsChange(localFps - 1)}
-              disabled={!canDecreaseFps}
-              aria-label="Decrease FPS"
-              title={canDecreaseFps ? 'Decrease FPS' : 'Minimum 1 FPS'}
-              data-cy="cine-player-viewport-fps-decrease"
-            >
-              −
-            </button>
-          ) : null}
-          <span
-            className="flex h-4 shrink-0 items-center gap-0.5 rounded px-0.5"
-            title="FPS for this viewport"
-            data-cy="cine-player-viewport-fps"
-          >
-            <span className="min-w-[1.1rem] text-center tabular-nums">
-              {localFps}
-            </span>
-            <span className="text-[8px] font-normal text-white/90">FPS</span>
-          </span>
-          {!isUltraCompact ? (
-            <button
-              type="button"
-              className={FPS_STEP_BTN}
-              onClick={() => handleFpsChange(localFps + 1)}
-              disabled={!canIncreaseFps}
-              aria-label="Increase FPS"
-              title={canIncreaseFps ? 'Increase FPS' : 'Maximum 90 FPS'}
-              data-cy="cine-player-viewport-fps-increase"
-            >
-              +
-            </button>
-          ) : null}
-        </div>
+        <ViewportFpsControl
+          fps={localFps}
+          showSteppers={!isUltraCompact}
+          onFpsChange={handleFpsChange}
+        />
       ) : localFps != null && localFps > 0 ? (
         <span
-          className="shrink-0 px-0.5 text-[9px] font-normal leading-none text-white/90 tabular-nums"
+          className="shrink-0 px-0.5 text-[9px] font-normal tabular-nums leading-none text-white/90"
           data-cy="cine-player-viewport-fps"
         >
           {localFps} FPS

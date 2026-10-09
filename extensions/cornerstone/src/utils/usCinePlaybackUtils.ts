@@ -5,6 +5,7 @@ import {
   getAliveViewport,
   getViewportFrameCount,
   getViewportFrameIndex,
+  hasViewportPaintedFirstImage,
   setViewportFrameIndex,
 } from './safeViewportFrameUtils';
 import { getUsCineCapableLayoutViewportIds, getUsLayoutViewportIds } from './usGridViewportUtils';
@@ -153,6 +154,34 @@ function restartPlayingCineClips(
 }
 
 /**
+ * Start clips right away after play was requested in code (sync mode switch,
+ * play-all). CinePlayer only reacts to an isPlaying *change*; a pause + play in
+ * the same render batch leaves it seeing "still playing" while the clip was
+ * stopped, and the tile sits frozen until the watchdog notices.
+ */
+function startCineClipsNow(servicesManager: AppTypes.ServicesManager, viewportIds: string[]): void {
+  const { cineService, cornerstoneViewportService } = servicesManager.services;
+
+  viewportIds.forEach(viewportId => {
+    const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+    const element = viewport?.element;
+
+    if (!element || getViewportFrameCount(viewport) <= 1) {
+      return;
+    }
+
+    const current = cineService.getState().cines?.[viewportId] ?? {};
+
+    cineService.playClip(element, {
+      framesPerSecond: Math.max(1, Math.min(90, Number(current.frameRate) || 1)),
+      viewportId,
+      cinePlayMode: current.cinePlayMode ?? 'fps',
+      frameStep: current.frameStep,
+    });
+  });
+}
+
+/**
  * Rewind the given viewports to their first frame so synced playback starts aligned.
  * In Frame Distribution the "start" is the current group offset (N, N+1, N+2, …).
  */
@@ -169,7 +198,7 @@ function resetCineFramesToStart(
     const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
     const imageIdCount = getViewportFrameCount(viewport);
 
-    if (imageIdCount <= 1) {
+    if (imageIdCount <= 1 || !hasViewportPaintedFirstImage(viewport)) {
       return;
     }
 
@@ -291,7 +320,10 @@ function requestCinePlayPause(
 
   if (mode === 'syncStart') {
     startSyncStartDriver(servicesManager);
+    return;
   }
+
+  startCineClipsNow(servicesManager, usViewportIds);
 }
 
 /**
@@ -566,6 +598,7 @@ export {
   requestCineFrameChange,
   requestCinePlayPause,
   resetCineFramesToStart,
+  restartPlayingCineClips,
   stepUsViewportFrame,
   stopAllUsViewports,
 };

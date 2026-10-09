@@ -24,6 +24,8 @@ const StudyBrowser = ({
   ThumbnailMenuItems,
   StudyMenuItems,
   onPrefetchDisplaySet,
+  onPrefetchStudy,
+  studyDownloadProgressByUID,
 }: withAppTypes) => {
   const getTabContent = () => {
     const tabData = tabs.find(tab => tab.name === activeTabName);
@@ -53,6 +55,8 @@ const StudyBrowser = ({
               ThumbnailMenuItems={ThumbnailMenuItems}
               StudyMenuItems={StudyMenuItems}
               onPrefetchDisplaySet={onPrefetchDisplaySet}
+              onPrefetchStudy={onPrefetchStudy}
+              downloadProgress={studyDownloadProgressByUID?.[studyInstanceUid]}
               StudyInstanceUID={studyInstanceUid}
             />
           </React.Fragment>
@@ -64,7 +68,7 @@ const StudyBrowser = ({
   return (
     <ScrollArea>
       <div
-        className="bg-bkg-low flex min-w-0 flex-1 flex-col gap-[4px] overflow-x-hidden"
+        className="bg-bkg-low flex min-w-0 flex-1 flex-col gap-[4px] overflow-x-clip"
         data-cy={'studyBrowser-panel'}
       >
         <div className="flex flex-col gap-[4px]">
@@ -138,6 +142,8 @@ StudyBrowser.propTypes = {
   ),
   StudyMenuItems: PropTypes.func,
   onPrefetchDisplaySet: PropTypes.func,
+  onPrefetchStudy: PropTypes.func,
+  studyDownloadProgressByUID: PropTypes.object,
 };
 
 export { StudyBrowser };

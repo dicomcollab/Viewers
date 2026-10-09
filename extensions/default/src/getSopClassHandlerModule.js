@@ -121,8 +121,10 @@ const makeDisplaySet = instances => {
   });
 
   const imageIds = dataSource.getImageIdsForDisplaySet(imageSet);
-  let imageId = imageIds[Math.floor(imageIds.length / 2)];
-  let thumbnailInstance = instances[Math.floor(instances.length / 2)];
+  // US clips open on frame 1 — thumbnail it so the download doubles as the viewport's first frame.
+  const isUs = instance.Modality === 'US';
+  let imageId = imageIds[isUs ? 0 : Math.floor(imageIds.length / 2)];
+  let thumbnailInstance = instances[isUs ? 0 : Math.floor(instances.length / 2)];
   if (isDynamicVolume) {
     const timePoints = dynamicVolumeInfo.timePoints;
     const middleIndex = Math.floor(timePoints.length / 2);

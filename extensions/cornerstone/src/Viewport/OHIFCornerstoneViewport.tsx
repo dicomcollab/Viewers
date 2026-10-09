@@ -15,6 +15,7 @@ import type { Types } from '@ohif/core';
 import OHIFViewportActionCorners from '../components/OHIFViewportActionCorners';
 import { getViewportPresentations } from '../utils/presentations/getViewportPresentations';
 import { recoverBlankStackViewport } from '../utils/safeViewportFrameUtils';
+import { startBlankViewportGuard } from '../utils/blankViewportGuard';
 import { useSynchronizersStore } from '../stores/useSynchronizersStore';
 import ActiveViewportBehavior from '../utils/ActiveViewportBehavior';
 import { WITH_NAVIGATION } from '../services/ViewportService/CornerstoneViewportService';
@@ -212,10 +213,9 @@ const OHIFCornerstoneViewport = React.memo(
             return;
           }
           // After many tabs, the browser can revoke this tab's WebGL context; resize alone
-          // cannot fix stale GPU objects. Recover first, then resize.
+          // cannot fix stale GPU objects. Recovery rebuilds only if a context is really lost.
           requestAnimationFrame(() => {
             void (async () => {
-              cornerstoneViewportService.markWebGlContextPossiblyLost();
               await cornerstoneViewportService.recoverRenderingAfterWebGlContextLoss();
               cornerstoneViewportService.resize();
             })();
@@ -331,10 +331,12 @@ const OHIFCornerstoneViewport = React.memo(
           recoverBlankStackViewport(cornerstoneViewportService, viewportId);
         }, ms)
       );
+      const stopBlankGuard = startBlankViewportGuard(cornerstoneViewportService, viewportId);
 
       return () => {
         resizeTimers.forEach(clearTimeout);
         blankRecoverTimers.forEach(clearTimeout);
+        stopBlankGuard();
         if (imageRenderedCleanupRef.current) {
           imageRenderedCleanupRef.current();
           imageRenderedCleanupRef.current = null;

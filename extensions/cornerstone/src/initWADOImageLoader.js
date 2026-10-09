@@ -4,11 +4,18 @@ import {
   cornerstoneStreamingDynamicImageVolumeLoader,
 } from '@cornerstonejs/core/loaders';
 import dicomImageLoader from '@cornerstonejs/dicom-image-loader';
-import { errorHandler, utils } from '@ohif/core';
+import { utils } from '@ohif/core';
 import { isJpegWadoUriImageId, registerJPEGImageLoader } from './utils/jpegImageLoader';
 import { getWadoUriFileCacheUrl } from './utils/wadoUriCacheUrl';
+import { initPersistentImageCache } from './utils/persistentImageCache';
+import { isUnderMemoryPressure } from './utils/memoryPressure';
+import {
+  getOriginalSyntaxAcceptFromParams,
+  registerOriginalSyntaxWadorsLoader,
+} from './utils/instanceTransferSyntax';
 import {
   handleDataSource406,
+  isUnsupportedFormatStatus,
   navigateTo406FallbackDataSource,
   buildFallbackNavigationUrl,
   clear406FallbackPersistence,
@@ -54,6 +61,16 @@ function dispatchOhifDicomLoaderXhr(detail) {
 /**
  * GETs that load DICOM bytes (uncompressed, octet-stream, multipart, per-frame, bulkdata, WADO-URI).
  */
+/** Body starts with a MIME boundary line ("--boundary", optionally after a CRLF). */
+function isMultipartBody(arrayBuffer) {
+  const head = new Uint8Array(arrayBuffer, 0, Math.min(4, arrayBuffer.byteLength));
+  const DASH = 0x2d;
+  if (head[0] === DASH && head[1] === DASH) {
+    return true;
+  }
+  return head[0] === 0x0d && head[1] === 0x0a && head[2] === DASH && head[3] === DASH;
+}
+
 function isLikelyDicomImageGetRequest(method, url) {
   if (method.toUpperCase() !== 'GET') {
     return false;
@@ -313,10 +330,26 @@ function interceptXHRForImageCaching() {
 
       cachePromise
         .then(cachedData => {
-          if (cachedData && cachedData instanceof ArrayBuffer) {
+          if (cachedData && cachedData instanceof ArrayBuffer && cachedData.byteLength > 0) {
             // Cache hit - simulate a successful response
             // Set response properties using defineProperty to override readonly properties
             try {
+              // WADO-RS frames are stored with their multipart wrapper. Without a
+              // multipart Content-Type the loader would read the wrapper as pixels.
+              const cachedContentType = isMultipartBody(cachedData)
+                ? 'multipart/related; type="application/octet-stream"'
+                : null;
+              Object.defineProperty(xhr, 'getResponseHeader', {
+                value: name =>
+                  String(name).toLowerCase() === 'content-type' ? cachedContentType : null,
+                writable: true,
+                configurable: true,
+              });
+              Object.defineProperty(xhr, 'getAllResponseHeaders', {
+                value: () => (cachedContentType ? `content-type: ${cachedContentType}\r\n` : ''),
+                writable: true,
+                configurable: true,
+              });
               Object.defineProperty(xhr, 'status', {
                 value: 200,
                 writable: true,
@@ -393,6 +426,10 @@ function interceptXHRForImageCaching() {
 
         // Restore original event handlers and add caching logic
         const cacheResponse = () => {
+          // Storing clones the whole response; skip it while memory is short.
+          if (isUnderMemoryPressure()) {
+            return;
+          }
           if (xhr.status === 200 && xhr.response instanceof ArrayBuffer) {
             // Cache based on original URL
             imageCache.setCachedImage(requestUrl, xhr.response).catch(() => {
@@ -517,6 +554,7 @@ export default function initWADOImageLoader(
         // Cache the result if it's an ArrayBuffer and we have a valid HTTP URL
         if (
           imageCache &&
+          !isUnderMemoryPressure() &&
           result instanceof ArrayBuffer &&
           cacheUrl &&
           typeof cacheUrl === 'string' &&
@@ -596,7 +634,7 @@ export default function initWADOImageLoader(
         url,
       });
     },
-    beforeSend: function () {
+    beforeSend: function (xhr, imageId, defaultHeaders, params) {
       //TODO should be removed in the future and request emitted by DicomWebDataSource
       const sourceConfig = extensionManager.getActiveDataSource()?.[0].getConfig() ?? {};
 
@@ -626,19 +664,33 @@ export default function initWADOImageLoader(
         Accept: Array.isArray(acceptHeader) ? acceptHeader.join(', ') : acceptHeader,
       };
 
+      // Whole-instance download in the stored (original) transfer syntax.
+      const originalSyntaxAccept = getOriginalSyntaxAcceptFromParams(params);
+      if (originalSyntaxAccept) {
+        xhrRequestHeaders.Accept = originalSyntaxAccept;
+      }
+
       if (headers) {
         Object.assign(xhrRequestHeaders, headers);
       }
 
       return xhrRequestHeaders;
     },
-    errorInterceptor: () => {
-      errorHandler.getHTTPErrorHandler();
+    errorInterceptor: error => {
+      const status = error?.status ?? error?.request?.status;
+      if (isUnsupportedFormatStatus(status)) {
+        handleDataSource406({ source: 'wado-image-loader' });
+      }
     },
   });
 
+  initPersistentImageCache(appConfig.persistentImageCache);
+
   // After dicomImageLoader.init — wrap dicomweb: so JPEG WADO-URI is not parsed as DICOM.
   registerJPEGImageLoader();
+  registerOriginalSyntaxWadorsLoader(
+    () => extensionManager.getActiveDataSource()?.[0]?.getConfig?.() ?? {}
+  );
 
   if (typeof window !== 'undefined') {
     clear406FallbackPersistence();

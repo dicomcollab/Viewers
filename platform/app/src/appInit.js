@@ -64,6 +64,11 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
 
   servicesManager.setExtensionManager(extensionManager);
 
+  if (typeof window !== 'undefined') {
+    // From here on config/default.js can no longer just swap the default; it must reload.
+    window.__OHIF_STARTUP_DATA_SOURCE = appConfig.defaultDataSourceName || null;
+  }
+
   servicesManager.registerServices([
     [MultiMonitorService.REGISTRATION, appConfig.multimonitor],
     UINotificationService.REGISTRATION,
@@ -92,7 +97,7 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
     return error => {
       const status = error?.status ?? error?.statusCode;
 
-      if (status === 406) {
+      if (status === 406 || status === 415) {
         if (typeof window !== 'undefined' && typeof window.handleDataSource406 === 'function') {
           window.handleDataSource406({ source: 'http-error-handler' });
         }

@@ -5,16 +5,22 @@ import {
   getViewportFrameCount,
   getViewportFrameIndex,
   getViewportStackKey,
+  hasViewportPaintedFirstImage,
   setViewportFrameIndex,
   setViewportFrameIndexAsync,
 } from './safeViewportFrameUtils';
-import {
-  isStackFrameReady,
-  prefetchStackFrame,
-  prefetchUpcomingStackFrames,
-  getPrefetchCount,
-} from './cineFrameLoadUtils';
+import { isStackFrameReady } from './cineFrameLoadUtils';
 import { getCineGeneration } from './cineClipStateUtils';
+import { canShowClipFrame, ensureViewportClipBuffered } from './usClipBufferStore';
+import { getCinePlayhead, setCinePlayhead, subscribeCinePlayhead } from './cinePlayheadStore';
+
+const FPS_MIN = 1;
+const FPS_MAX = 90;
+const TICK_MS = 8;
+
+function clampFrameRate(value: number): number {
+  return Math.max(FPS_MIN, Math.min(FPS_MAX, Number(value) || FPS_MIN));
+}
 
 /**
  * Sync playback driver.
@@ -29,14 +35,22 @@ type SyncPlaybackDriverState = {
   masterViewportId: string;
   element: HTMLElement;
   listener: EventListener;
+  cleanups: Array<() => void>;
 };
 
 type SyncStartViewportState = {
   viewportId: string;
+  stackKey: string | null;
   frameCount: number;
   frameRate: number;
+  /** Last cineService rate seen; a change means the doctor moved the FPS control. */
+  lastLiveFrameRate: number;
+  /** Playhead of this pass, -1 before the pass shows its first frame. */
   frameIndex: number;
-  nextFrameAt: number;
+  playheadReady: boolean;
+  passStartAt: number;
+  /** Tile gone or still binding its first image: it never holds the layout restart. */
+  inactive: boolean;
   advanceInFlight: boolean;
 };
 
@@ -50,6 +64,25 @@ type SyncStartDriverState = {
 type DriverState = SyncPlaybackDriverState | SyncStartDriverState;
 
 let driver: DriverState | null = null;
+/** Tiles whose empty-frame playhead was set by a driver (cleared when it stops). */
+const drivenPlayheadIds = new Set<string>();
+
+function setDrivenPlayhead(
+  viewportId: string,
+  playhead: { index: number; total: number; ready: boolean } | null
+) {
+  if (playhead) {
+    drivenPlayheadIds.add(viewportId);
+  } else {
+    drivenPlayheadIds.delete(viewportId);
+  }
+  setCinePlayhead(viewportId, playhead);
+}
+
+function clearDrivenPlayheads() {
+  Array.from(drivenPlayheadIds).forEach(viewportId => setCinePlayhead(viewportId, null));
+  drivenPlayheadIds.clear();
+}
 
 function getFrameInfo(cornerstoneViewportService, viewportId: string) {
   const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
@@ -84,12 +117,18 @@ export function getCorrespondingFrameIndex(
 
 /**
  * Move every follower viewport to the frame matching the master's position.
+ *
+ * With `onlyDecodedFrames` (playback), a follower whose target frame is still
+ * downloading shows an empty frame for that position instead — calling
+ * setImageIdIndex on an uncached frame every master tick would cancel each
+ * in-flight swap, so the follower would never paint.
  */
 export function alignFollowersToFrame(
   servicesManager: AppTypes.ServicesManager,
   masterViewportId: string,
   masterFrameIndex: number,
-  masterFrameCount: number
+  masterFrameCount: number,
+  { onlyDecodedFrames = false }: { onlyDecodedFrames?: boolean } = {}
 ): void {
   const { cornerstoneViewportService } = servicesManager.services;
 
@@ -103,15 +142,38 @@ export function alignFollowersToFrame(
       viewportId
     );
 
-    if (!viewport || frameCount <= 1) {
+    // A follower still binding must not be moved: that cancels its first load
+    // and leaves the tile black under the overlay.
+    if (
+      !viewport ||
+      frameCount <= 1 ||
+      !hasViewportPaintedFirstImage(viewport, { allowSwapInFlight: true })
+    ) {
       return;
     }
 
-    const targetIndex = getCorrespondingFrameIndex(
-      masterFrameIndex,
-      masterFrameCount,
-      frameCount
-    );
+    const targetIndex = getCorrespondingFrameIndex(masterFrameIndex, masterFrameCount, frameCount);
+
+    if (onlyDecodedFrames) {
+      const imageIds = viewport.getImageIds?.() ?? [];
+
+      if (!isStackFrameReady(imageIds[targetIndex])) {
+        // Evicted after downloading: keep the last picture while it reloads.
+        setDrivenPlayhead(viewportId, {
+          index: targetIndex,
+          total: frameCount,
+          ready: canShowClipFrame(imageIds[targetIndex]),
+        });
+        return;
+      }
+
+      // Mid-swap: catch up on the master's next frame instead of cancelling it.
+      if (!hasViewportPaintedFirstImage(viewport)) {
+        return;
+      }
+
+      setDrivenPlayhead(viewportId, { index: targetIndex, total: frameCount, ready: true });
+    }
 
     if (targetIndex === frameIndex) {
       return;
@@ -134,14 +196,17 @@ export function stopSyncPlaybackDriver(): void {
     }
   } else {
     clearInterval(driver.intervalId);
-    driver.cleanups.forEach(cleanup => cleanup());
   }
 
+  driver.cleanups.forEach(cleanup => cleanup());
   driver = null;
+  clearDrivenPlayheads();
 }
 
 /**
- * Drive every follower viewport from the master's frame changes.
+ * Drive every follower viewport from the master's frame changes. The master's
+ * cine timeline (including frames it shows as empty) is the source; plain
+ * STACK_NEW_IMAGE covers a master that has no timeline.
  */
 export function startSyncPlaybackDriver(
   servicesManager: AppTypes.ServicesManager,
@@ -160,8 +225,11 @@ export function startSyncPlaybackDriver(
     return;
   }
 
+  const isCurrent = () =>
+    driver?.mode === 'syncPlayback' && driver.masterViewportId === masterViewportId;
+
   const listener = () => {
-    if (driver?.mode !== 'syncPlayback' || driver.masterViewportId !== masterViewportId) {
+    if (!isCurrent() || getCinePlayhead(masterViewportId)) {
       return;
     }
 
@@ -172,26 +240,41 @@ export function startSyncPlaybackDriver(
       return;
     }
 
-    alignFollowersToFrame(
-      servicesManager,
-      masterViewportId,
-      master.frameIndex,
-      master.frameCount
-    );
+    alignFollowersToFrame(servicesManager, masterViewportId, master.frameIndex, master.frameCount, {
+      onlyDecodedFrames: true,
+    });
   };
 
-  element.addEventListener(Enums.Events.STACK_NEW_IMAGE, listener);
-  driver = { mode: 'syncPlayback', masterViewportId, element, listener };
+  const unsubscribePlayhead = subscribeCinePlayhead((id, playhead) => {
+    if (id !== masterViewportId || !playhead || !isCurrent()) {
+      return;
+    }
 
-  alignFollowersToFrame(servicesManager, masterViewportId, frameIndex, frameCount);
+    alignFollowersToFrame(servicesManager, masterViewportId, playhead.index, playhead.total, {
+      onlyDecodedFrames: true,
+    });
+  });
+
+  element.addEventListener(Enums.Events.STACK_NEW_IMAGE, listener);
+  driver = {
+    mode: 'syncPlayback',
+    masterViewportId,
+    element,
+    listener,
+    cleanups: [unsubscribePlayhead],
+  };
+
+  alignFollowersToFrame(servicesManager, masterViewportId, frameIndex, frameCount, {
+    onlyDecodedFrames: true,
+  });
 }
 
 /**
- * Start every loop at frame 1. A shorter/faster loop waits on its final frame
- * until every loop has finished; only then does the complete layout restart.
- *
- * Advances one frame at a time after that frame is cached and painted. Catch-up
- * skips are not used — they move the bar while cancelling in-flight renders.
+ * Start every loop at frame 1. Each tile walks its own frames 1..N at its own
+ * FPS on a fixed timeline (position from elapsed time, so the cadence never
+ * drifts). A frame still downloading shows as an empty frame and appears on a
+ * later pass once it has arrived. A shorter/faster loop waits on its final
+ * frame until every loop has finished; only then does the layout restart.
  */
 export function startSyncStartDriver(
   servicesManager: AppTypes.ServicesManager,
@@ -202,28 +285,35 @@ export function startSyncStartDriver(
   const { cornerstoneViewportService, cineService } = servicesManager.services;
   const now = performance.now();
   const { cines } = cineService.getState();
+  const readLiveFrameRate = (viewportId: string) =>
+    Number(cineService.getState().cines?.[viewportId]?.frameRate);
   const viewportStates: SyncStartViewportState[] = getUsCineCapableLayoutViewportIds(
     servicesManager
   )
     .map(viewportId => {
       const { viewport, frameCount } = getFrameInfo(cornerstoneViewportService, viewportId);
-      const frameRate = Math.max(
-        1,
-        Number(frameRateOverrides[viewportId] ?? cines?.[viewportId]?.frameRate) || 1
+      const frameRate = clampFrameRate(
+        frameRateOverrides[viewportId] ?? cines?.[viewportId]?.frameRate
       );
 
       if (!viewport || frameCount <= 1) {
         return null;
       }
 
-      setViewportFrameIndex(viewport, 0);
+      if (hasViewportPaintedFirstImage(viewport)) {
+        setViewportFrameIndex(viewport, 0);
+      }
 
       return {
         viewportId,
+        stackKey: getViewportStackKey(viewport),
         frameCount,
         frameRate,
-        frameIndex: 0,
-        nextFrameAt: now + 1000 / frameRate,
+        lastLiveFrameRate: readLiveFrameRate(viewportId),
+        frameIndex: -1,
+        playheadReady: true,
+        passStartAt: now,
+        inactive: false,
         advanceInFlight: false,
       };
     })
@@ -242,6 +332,100 @@ export function startSyncStartDriver(
     stackKey: getViewportStackKey(viewport),
   });
 
+  const advanceTile = (state: SyncStartViewportState, tickNow: number) => {
+    // FPS changed on this tile's bar: keep the current frame, new cadence from here.
+    const liveRate = readLiveFrameRate(state.viewportId);
+
+    if (Number.isFinite(liveRate) && liveRate > 0 && liveRate !== state.lastLiveFrameRate) {
+      state.lastLiveFrameRate = liveRate;
+      state.frameRate = clampFrameRate(liveRate);
+      state.passStartAt = tickNow - Math.max(0, state.frameIndex) * (1000 / state.frameRate);
+    }
+
+    if (state.advanceInFlight) {
+      return;
+    }
+
+    const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
+
+    if (!viewport) {
+      state.inactive = true;
+      return;
+    }
+
+    // Tile now shows another instance (page change without a driver restart).
+    const stackKey = getViewportStackKey(viewport);
+
+    if (stackKey && stackKey !== state.stackKey) {
+      state.stackKey = stackKey;
+      state.frameCount = Math.max(1, getViewportFrameCount(viewport));
+      state.frameIndex = -1;
+      state.playheadReady = true;
+      state.passStartAt = tickNow;
+      setDrivenPlayhead(state.viewportId, null);
+    }
+
+    // Still binding its first image: sit this pass out instead of holding
+    // every other loop; it joins at the next layout restart.
+    if (
+      state.frameCount <= 1 ||
+      !hasViewportPaintedFirstImage(viewport, { allowSwapInFlight: true })
+    ) {
+      state.inactive = true;
+      return;
+    }
+
+    state.inactive = false;
+
+    const imageIds: string[] = viewport.getImageIds?.() ?? [];
+    ensureViewportClipBuffered(state.viewportId, imageIds);
+
+    const periodMs = 1000 / state.frameRate;
+    const target = Math.min(
+      state.frameCount - 1,
+      Math.max(0, Math.floor((tickNow - state.passStartAt) / periodMs))
+    );
+    const ready = isStackFrameReady(imageIds[target]);
+
+    // Same frame period: nothing to do, unless the empty frame just arrived.
+    if (target === state.frameIndex && (state.playheadReady || !ready)) {
+      return;
+    }
+
+    const needsSwap = ready && getViewportFrameIndex(viewport) !== target;
+
+    // Previous swap still painting: retry next tick rather than cancel it.
+    if (needsSwap && !hasViewportPaintedFirstImage(viewport)) {
+      return;
+    }
+
+    // Evicted after downloading: keep the last picture while it reloads.
+    const showable = ready || canShowClipFrame(imageIds[target]);
+    state.frameIndex = target;
+    state.playheadReady = showable;
+    setDrivenPlayhead(state.viewportId, {
+      index: target,
+      total: state.frameCount,
+      ready: showable,
+    });
+
+    if (!needsSwap) {
+      return;
+    }
+
+    state.advanceInFlight = true;
+    void setViewportFrameIndexAsync(viewport, target, frameOptions(state.viewportId, viewport))
+      .catch(() => false)
+      .finally(() => {
+        state.advanceInFlight = false;
+      });
+  };
+
+  const isPassFinished = (state: SyncStartViewportState, tickNow: number) =>
+    state.inactive ||
+    (!state.advanceInFlight &&
+      tickNow - state.passStartAt >= state.frameCount * (1000 / state.frameRate));
+
   const intervalId = window.setInterval(() => {
     if (driver?.mode !== 'syncStart' || getCineGeneration() !== clipGeneration) {
       return;
@@ -249,79 +433,19 @@ export function startSyncStartDriver(
 
     const tickNow = performance.now();
 
-    viewportStates.forEach(state => {
-      if (state.advanceInFlight || state.frameIndex >= state.frameCount - 1 || tickNow < state.nextFrameAt) {
-        return;
-      }
+    viewportStates.forEach(state => advanceTile(state, tickNow));
 
-      const nextIndex = state.frameIndex + 1;
-      const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
-      const imageIds = viewport?.getImageIds?.() ?? [];
-      const nextImageId = imageIds[nextIndex];
-
-      const periodMs = 1000 / state.frameRate;
-      prefetchUpcomingStackFrames(imageIds, state.frameIndex, getPrefetchCount(periodMs));
-
-      if (!isStackFrameReady(nextImageId)) {
-        prefetchStackFrame(nextImageId);
-        return;
-      }
-
-      const dueAt = state.nextFrameAt;
-      state.advanceInFlight = true;
-      void setViewportFrameIndexAsync(viewport, nextIndex, frameOptions(state.viewportId, viewport))
-        .then(ok => {
-          if (ok) {
-            state.frameIndex = nextIndex;
-          }
-          const due = dueAt + periodMs;
-          const nowAfter = performance.now();
-          state.nextFrameAt = due < nowAfter - periodMs ? nowAfter : Math.max(due, nowAfter);
-        })
-        .finally(() => {
-          state.advanceInFlight = false;
-        });
-    });
-
-    if (
-      !viewportStates.every(state => state.frameIndex === state.frameCount - 1 && !state.advanceInFlight)
-    ) {
+    if (!viewportStates.every(state => isPassFinished(state, tickNow))) {
       return;
     }
 
-    const firstIdsReady = viewportStates.every(state => {
-      const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
-      return isStackFrameReady(viewport?.getImageIds?.()?.[0]);
-    });
-
-    if (!firstIdsReady) {
-      viewportStates.forEach(state => {
-        const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
-        prefetchStackFrame(viewport?.getImageIds?.()?.[0]);
-      });
-      return;
-    }
-
-    const restartAt = performance.now();
+    // Every loop has played its last frame: restart the whole layout at frame 1.
     viewportStates.forEach(state => {
-      if (state.advanceInFlight) {
-        return;
-      }
-
-      const viewport = getAliveViewport(cornerstoneViewportService, state.viewportId);
-      state.advanceInFlight = true;
-      void setViewportFrameIndexAsync(viewport, 0, frameOptions(state.viewportId, viewport))
-        .then(ok => {
-          if (ok) {
-            state.frameIndex = 0;
-          }
-          state.nextFrameAt = restartAt + 1000 / state.frameRate;
-        })
-        .finally(() => {
-          state.advanceInFlight = false;
-        });
+      state.passStartAt = tickNow;
+      state.frameIndex = -1;
+      state.playheadReady = true;
     });
-  }, 8);
+  }, TICK_MS);
 
   driver = {
     mode: 'syncStart',

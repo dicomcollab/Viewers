@@ -44,6 +44,8 @@ import {
 } from '@ohif/extension-default';
 import { isCineClipRunning } from '../../utils/cineClipStateUtils';
 import { getCineWaitingForFrame } from '../../utils/cineFrameWaitStore';
+import { getCinePlayhead, subscribeCinePlayhead } from '../../utils/cinePlayheadStore';
+import { isViewportClipBuffering } from '../../utils/usClipBufferStore';
 import {
   getAliveViewport,
   getViewportFrameCount,
@@ -277,6 +279,37 @@ function WrappedCinePlayer({
       }
 
       return next;
+    });
+  }, [
+    cornerstoneViewportService,
+    displaySetService,
+    servicesManager,
+    viewportGridService,
+    viewportId,
+  ]);
+
+  /**
+   * Per-frame update during playback: only the frame number changes, so skip
+   * the page / series-position rebuild that would run for every tile on every frame.
+   */
+  const refreshStackCineFrame = useCallback(() => {
+    setStackCineInfo(prev => {
+      if (!prev || prev.viewportId !== viewportId) {
+        return buildUsStackCineInfo({
+          cornerstoneViewportService,
+          viewportId,
+          displaySetService,
+          viewportGridService,
+          servicesManager,
+        });
+      }
+
+      const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+      const frameCount = getViewportFrameCount(viewport);
+      const index = getCinePlayhead(viewportId)?.index ?? getViewportFrameIndex(viewport);
+      const currentFrame = Math.max(1, Math.min(Math.max(1, frameCount), index + 1));
+
+      return prev.currentFrame === currentFrame ? prev : { ...prev, currentFrame };
     });
   }, [
     cornerstoneViewportService,
@@ -725,7 +758,18 @@ function WrappedCinePlayer({
         return;
       }
 
-      const index = getViewportFrameIndex(liveViewport);
+      // US clip still downloading: the running clip loops over decoded frames
+      // and may hold one frame until the next arrives. Only step in if no clip is running.
+      const liveElement = liveViewport?.element ?? enabledVPElementRef.current;
+
+      if (isViewportClipBuffering(viewportId) && isCineClipRunning(liveElement, viewportId)) {
+        lastIndex = -1;
+        staleTicks = 0;
+        return;
+      }
+
+      // The timeline also advances through frames shown empty (still downloading).
+      const index = getCinePlayhead(viewportId)?.index ?? getViewportFrameIndex(liveViewport);
 
       if (index !== lastIndex) {
         lastIndex = index;
@@ -755,7 +799,7 @@ function WrappedCinePlayer({
         return;
       }
 
-      refreshStackCineInfo();
+      refreshStackCineFrame();
 
       const { viewports } = viewportGridService.getState();
       const displaySetUid = viewports.get(viewportId)?.displaySetInstanceUIDs?.[0];
@@ -803,7 +847,7 @@ function WrappedCinePlayer({
         enabledVPElement.removeEventListener(Enums.Events.STACK_VIEWPORT_SCROLL, onFrameChanged);
       }
     };
-  }, [enabledVPElement, refreshStackCineInfo, viewportId, displaySetService, viewportGridService]);
+  }, [enabledVPElement, refreshStackCineFrame, viewportId, displaySetService, viewportGridService]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -811,10 +855,22 @@ function WrappedCinePlayer({
     }
 
     refreshStackCineInfo();
-    const intervalId = window.setInterval(refreshStackCineInfo, 80);
+    const frameIntervalId = window.setInterval(refreshStackCineFrame, 80);
+    const fullIntervalId = window.setInterval(refreshStackCineInfo, 1000);
 
-    return () => window.clearInterval(intervalId);
-  }, [isPlaying, refreshStackCineInfo]);
+    return () => {
+      window.clearInterval(frameIntervalId);
+      window.clearInterval(fullIntervalId);
+    };
+  }, [isPlaying, refreshStackCineFrame, refreshStackCineInfo]);
+
+  useEffect(() => {
+    return subscribeCinePlayhead(id => {
+      if (id === viewportId) {
+        refreshStackCineFrame();
+      }
+    });
+  }, [refreshStackCineFrame, viewportId]);
 
   useEffect(() => {
     return () => {

@@ -128,9 +128,7 @@ const DicomTagBrowser = ({
       <div className="mb-6 flex flex-row items-start pl-1">
         <div className="flex w-full flex-row items-start gap-4">
           <div className="flex w-1/3 flex-col">
-            <span className="text-muted-foreground flex h-6 items-center pb-2 text-base">
-              Series
-            </span>
+            <span className="flex h-6 items-center pb-2 text-base text-white">Series</span>
             <Select
               value={selectedDisplaySetInstanceUID}
               onValueChange={value => onSelectChange({ value })}
@@ -147,7 +145,7 @@ const DicomTagBrowser = ({
                       value={item.value}
                     >
                       {item.label}
-                      <span className="text-muted-foreground ml-1 text-xs">{item.description}</span>
+                      <span className="ml-1 text-xs text-white/80">{item.description}</span>
                     </SelectItem>
                   );
                 })}
@@ -156,7 +154,7 @@ const DicomTagBrowser = ({
           </div>
           {shouldShowInstanceList && (
             <div className="mx-auto mt-0.5 flex w-1/4 flex-col">
-              <span className="text-muted-foreground flex h-6 items-center pb-2 text-base">
+              <span className="flex h-6 items-center pb-2 text-base text-white">
                 Instance Number ({instanceNumber} of {activeDisplaySet?.images?.length})
               </span>
               <Slider
@@ -173,11 +171,11 @@ const DicomTagBrowser = ({
             </div>
           )}
           <div className="ml-auto mr-1 flex w-1/3 flex-col">
-            <span className="text-muted-foreground flex h-6 items-center pb-2 text-base">
+            <span className="flex h-6 items-center pb-2 text-base text-white">
               Search metadata
             </span>
             <InputFilter
-              className="text-muted-foreground"
+              className="text-white"
               onChange={setFilterValue}
             >
               <InputFilter.SearchIcon />

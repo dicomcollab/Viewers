@@ -1,9 +1,12 @@
 /** Height of the per-viewport cine control row (must match CSS). */
 export const US_VIEWPORT_CINE_BAR_HEIGHT_PX = 28;
 
-/** Total bottom space reserved from the image (cine bar + gap for action corners). */
+/** Gap between the cine bar and the tile edges, so it never covers the tile border. */
+export const US_VIEWPORT_CINE_BAR_INSET_PX = 4;
+
+/** Total bottom space reserved from the image (cine bar + inset + gap for action corners). */
 export const US_VIEWPORT_BOTTOM_RESERVE_PX =
-  US_VIEWPORT_CINE_BAR_HEIGHT_PX + 10;
+  US_VIEWPORT_CINE_BAR_HEIGHT_PX + US_VIEWPORT_CINE_BAR_INSET_PX + 10;
 
 export type CinePlayMode = 'fps' | 'step';
 
@@ -37,11 +40,13 @@ export function setViewportUsCineLayout(
   }
 
   const barHeight = `${US_VIEWPORT_CINE_BAR_HEIGHT_PX}px`;
+  const barInset = `${US_VIEWPORT_CINE_BAR_INSET_PX}px`;
   const bottomReserve = `${US_VIEWPORT_BOTTOM_RESERVE_PX}px`;
 
   if (enabled) {
     wrapper.setAttribute('data-us-cine', 'true');
     wrapper.style.setProperty('--us-cine-bar-height', barHeight);
+    wrapper.style.setProperty('--us-cine-bar-inset', barInset);
     wrapper.style.setProperty('--us-viewport-bottom-reserve', bottomReserve);
     pane?.setAttribute('data-us-cine', 'true');
     pane?.style.setProperty('--us-cine-bar-height', barHeight);
@@ -50,6 +55,7 @@ export function setViewportUsCineLayout(
   } else {
     wrapper.removeAttribute('data-us-cine');
     wrapper.style.removeProperty('--us-cine-bar-height');
+    wrapper.style.removeProperty('--us-cine-bar-inset');
     wrapper.style.removeProperty('--us-viewport-bottom-reserve');
     pane?.removeAttribute('data-us-cine');
     pane?.style.removeProperty('--us-cine-bar-height');

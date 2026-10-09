@@ -1,14 +1,26 @@
 /**
- * When PACS returns HTTP 406 (e.g. US studies rejecting JPEG WADO-URI), offer a one-time
- * switch to a fallback data source only after the user clicks "Restart now".
+ * When PACS rejects the requested image format for a study (HTTP 406 / 415, e.g. an
+ * ultrasound clip that cannot be served as image/jpeg), tell the user which view is
+ * not supported and offer to switch to the original data source.
  *
- * Does not change global preferences or redirect on normal visits.
+ * The switch is per study URL only; the user's saved data source preference is not changed.
  */
 
 const SESSION_FLAG = 'ohif406FallbackInProgress';
 const SESSION_TARGET = 'ohif406FallbackTarget';
 const OVERLAY_ID = 'ohif-406-fallback-overlay';
-const OVERLAY_SHOWN_KEY = 'ohif406OverlayShown';
+const LEGACY_OVERLAY_SHOWN_KEY = 'ohif406OverlayShown';
+const PROMPT_SHOWN_KEY_PREFIX = 'ohifUnsupportedFormatPrompt:';
+
+const UNSUPPORTED_FORMAT_STATUSES = new Set([406, 415]);
+
+export const DEFAULT_DATA_SOURCE_FORMAT_LABELS = {
+  'localviewer-image-jpeg': 'Quick Preview (Standard Image)',
+  'localviewer-application-dicom': 'Diagnostic View (Full DICOM Data)',
+  'localviewer-raw-dicom': 'Advanced View (Detailed DICOM Layers)',
+  'localviewer-original-dicom': 'Original Quality (Compressed DICOM)',
+  'frame-multipart-octet-wildcard': 'Original Quality (Compressed DICOM)',
+};
 
 function getAppConfig() {
   return (typeof window !== 'undefined' && window.config) || {};
@@ -16,6 +28,21 @@ function getAppConfig() {
 
 function get406FallbackConfig() {
   return getAppConfig().dataSource406Fallback || {};
+}
+
+export function isUnsupportedFormatStatus(status) {
+  return UNSUPPORTED_FORMAT_STATUSES.has(Number(status));
+}
+
+export function getDataSourceFormatLabel(sourceName) {
+  if (!sourceName) {
+    return 'the current image format';
+  }
+  const labels = {
+    ...DEFAULT_DATA_SOURCE_FORMAT_LABELS,
+    ...(getAppConfig().dataSourceFormatLabels || {}),
+  };
+  return labels[sourceName] || sourceName;
 }
 
 /**
@@ -76,8 +103,15 @@ export function buildFallbackNavigationUrl(fallbackSource, currentSource) {
   return `${path}${separator}${fallbackSource}${search}${hash}`;
 }
 
+function getPromptShownKey() {
+  if (typeof window === 'undefined') {
+    return PROMPT_SHOWN_KEY_PREFIX;
+  }
+  return `${PROMPT_SHOWN_KEY_PREFIX}${window.location.pathname}${window.location.search}`;
+}
+
 /**
- * Navigate to the fallback route. Called only from the user "Restart now" action.
+ * Navigate to the fallback route. Called only from the user "Switch to …" action.
  */
 export function navigateTo406FallbackDataSource(currentSource, fallbackSource) {
   const targetUrl = buildFallbackNavigationUrl(fallbackSource, currentSource);
@@ -89,11 +123,24 @@ export function navigateTo406FallbackDataSource(currentSource, fallbackSource) {
   if (typeof sessionStorage !== 'undefined') {
     sessionStorage.removeItem(SESSION_FLAG);
     sessionStorage.removeItem(SESSION_TARGET);
-    sessionStorage.removeItem(OVERLAY_SHOWN_KEY);
   }
 
-  console.warn(`[406 fallback] User restart — navigating to ${targetUrl}`);
+  console.warn(`[406 fallback] User switched data source — navigating to ${targetUrl}`);
   window.location.replace(targetUrl);
+}
+
+function closeOverlay() {
+  document.getElementById(OVERLAY_ID)?.remove();
+}
+
+function createButton(text, primary) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = text;
+  button.style.cssText = primary
+    ? 'padding:10px 18px;border:none;border-radius:6px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
+    : 'padding:10px 18px;border:1px solid #4b5563;border-radius:6px;background:transparent;color:#e5e7eb;font-size:14px;font-weight:500;cursor:pointer;';
+  return button;
 }
 
 function show406ReloadOverlay(currentSource, fallbackSource) {
@@ -104,6 +151,9 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
     return;
   }
 
+  const currentLabel = getDataSourceFormatLabel(currentSource);
+  const fallbackLabel = getDataSourceFormatLabel(fallbackSource);
+
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
   overlay.setAttribute('role', 'dialog');
@@ -113,35 +163,48 @@ function show406ReloadOverlay(currentSource, fallbackSource) {
 
   const box = document.createElement('div');
   box.style.cssText =
-    'background:#111827;color:#f9fafb;padding:24px;border-radius:10px;max-width:520px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,0.45);font-family:system-ui,-apple-system,sans-serif;line-height:1.5;';
+    'background:#111827;color:#f9fafb;padding:24px;border-radius:10px;max-width:540px;width:100%;box-shadow:0 20px 40px rgba(0,0,0,0.45);font-family:system-ui,-apple-system,sans-serif;line-height:1.5;';
 
   const title = document.createElement('h2');
-  title.textContent = 'Cannot display images';
+  title.textContent = `${currentLabel} is not supported for this study`;
   title.style.cssText = 'margin:0 0 12px;font-size:20px;font-weight:600;';
 
   const message = document.createElement('p');
-  message.style.margin = '0 0 20px';
-  message.textContent =
-    'These images cannot be displayed in the current format. Tap Restart to change the image source and view this study.';
+  message.style.margin = '0 0 8px';
+  message.textContent = `The images in this study cannot be displayed with ${currentLabel}. Switch to ${fallbackLabel} to view this study in its original format.`;
+
+  const note = document.createElement('p');
+  note.style.cssText = 'margin:0 0 20px;font-size:13px;color:#9ca3af;';
+  note.textContent = 'Your saved data source preference is not changed.';
 
   const actions = document.createElement('div');
-  actions.style.cssText = 'display:flex;gap:12px;justify-content:flex-end;';
+  actions.style.cssText = 'display:flex;gap:12px;justify-content:flex-end;flex-wrap:wrap;';
 
-  const reloadBtn = document.createElement('button');
-  reloadBtn.type = 'button';
-  reloadBtn.textContent = 'Restart';
-  reloadBtn.style.cssText =
-    'padding:10px 18px;border:none;border-radius:6px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer;';
-  reloadBtn.onclick = () => {
+  const dismissBtn = createButton('Not now', false);
+  dismissBtn.onclick = () => {
+    window.close();
+    // Browsers only let a page close a tab that a script opened; otherwise just dismiss.
+    setTimeout(() => {
+      if (!window.closed) {
+        closeOverlay();
+      }
+    }, 300);
+  };
+
+  const switchBtn = createButton(`Switch to ${fallbackLabel}`, true);
+  switchBtn.onclick = () => {
     navigateTo406FallbackDataSource(currentSource, fallbackSource);
   };
 
-  actions.appendChild(reloadBtn);
+  actions.appendChild(dismissBtn);
+  actions.appendChild(switchBtn);
   box.appendChild(title);
   box.appendChild(message);
+  box.appendChild(note);
   box.appendChild(actions);
   overlay.appendChild(box);
   document.body.appendChild(overlay);
+  switchBtn.focus();
 }
 
 function isFallbackDataSourceName(sourceName) {
@@ -154,7 +217,7 @@ function isFallbackDataSourceName(sourceName) {
 
 /**
  * @param {{ currentSource?: string, source?: string }} [options]
- * @returns {boolean} true when fallback overlay was shown (or already pending)
+ * @returns {boolean} true when the switch prompt was shown (or already shown for this study)
  */
 export function handleDataSource406(options = {}) {
   const cfg = get406FallbackConfig();
@@ -163,20 +226,11 @@ export function handleDataSource406(options = {}) {
   }
 
   const currentSource =
-    options.currentSource ||
-    getDataSourceFromUrl() ||
-    getAppConfig().defaultDataSourceName ||
-    null;
+    options.currentSource || getDataSourceFromUrl() || getAppConfig().defaultDataSourceName || null;
 
-  // Already on a fallback route — do not loop or redirect globally.
+  // Already on the original data source — there is nothing further to fall back to.
   if (isFallbackDataSourceName(currentSource)) {
     return false;
-  }
-
-  if (typeof sessionStorage !== 'undefined') {
-    if (sessionStorage.getItem(OVERLAY_SHOWN_KEY) === '1') {
-      return true;
-    }
   }
 
   const fallbackMap = cfg.fallbackMap || {};
@@ -186,14 +240,19 @@ export function handleDataSource406(options = {}) {
     return false;
   }
 
+  const promptKey = getPromptShownKey();
   if (typeof sessionStorage !== 'undefined') {
+    if (sessionStorage.getItem(promptKey) === '1') {
+      return true;
+    }
     sessionStorage.setItem(SESSION_FLAG, '1');
     sessionStorage.setItem(SESSION_TARGET, fallbackSource);
-    sessionStorage.setItem(OVERLAY_SHOWN_KEY, '1');
+    sessionStorage.setItem(promptKey, '1');
   }
 
   console.warn(
-    `[406 fallback] PACS rejected format for "${currentSource}". User may restart with "${fallbackSource}".`
+    `[406 fallback] "${getDataSourceFormatLabel(currentSource)}" (${currentSource}) is not supported for this study` +
+      ` (${options.source || 'unknown'}). User may switch to "${getDataSourceFormatLabel(fallbackSource)}" (${fallbackSource}).`
   );
 
   show406ReloadOverlay(currentSource, fallbackSource);
@@ -207,15 +266,12 @@ export function handleDataSource406(options = {}) {
  */
 export function handleJpegLoader406(_xhr, reject) {
   const handled = handleDataSource406({ source: 'jpeg-loader' });
-  if (handled) {
-    reject(
-      new Error(
-        'HTTP 406: Not Acceptable — click Restart to load images with an alternate PACS format.'
-      )
-    );
-    return true;
-  }
-  return false;
+  reject(
+    new Error(
+      `HTTP ${_xhr?.status ?? 406}: ${getDataSourceFormatLabel('localviewer-image-jpeg')} is not supported for this study.`
+    )
+  );
+  return handled;
 }
 
 /** Remove legacy keys that caused permanent redirects (one-time cleanup). */
@@ -226,6 +282,6 @@ export function clear406FallbackPersistence() {
   if (typeof sessionStorage !== 'undefined') {
     sessionStorage.removeItem(SESSION_FLAG);
     sessionStorage.removeItem(SESSION_TARGET);
-    sessionStorage.removeItem(OVERLAY_SHOWN_KEY);
+    sessionStorage.removeItem(LEGACY_OVERLAY_SHOWN_KEY);
   }
 }

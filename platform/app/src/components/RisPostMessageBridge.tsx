@@ -79,8 +79,18 @@ function getAllowedOrigins(cfg?: RisPostMessageConfig | null): string[] {
   return (cfg?.allowedOrigins || []).filter(Boolean);
 }
 
+/** Once per page: re-running the effect (new appConfig object) must not re-announce. */
+let viewerReadyAnnounced = false;
+let risMessageReceived = false;
+
 function notifyRisViewerReady(allowedOrigins: string[]) {
   if (!allowedOrigins.length) return;
+
+  const shared = (window as Window & { postViewerReadyToRis?: () => void }).postViewerReadyToRis;
+  if (typeof shared === 'function') {
+    shared();
+    return;
+  }
 
   const payload = {
     source: MESSAGE_SOURCE_VIEWER,
@@ -152,11 +162,15 @@ export default function RisPostMessageBridge() {
     const authSessionEnabled = authCfg?.enabled !== false;
 
     let readyTimer: number | undefined;
-    let readyTimer2: number | undefined;
-    if (authSessionEnabled) {
+    if (authSessionEnabled && !viewerReadyAnnounced) {
+      viewerReadyAnnounced = true;
       notifyRisViewerReady(allowedOrigins);
-      readyTimer = window.setTimeout(() => notifyRisViewerReady(allowedOrigins), 500);
-      readyTimer2 = window.setTimeout(() => notifyRisViewerReady(allowedOrigins), 2000);
+      // One retry in case the RIS listener was not attached yet; skipped once RIS has replied.
+      readyTimer = window.setTimeout(() => {
+        if (!risMessageReceived) {
+          notifyRisViewerReady(allowedOrigins);
+        }
+      }, 2000);
     }
 
     const handler = (event: MessageEvent) => {
@@ -168,6 +182,7 @@ export default function RisPostMessageBridge() {
       if (!d || typeof d !== 'object' || d.source !== MESSAGE_SOURCE_RIS) {
         return;
       }
+      risMessageReceived = true;
 
       if (d.type === AUTH_SESSION) {
         if (!authSessionEnabled) return;
@@ -218,7 +233,6 @@ export default function RisPostMessageBridge() {
     window.addEventListener('message', handler);
     return () => {
       window.clearTimeout(readyTimer);
-      window.clearTimeout(readyTimer2);
       window.removeEventListener('message', handler);
     };
   }, [appConfig]);

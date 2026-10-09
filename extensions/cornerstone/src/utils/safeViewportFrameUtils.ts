@@ -9,7 +9,13 @@
  */
 
 import { Enums } from '@cornerstonejs/core';
-import { isStackFrameReady, pickSafeStackBindIndex } from './cineFrameLoadUtils';
+import {
+  ensureStackFrameLoaded,
+  isStackFrameReady,
+  pickSafeStackBindIndex,
+  prefetchStackFrame,
+} from './cineFrameLoadUtils';
+import { isAwaitingFirstImage } from './viewportFirstImageStore';
 
 type SetViewportFrameOptions = {
   viewportId?: string;
@@ -20,10 +26,15 @@ type SetViewportFrameOptions = {
   stackKey?: string | null;
 };
 
-function isViewportAlive(viewport: {
-  isDisabled?: boolean;
-  element?: HTMLElement;
-} | null | undefined): boolean {
+function isViewportAlive(
+  viewport:
+    | {
+        isDisabled?: boolean;
+        element?: HTMLElement;
+      }
+    | null
+    | undefined
+): boolean {
   return Boolean(viewport && !viewport.isDisabled && viewport.element);
 }
 
@@ -75,6 +86,43 @@ function getViewportStackKey(viewport): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * True once the viewport has painted the first image of its current stack
+ * and, unless `allowSwapInFlight`, no frame swap is pending. Calling
+ * setImageIdIndex before that cancels the pending load and leaves the tile
+ * black with only its overlay showing.
+ */
+function hasViewportPaintedFirstImage(
+  viewport,
+  { allowSwapInFlight = false }: { allowSwapInFlight?: boolean } = {}
+): boolean {
+  if (!isViewportAlive(viewport) || isAwaitingFirstImage(viewport.id)) {
+    return false;
+  }
+
+  try {
+    const image =
+      typeof viewport.getCornerstoneImage === 'function'
+        ? viewport.getCornerstoneImage()
+        : viewport.csImage;
+
+    if (!image) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  if (allowSwapInFlight) {
+    return true;
+  }
+
+  const status = viewport.viewportStatus;
+  const rendered = Enums.ViewportStatus?.RENDERED;
+
+  return status == null || rendered == null || status === rendered;
 }
 
 function resolveLiveViewport(viewport, options?: SetViewportFrameOptions) {
@@ -172,8 +220,7 @@ async function setViewportFrameIndexAsync(
   const clamped = Math.max(0, Math.min(frameCount - 1, Math.round(imageIndex)));
 
   try {
-    const imageIds =
-      typeof live.getImageIds === 'function' ? live.getImageIds() ?? [] : [];
+    const imageIds = typeof live.getImageIds === 'function' ? (live.getImageIds() ?? []) : [];
 
     if (!isStackFrameReady(imageIds[clamped])) {
       return false;
@@ -203,20 +250,24 @@ function setViewportFrameIndexById(
   viewportId: string,
   imageIndex: number
 ): boolean {
-  return setViewportFrameIndex(getAliveViewport(cornerstoneViewportService, viewportId), imageIndex);
+  return setViewportFrameIndex(
+    getAliveViewport(cornerstoneViewportService, viewportId),
+    imageIndex
+  );
 }
 
 function recoverBlankStackViewport(cornerstoneViewportService, viewportId: string): boolean {
   const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
   const frameCount = getViewportFrameCount(viewport);
 
-  if (!viewport || frameCount < 1) {
+  // A second setStack while the bind's first frame is loading cancels it.
+  if (!viewport || frameCount < 1 || isAwaitingFirstImage(viewportId)) {
     return false;
   }
 
   try {
     const imageIds =
-      typeof viewport.getImageIds === 'function' ? viewport.getImageIds() ?? [] : [];
+      typeof viewport.getImageIds === 'function' ? (viewport.getImageIds() ?? []) : [];
     const current = getViewportFrameIndex(viewport);
     const status = viewport.viewportStatus;
     const rendered =
@@ -231,17 +282,19 @@ function recoverBlankStackViewport(cornerstoneViewportService, viewportId: strin
       return true;
     }
 
-    const firstReady = imageIds.findIndex(imageId => isStackFrameReady(imageId));
-    const target = currentReady ? current : firstReady;
+    // Recover onto the current frame or frame 1 only — any other cached frame is
+    // usually the study browser's middle-frame thumbnail, and cine would loop from there.
+    const target = currentReady ? current : isStackFrameReady(imageIds[0]) ? 0 : -1;
 
     if (target < 0) {
+      prefetchStackFrame(imageIds[current]);
       viewport.resize?.();
       viewport.render?.();
       return false;
     }
 
     if (!hasPixels && typeof viewport.setStack === 'function') {
-      const bindIndex = pickSafeStackBindIndex(imageIds, target);
+      const bindIndex = pickSafeStackBindIndex(imageIds, target, { allowAnyReadyFallback: false });
       void Promise.resolve(viewport.setStack(imageIds, bindIndex)).catch(() => undefined);
       viewport.resize?.();
       return true;
@@ -260,6 +313,52 @@ function recoverBlankStackViewport(cornerstoneViewportService, viewportId: strin
   }
 }
 
+function viewportLacksPixels(viewport): boolean {
+  if (!viewport.csImage) {
+    return true;
+  }
+  if (viewport.useCPURendering) {
+    return false;
+  }
+  // A failed allocation leaves no vtk image data behind csImage (later: "reading 'setOrigin'").
+  return viewport._imageData == null;
+}
+
+/**
+ * Repaint a stack tile that has a stack but no image (its frame failed to
+ * decode, e.g. out of memory, or was dropped while the tab was hidden):
+ * reload the current frame, then bind it. Resolves true when the tile was repaired.
+ */
+async function restoreStackViewportImage(viewport): Promise<boolean> {
+  if (!isViewportAlive(viewport) || typeof viewport.setStack !== 'function') {
+    return false;
+  }
+
+  const imageIds: string[] =
+    typeof viewport.getImageIds === 'function' ? (viewport.getImageIds() ?? []) : [];
+
+  if (!imageIds.length || isAwaitingFirstImage(viewport.id) || !viewportLacksPixels(viewport)) {
+    return false;
+  }
+
+  const stackKey = getViewportStackKey(viewport);
+  const index = Math.max(0, Math.min(imageIds.length - 1, getViewportFrameIndex(viewport)));
+  const ready = await ensureStackFrameLoaded(imageIds[index]);
+
+  // The tile may have moved to another stack (paging) while the frame loaded.
+  if (!ready || !isViewportAlive(viewport) || getViewportStackKey(viewport) !== stackKey) {
+    return false;
+  }
+
+  try {
+    await viewport.setStack(imageIds, index);
+    viewport.render?.();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function recoverLayoutStackViewports(cornerstoneViewportService, viewportIds: string[]): void {
   (viewportIds || []).forEach(viewportId => {
     recoverBlankStackViewport(cornerstoneViewportService, viewportId);
@@ -271,11 +370,12 @@ export {
   getViewportFrameCount,
   getViewportFrameIndex,
   getViewportStackKey,
+  hasViewportPaintedFirstImage,
   isViewportAlive,
   recoverBlankStackViewport,
   recoverLayoutStackViewports,
+  restoreStackViewportImage,
   setViewportFrameIndex,
   setViewportFrameIndexAsync,
   setViewportFrameIndexById,
 };
-

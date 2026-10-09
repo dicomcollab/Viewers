@@ -54,6 +54,10 @@ import {
 } from './utils/usFrameDistributionStore';
 import { getStudyPanelNavigationOrder } from './utils/studyPanelNavigationOrder';
 import {
+  installDicomTagBrowserHotkey,
+  uninstallDicomTagBrowserHotkey,
+} from './utils/dicomTagBrowserHotkey';
+import {
   getDisplaySetsInStudyPanelOrder,
   syncViewportGridToStudyPanelOrder,
 } from './utils/syncViewportGridToStudyPanelOrder';
@@ -64,7 +68,11 @@ const defaultExtension: Types.Extensions.Extension = {
    */
   id,
   preRegistration,
+  onModeEnter({ servicesManager, commandsManager }) {
+    installDicomTagBrowserHotkey(commandsManager, servicesManager);
+  },
   onModeExit() {
+    uninstallDicomTagBrowserHotkey();
     useViewportGridStore.getState().clearViewportGridState();
     useUIStateStore.getState().clearUIState();
     useDisplaySetSelectorStore.getState().clearDisplaySetSelectorMap();

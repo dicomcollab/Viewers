@@ -4,6 +4,7 @@ import {
 } from './safeViewportFrameUtils';
 import { buildUsBatchNavigationInfo, getUsSeriesPositionInStudy } from './usBatchNavigationUtils';
 import { isMultiframeStackDisplaySet } from './cineSyncUtils';
+import { getCinePlayhead } from './cinePlayheadStore';
 
 type UsStackCineInfo = {
   viewportId: string;
@@ -70,7 +71,9 @@ function buildUsStackCineInfo({
 
   const numFrames = Number(displaySet.numImageFrames) || 0;
   const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
-  const currentIndex = getViewportFrameIndex(viewport);
+  // While cine plays, the bar follows the timeline (same as the viewport overlay),
+  // including frames still downloading that the tile shows empty.
+  const currentIndex = getCinePlayhead(viewportId)?.index ?? getViewportFrameIndex(viewport);
 
   const batchInfo = servicesManager ? buildUsBatchNavigationInfo(servicesManager) : null;
   const seriesPosition = servicesManager

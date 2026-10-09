@@ -39,7 +39,7 @@ const RowComponent = ({
     <div
       style={{ ...style, ...rowStyle }}
       className={classNames(
-        'hover:bg-secondary-main border-secondary-light text-foreground flex w-full flex-row items-center break-all bg-black text-base transition duration-300',
+        'hover:bg-secondary-main border-secondary-light flex w-full flex-row items-center break-all bg-black text-base text-white transition duration-300',
         lineHeightClassName
       )}
       key={keyPrefix}
@@ -293,7 +293,7 @@ function DicomTagTable({ rows }: { rows: Row[] }) {
             itemCount={visibleRows.length}
             itemSize={getItemSize(visibleRows)}
             width={'100%'}
-            className="ohif-scrollbar text-foreground"
+            className="ohif-scrollbar text-white"
           >
             {getRowComponent({ rows: visibleRows })}
           </List>

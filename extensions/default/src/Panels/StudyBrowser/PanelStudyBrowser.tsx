@@ -303,19 +303,73 @@ function PanelStudyBrowser({
     [studyPrefetcherService]
   );
 
-  // Subscribe to instance load progress (prefetcher + viewport loads) for study panel progress bar
+  const [studyProgressVersion, setStudyProgressVersion] = useState(0);
+
+  const handlePrefetchStudy = useCallback(
+    StudyInstanceUID => {
+      if (!StudyInstanceUID || !studyPrefetcherService?.prefetchStudy) {
+        return;
+      }
+      setStudyProgressVersion(version => version + 1);
+      void studyPrefetcherService
+        .prefetchStudy(StudyInstanceUID)
+        .finally(() => setStudyProgressVersion(version => version + 1));
+    },
+    [studyPrefetcherService]
+  );
+
+  // Instance download progress (user preload / study prefetch, and the series a
+  // viewport is downloading) is shown on the study panel thumbnails.
   useEffect(() => {
     if (!studyPrefetcherService?.subscribe) return;
+    let studyProgressTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleStudyProgressRefresh = () => {
+      if (studyProgressTimer) {
+        return;
+      }
+      studyProgressTimer = setTimeout(() => {
+        studyProgressTimer = null;
+        setStudyProgressVersion(version => version + 1);
+      }, 250);
+    };
     const subProgress = studyPrefetcherService.subscribe(
       studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_PROGRESS,
-      ({ displaySetInstanceUID, numInstances, loadingProgress, showStudyPanelProgress }) => {
-        if (!showStudyPanelProgress) {
-          return;
+      ({ displaySetInstanceUID, numInstances, loadingProgress, showStudyPanelProgress, failed }) => {
+        const isComplete = loadingProgress != null && loadingProgress >= 1 && !(failed > 0);
+        if (showStudyPanelProgress || isComplete) {
+          scheduleStudyProgressRefresh();
         }
-        setDisplaySetsLoadingState(prev => ({
-          ...prev,
-          [displaySetInstanceUID]: { loadingProgress, numInstances, showStudyPanelProgress: true },
-        }));
+        setDisplaySetsLoadingState(prev => {
+          const existing = prev[displaySetInstanceUID];
+          // Only series the panel is (or was) showing progress for, or that just
+          // finished downloading; others would re-render per image.
+          if (!existing && !showStudyPanelProgress && !isComplete) {
+            return prev;
+          }
+          if (loadingProgress == null && !showStudyPanelProgress) {
+            const next = { ...prev };
+            delete next[displaySetInstanceUID];
+            return next;
+          }
+          if (
+            existing &&
+            existing.loadingProgress === loadingProgress &&
+            existing.numInstances === numInstances &&
+            existing.showStudyPanelProgress === Boolean(showStudyPanelProgress) &&
+            existing.failed === (failed ?? 0)
+          ) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [displaySetInstanceUID]: {
+              loadingProgress,
+              numInstances,
+              showStudyPanelProgress: Boolean(showStudyPanelProgress),
+              failed: failed ?? 0,
+            },
+          };
+        });
       }
     );
     const subComplete = studyPrefetcherService.subscribe(
@@ -324,11 +378,7 @@ function PanelStudyBrowser({
         if (!showStudyPanelProgress) {
           return;
         }
-        setDisplaySetsLoadingState(prev => {
-          const next = { ...prev };
-          delete next[displaySetInstanceUID];
-          return next;
-        });
+        setStudyProgressVersion(version => version + 1);
         setPrefetchProgressTrackByUid(prev => {
           if (!prev[displaySetInstanceUID]) {
             return prev;
@@ -340,6 +390,9 @@ function PanelStudyBrowser({
       }
     );
     return () => {
+      if (studyProgressTimer) {
+        clearTimeout(studyProgressTimer);
+      }
       subProgress?.unsubscribe?.();
       subComplete?.unsubscribe?.();
     };
@@ -586,6 +639,7 @@ function PanelStudyBrowser({
               loadingProgress: p.loadingProgress,
               numInstances: p.numInstances,
               showStudyPanelProgress: p.showStudyPanelProgress,
+              failed: p.failed ?? 0,
             };
           }
         }
@@ -734,6 +788,19 @@ function PanelStudyBrowser({
   ]);
 
   const tabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
+
+  const studyDownloadProgressByUID = useMemo(() => {
+    if (!studyPrefetcherService?.getStudyDownloadProgress) {
+      return {};
+    }
+    const progressByUID = {};
+    studyDisplayList.forEach(study => {
+      progressByUID[study.studyInstanceUid] = studyPrefetcherService.getStudyDownloadProgress(
+        study.studyInstanceUid
+      );
+    });
+    return progressByUID;
+  }, [studyPrefetcherService, studyDisplayList, displaySets, studyProgressVersion]);
 
   // Keep PgUp/PgDn in sync with whatever the panel is actually rendering
   useEffect(() => {
@@ -930,6 +997,8 @@ function PanelStudyBrowser({
           onPrefetchDisplaySet={
             studyPrefetcherService?.prefetchDisplaySet ? handlePrefetchDisplaySet : undefined
           }
+          onPrefetchStudy={studyPrefetcherService?.prefetchStudy ? handlePrefetchStudy : undefined}
+          studyDownloadProgressByUID={studyDownloadProgressByUID}
           showSettings={actionIcons.find(icon => icon.id === 'settings')?.value}
           viewPresets={viewPresets}
           ThumbnailMenuItems={thumbnailMenuItems}
@@ -1063,6 +1132,7 @@ function _mapDisplaySets(
       const showStudyPanelProgress = Boolean(
         typeof raw === 'object' && raw != null && raw.showStudyPanelProgress
       );
+      const failedInstances = typeof raw === 'object' && raw != null ? raw.failed ?? 0 : 0;
       const isLayoutLoading = layoutLoadingUIDs.has(displaySetInstanceUID);
 
       array.push({
@@ -1096,6 +1166,7 @@ function _mapDisplaySets(
         numInstances: loadingNumInstances ?? ds.numImageFrames,
         loadingProgress,
         showStudyPanelProgress,
+        failedInstances,
         isLayoutLoading,
         countIcon: ds.countIcon,
         messages: ds.messages,
@@ -1134,7 +1205,10 @@ function getImageIdForThumbnail(displaySet, imageIds) {
     const middleTimePointImageIds = timePoints[middleIndex];
     imageId = middleTimePointImageIds[Math.floor(middleTimePointImageIds.length / 2)];
   } else if (imageIds?.length) {
-    imageId = imageIds[Math.floor(imageIds.length / 2)];
+    // US clips open on frame 1; using it here means the thumbnail download is
+    // also the viewport's first frame (same cache entry), so the tile paints instantly.
+    const index = displaySet.Modality === 'US' ? 0 : Math.floor(imageIds.length / 2);
+    imageId = imageIds[index];
   }
   return imageId ? normalizeJpegImageId(imageId) : imageId;
 }

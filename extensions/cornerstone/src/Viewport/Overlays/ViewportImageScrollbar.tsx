@@ -5,6 +5,7 @@ import { ImageScrollbar } from '@ohif/ui-next';
 import { restartPlayingCineClips } from '../../utils/usCinePlaybackUtils';
 import { rememberUsViewportFrame } from '../../utils/usInstanceFrameState';
 import { getAliveViewport, setViewportFrameIndex } from '../../utils/safeViewportFrameUtils';
+import { getCinePlayhead, subscribeCinePlayhead } from '../../utils/cinePlayheadStore';
 
 function CornerstoneImageScrollbar({
   viewportData,
@@ -18,6 +19,16 @@ function CornerstoneImageScrollbar({
   element: HTMLElement;
 }>) {
   const { cineService, cornerstoneViewportService } = servicesManager.services;
+
+  const setSliceData = (imageIndex: number, numberOfSlices: number) => {
+    const index = Number.isFinite(imageIndex) ? imageIndex : 0;
+    const total = Number.isFinite(numberOfSlices) && numberOfSlices > 0 ? numberOfSlices : 1;
+    setImageSliceData(prev =>
+      prev?.imageIndex === index && prev?.numberOfSlices === total
+        ? prev
+        : { imageIndex: index, numberOfSlices: total }
+    );
+  };
 
   const onImageScrollbarChange = (imageIndex, viewportId) => {
     const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
@@ -94,6 +105,13 @@ function CornerstoneImageScrollbar({
         return;
       }
       try {
+        // During cine the timeline owns the counter; a frame swap finishing
+        // late must not pull it back to an older frame.
+        const playhead = getCinePlayhead(viewportId);
+        if (playhead) {
+          setSliceData(playhead.index, playhead.total);
+          return;
+        }
         const { imageIndex, newImageIdIndex = imageIndex, imageIdIndex } = event.detail || {};
         const rawIndex = newImageIdIndex ?? imageIdIndex ?? imageIndex;
         const safeIndex = typeof rawIndex === 'number' && Number.isFinite(rawIndex) ? rawIndex : 0;
@@ -103,10 +121,7 @@ function CornerstoneImageScrollbar({
         } catch {
           numberOfSlices = 1;
         }
-        setImageSliceData({
-          imageIndex: safeIndex,
-          numberOfSlices,
-        });
+        setSliceData(safeIndex, numberOfSlices);
       } catch {
         // viewport may have undefined volume id after orientation change
       }
@@ -118,6 +133,32 @@ function CornerstoneImageScrollbar({
       element.removeEventListener(eventId, updateIndex);
     };
   }, [viewportData, element]);
+
+  // The counter shows the cine timeline frame, same as the cine bar: frames
+  // still downloading are shown empty and fire no STACK_NEW_IMAGE. When cine
+  // stops, fall back to the frame the viewport actually shows.
+  useEffect(() => {
+    return subscribeCinePlayhead((id, playhead) => {
+      if (id !== viewportId) {
+        return;
+      }
+
+      if (playhead) {
+        setSliceData(playhead.index, playhead.total);
+        return;
+      }
+
+      const viewport = getAliveViewport(cornerstoneViewportService, viewportId);
+      if (!viewport || typeof viewport.getCurrentImageIdIndex !== 'function') {
+        return;
+      }
+      try {
+        setSliceData(viewport.getCurrentImageIdIndex(), viewport.getNumberOfSlices?.() ?? 1);
+      } catch {
+        // Viewport torn down by a layout change.
+      }
+    });
+  }, [viewportId, setImageSliceData, cornerstoneViewportService]);
 
   return (
     <ImageScrollbar

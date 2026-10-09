@@ -108,6 +108,7 @@ export default function PanelStudyBrowserTracking({
         const showStudyPanelProgress = Boolean(
           typeof raw === 'object' && raw != null && raw.showStudyPanelProgress
         );
+        const failedInstances = typeof raw === 'object' && raw != null ? raw.failed ?? 0 : 0;
         const isLayoutLoading = layoutLoadingUIDs.has(displaySetInstanceUID);
 
         array.push({
@@ -139,6 +140,7 @@ export default function PanelStudyBrowserTracking({
           numInstances: ds.numImageFrames,
           loadingProgress,
           showStudyPanelProgress,
+          failedInstances,
           isLayoutLoading,
           countIcon: ds.countIcon,
           messages: ds.messages,

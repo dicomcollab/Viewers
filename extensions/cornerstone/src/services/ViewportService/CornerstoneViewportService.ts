@@ -11,6 +11,7 @@ import {
   cache,
   Enums as csEnums,
   BaseVolumeViewport,
+  getEnabledElement,
 } from '@cornerstonejs/core';
 
 import { utilities as csToolsUtils, Enums as csToolsEnums } from '@cornerstonejs/tools';
@@ -37,8 +38,12 @@ import { useLutPresentationStore } from '../../stores/useLutPresentationStore';
 import { usePositionPresentationStore } from '../../stores/usePositionPresentationStore';
 import { useSynchronizersStore } from '../../stores/useSynchronizersStore';
 import { useSegmentationPresentationStore } from '../../stores/useSegmentationPresentationStore';
-import { pickSafeStackBindIndex } from '../../utils/cineFrameLoadUtils';
+import { ensureStackFrameLoaded, pickSafeStackBindIndex } from '../../utils/cineFrameLoadUtils';
+import { beginFirstImageWait, endFirstImageWait } from '../../utils/viewportFirstImageStore';
+import { isUsMultiframeDisplaySet } from '../../utils/cineSyncUtils';
+import { isUsClipViewport } from '../../utils/usClipBufferStore';
 import { recoverBlankStackViewport } from '../../utils/safeViewportFrameUtils';
+import { isOutOfMemoryError, relieveMemoryPressure } from '../../utils/memoryPressure';
 import {
   resolveUsStackInitialImageIndex,
   scheduleUsInstanceFrameRestore,
@@ -61,7 +66,10 @@ function safeViewportRender(viewport: Types.IViewport | null | undefined): void 
   try {
     viewport.render();
   } catch (e) {
-    console.warn('[CornerstoneViewportService] viewport.render() failed (layout/series change can cause this):', e);
+    console.warn(
+      '[CornerstoneViewportService] viewport.render() failed (layout/series change can cause this):',
+      e
+    );
   }
 }
 
@@ -241,26 +249,78 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     this._gpuContextLossPending = true;
   }
 
-  private _anyRegisteredCanvasWebGlContextLost(): boolean {
-    for (const viewportInfo of this.viewportsById.values()) {
-      const el = viewportInfo.getElement?.();
-      if (!el) {
-        continue;
-      }
-      const canvases = el.querySelectorAll('canvas');
-      for (let i = 0; i < canvases.length; i++) {
-        const canvas = canvases[i] as HTMLCanvasElement;
-        const gl2 = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
-        if (gl2?.isContextLost?.()) {
-          return true;
-        }
-        const gl = canvas.getContext('webgl') as WebGLRenderingContext | null;
+  /**
+   * The context-pool engine renders in detached offscreen canvases, so their
+   * `webglcontextlost` events never reach the window listener; ask them directly.
+   */
+  private _anyRenderingEngineWebGlContextLost(): boolean {
+    const eng = this.renderingEngine as unknown as {
+      hasBeenDestroyed?: boolean;
+      contextPool?: { getAllContexts?: () => Array<{ context?: unknown }> };
+      offscreenMultiRenderWindow?: unknown;
+    } | null;
+    if (!eng || eng.hasBeenDestroyed) {
+      return false;
+    }
+    const windows: unknown[] = [];
+    try {
+      eng.contextPool?.getAllContexts?.()?.forEach(entry => windows.push(entry?.context));
+    } catch {
+      // pool unreadable — treat as not lost
+    }
+    if (eng.offscreenMultiRenderWindow) {
+      windows.push(eng.offscreenMultiRenderWindow);
+    }
+    for (const win of windows) {
+      try {
+        // getContext() returns the existing context; canvas.getContext() could create one.
+        const gl = (
+          win as {
+            getOpenGLRenderWindow?: () => { getContext?: () => WebGLRenderingContext | null };
+          }
+        )
+          ?.getOpenGLRenderWindow?.()
+          ?.getContext?.();
         if (gl?.isContextLost?.()) {
           return true;
         }
+      } catch {
+        // ignore unreadable context
       }
     }
     return false;
+  }
+
+  /**
+   * ContextPoolRenderingEngine.destroy() tears down its WebGL contexts before the
+   * base class unregisters the engine; when that teardown throws, the engine stays
+   * cached and un-flagged with deleted render windows, and every later
+   * enableElement fails. Finish the retirement so a fresh engine is created.
+   */
+  private _retireRenderingEngine(eng: unknown): void {
+    const engine = eng as {
+      hasBeenDestroyed?: boolean;
+      destroy?: () => void;
+      _clearAnimationFrame?: () => void;
+      _viewports?: Map<string, unknown>;
+    } | null;
+    if (!engine || engine.hasBeenDestroyed) {
+      return;
+    }
+    try {
+      engine.destroy?.();
+    } catch (e) {
+      console.warn('[CornerstoneViewportService] destroy() during GPU recovery failed:', e);
+    }
+    if (!engine.hasBeenDestroyed) {
+      try {
+        engine._clearAnimationFrame?.();
+      } catch {
+        // ignore
+      }
+      engine._viewports = new Map();
+      engine.hasBeenDestroyed = true;
+    }
   }
 
   private static _viewportTypeEnumToPublicString(viewportType: csEnums.ViewportType): string {
@@ -280,7 +340,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     }
   }
 
-  private static _blendModeEnumToPublicString(blendMode: csEnums.BlendModes | undefined): string | undefined {
+  private static _blendModeEnumToPublicString(
+    blendMode: csEnums.BlendModes | undefined
+  ): string | undefined {
     if (blendMode == null || blendMode === csEnums.BlendModes.COMPOSITE) {
       return undefined;
     }
@@ -332,26 +394,17 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
   }
 
   private async _recoverRenderingAfterWebGlContextLossInner(): Promise<void> {
-    const shouldRecover = this._gpuContextLossPending || this._anyRegisteredCanvasWebGlContextLost();
+    const shouldRecover = this._gpuContextLossPending || this._anyRenderingEngineWebGlContextLost();
     if (!shouldRecover) {
       return;
     }
     this._gpuContextLossPending = false;
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(
-        '[CornerstoneViewportService] WebGL context was lost (often from too many viewer tabs). Rebuilding the rendering engine.'
-      );
-    }
+    console.warn(
+      '[CornerstoneViewportService] WebGL context was lost (often from too many viewer tabs). Rebuilding the rendering engine.'
+    );
 
-    const eng = this.renderingEngine ?? getRenderingEngine(RENDERING_ENGINE_ID);
-    if (eng && typeof eng.destroy === 'function' && !eng.hasBeenDestroyed) {
-      try {
-        eng.destroy();
-      } catch (e) {
-        console.warn('[CornerstoneViewportService] destroy() during GPU recovery failed:', e);
-      }
-    }
+    this._retireRenderingEngine(this.renderingEngine ?? getRenderingEngine(RENDERING_ENGINE_ID));
     this.renderingEngine = null;
 
     const viewportIds = Array.from(this.viewportsById.keys());
@@ -377,7 +430,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
         // Cornerstone viewport may be unusable while the old GL context is invalid
       }
 
-      const publicViewportOptions = this._viewportOptionsToPublicForRecovery(viewportInfo.getViewportOptions());
+      const publicViewportOptions = this._viewportOptionsToPublicForRecovery(
+        viewportInfo.getViewportOptions()
+      );
       const publicDisplaySetOptions = this._displaySetOptionsToPublicForRecovery(
         viewportInfo.getDisplaySetOptions()
       );
@@ -392,7 +447,10 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
           false
         );
       } catch (e) {
-        console.warn(`[CornerstoneViewportService] GPU recovery failed for viewport ${viewportId}:`, e);
+        console.warn(
+          `[CornerstoneViewportService] GPU recovery failed for viewport ${viewportId}:`,
+          e
+        );
       }
     }
 
@@ -784,6 +842,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     this.viewportsById.set(viewportId, viewportInfo);
 
     const viewport = renderingEngine.getViewport(viewportId);
+    // enableElement cleared the canvas; stack binds resolve only once the first image is shown.
+    const firstImageWaitToken =
+      viewport instanceof StackViewport ? beginFirstImageWait(viewportId) : 0;
     try {
       const displaySetPromise = this._setDisplaySets(
         viewport,
@@ -793,7 +854,9 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       );
 
       await displaySetPromise;
+      endFirstImageWait(viewportId, firstImageWaitToken);
     } catch (error) {
+      endFirstImageWait(viewportId, firstImageWaitToken);
       if (allowWebGlSelfHeal && isLikelyWebGlContextError(error)) {
         this._gpuContextLossPending = true;
         await this.recoverRenderingAfterWebGlContextLoss();
@@ -1077,7 +1140,16 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     viewport.element.addEventListener(csEnums.Events.VIEWPORT_NEW_IMAGE_SET, evt => {
       const { element } = evt.detail;
 
-      if (element !== viewport.element) {
+      // The tile can be torn down (layout / page change) while setStack is still running.
+      if (element !== viewport.element || !getEnabledElement(element)) {
+        return;
+      }
+
+      // US clips are fully buffered in order by usClipBufferStore; stack prefetch
+      // would compete for the same connections and request frames out of order.
+      // Checked at event time because this listener outlives the stack it was added for.
+      if (isUsClipViewport(this.servicesManager, viewport.id)) {
+        csToolsUtils.stackContextPrefetch.disable(element);
         return;
       }
 
@@ -1099,22 +1171,21 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       initialImageIndexToUse = this._getInitialImageIndexForViewport(viewportInfo, imageIds) || 0;
     }
 
-    // US multiframe: bind a cached frame first so paging/layout does not
-    // setStack onto an uncached index while VTK is still tearing down actors
+    const displaySet = this.servicesManager.services.displaySetService.getDisplaySetByUID(
+      viewportData.data[0]?.displaySetInstanceUID
+    );
+    const isUsCine = isUsMultiframeDisplaySet(displaySet);
+
+    // US multiframe: setStack only onto a decoded frame so paging/layout does not
+    // bind an uncached index while VTK is still tearing down actors
     // (releaseGraphicsResources on null → black viewport). Restore SOP frame after.
     let restoredIndex: number | null = null;
     if (!referencedImageId) {
-      const { displaySetService } = this.servicesManager.services;
-      const displaySet = displaySetService.getDisplaySetByUID(
-        viewportData.data[0]?.displaySetInstanceUID
-      );
       restoredIndex = resolveUsStackInitialImageIndex(displaySet, imageIds?.length);
     }
 
-    const bindIndex = pickSafeStackBindIndex(
-      imageIds,
-      restoredIndex ?? initialImageIndexToUse
-    );
+    const preferredIndex = restoredIndex ?? initialImageIndexToUse;
+    let bindIndex = 0;
 
     const afterStackBound = () => {
       if (viewport.isDisabled) {
@@ -1155,16 +1226,83 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
       }
     };
 
-    return bindStack(bindIndex).then(afterStackBound, error => {
+    const preferredClamped = Math.max(
+      0,
+      Math.min(imageIds.length - 1, Math.round(Number(preferredIndex) || 0))
+    );
+    const targetFrameLoaded = isUsCine
+      ? ensureStackFrameLoaded(imageIds[preferredClamped])
+      : Promise.resolve(true);
+
+    /**
+     * setStack stores the imageIds before loading the bound frame and rejects when
+     * only that one download fails (network blip). Failing the whole bind then skips
+     * VIEWPORT_DATA_CHANGED, so cine, the clip download and the overlays never
+     * attach and the tile stays frozen. Keep the bind when the stack is in place;
+     * the frame paints once the clip download delivers it.
+     */
+    const completeBindDespiteFrameError = (error: unknown) => {
+      const boundImageIds =
+        typeof viewport.getImageIds === 'function' ? (viewport.getImageIds() ?? []) : [];
+      if (!boundImageIds.length || isLikelyWebGlContextError(error)) {
+        throw error;
+      }
+      console.warn(
+        `[CornerstoneViewportService] First frame of viewport ${viewport.id} failed to load; keeping the stack bound so playback and downloads continue.`,
+        error
+      );
+      runAfterStackBound();
+    };
+
+    const runAfterStackBound = () => {
+      try {
+        afterStackBound();
+      } catch (error) {
+        console.warn(
+          `[CornerstoneViewportService] Applying properties after binding viewport ${viewport.id} failed:`,
+          error
+        );
+      }
+    };
+
+    return targetFrameLoaded.then(() => {
+      // A newer setViewportData re-enabled this viewportId while we waited.
       if (viewport.isDisabled) {
         return;
       }
 
-      if (bindIndex !== 0) {
-        return bindStack(0).then(afterStackBound);
-      }
+      bindIndex = pickSafeStackBindIndex(imageIds, preferredIndex, {
+        allowAnyReadyFallback: !isUsCine,
+      });
 
-      throw error;
+      return bindStack(bindIndex).then(runAfterStackBound, error => {
+        if (viewport.isDisabled) {
+          return;
+        }
+
+        // Out of memory: free cached frames and bind the same frame again.
+        if (isOutOfMemoryError(error)) {
+          relieveMemoryPressure('stack bind');
+          return bindStack(bindIndex).then(runAfterStackBound, retryError => {
+            if (viewport.isDisabled) {
+              return;
+            }
+            completeBindDespiteFrameError(retryError);
+          });
+        }
+
+        if (bindIndex !== 0) {
+          bindIndex = 0;
+          return bindStack(0).then(runAfterStackBound, fallbackError => {
+            if (viewport.isDisabled) {
+              return;
+            }
+            completeBindDespiteFrameError(fallbackError);
+          });
+        }
+
+        completeBindDespiteFrameError(error);
+      });
     });
   }
 
@@ -1504,7 +1642,10 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     }
 
     if (viewport instanceof StackViewport) {
-      displaySetPromise = this._setStackViewport(viewport, viewportData, viewportInfo);
+      const firstImageWaitToken = beginFirstImageWait(viewportId);
+      displaySetPromise = this._setStackViewport(viewport, viewportData, viewportInfo).finally(() =>
+        endFirstImageWait(viewportId, firstImageWaitToken)
+      );
     }
 
     displaySetPromise.then(() => {

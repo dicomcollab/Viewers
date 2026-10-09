@@ -52,6 +52,8 @@ const initUserManager = (oidc, routerBasename) => {
 function LogoutComponent(props) {
   const { userManager } = props;
   localStorage.setItem('signoutEvent', 'true');
+  // Cached images are patient data; never leave them on the device after sign-out.
+  void (window as unknown as { clearOhifImageCache?: () => Promise<void> }).clearOhifImageCache?.();
   const location = useLocation();
   const query = new URLSearchParams(location.search);
   userManager.signoutRedirect({

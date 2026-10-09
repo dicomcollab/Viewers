@@ -6,17 +6,24 @@ import {
 } from './risRedirectConfig.js';
 import { syncImageNumberOfComponents } from './syncImageNumberOfComponents.js';
 import { ensureImagePreScale } from './ensureImagePreScale.js';
-import { handleJpegLoader406 } from './dataSource406Fallback.js';
+import { handleJpegLoader406, isUnsupportedFormatStatus } from './dataSource406Fallback.js';
 import { buildJpegUrlFromImageId } from './jpegWadoUriUtils';
+import { decodeJpegInWorker } from './jpegDecodeWorkerPool';
+import { getWadoUriFileCacheUrl } from './wadoUriCacheUrl';
+import {
+  getPersistentCachedArrayBuffer,
+  getPersistentCachedBlob,
+  isPersistentImageCacheEnabled,
+  setPersistentCachedImage,
+  toPersistentImageCacheKey,
+} from './persistentImageCache';
 
 export function isJpegWadoUriImageId(imageId) {
   if (!imageId || typeof imageId !== 'string') {
     return false;
   }
   const url = imageId.includes(':') ? imageId.substring(imageId.indexOf(':') + 1) : imageId;
-  return (
-    url.includes('contentType=image/jpeg') || url.includes('contentType=image%2Fjpeg')
-  );
+  return url.includes('contentType=image/jpeg') || url.includes('contentType=image%2Fjpeg');
 }
 
 function toDicomwebJpegImageId(imageId) {
@@ -44,8 +51,7 @@ function dispatchJPEGLoadProgress(imageId, progress, lengthComputable = true) {
 
 function isMultiframeImageId(imageId) {
   return (
-    typeof imageId === 'string' &&
-    (/&frame=\d+/i.test(imageId) || /\/frames\/\d+/i.test(imageId))
+    typeof imageId === 'string' && (/&frame=\d+/i.test(imageId) || /\/frames\/\d+/i.test(imageId))
   );
 }
 
@@ -57,13 +63,9 @@ function getDicomColorHints(imageId) {
   const pi = String(imagePixel.photometricInterpretation || '').toUpperCase();
 
   const forceColor =
-    samplesPerPixel >= 3 ||
-    pi.includes('RGB') ||
-    pi.includes('YBR') ||
-    pi === 'PALETTE COLOR';
+    samplesPerPixel >= 3 || pi.includes('RGB') || pi.includes('YBR') || pi === 'PALETTE COLOR';
 
-  const forceGrayscale =
-    samplesPerPixel === 1 && (pi === 'MONOCHROME1' || pi === 'MONOCHROME2');
+  const forceGrayscale = samplesPerPixel === 1 && (pi === 'MONOCHROME1' || pi === 'MONOCHROME2');
 
   return { modality, samplesPerPixel, photometricInterpretation: pi, forceColor, forceGrayscale };
 }
@@ -120,12 +122,19 @@ function isColorReportUrl(jpegUrl) {
 }
 
 /**
- * JPEG from WADO is always RGBA in canvas; only reduce to grayscale when clearly mono.
+ * Color decision inputs that do not need decoded pixels. Final rule:
+ * `preColor || detectedAsColor || !forceGrayscale` (also applied in the decode worker).
  */
-function shouldDecodeJpegAsColor(imageId, jpegUrl, imageData, width, height) {
+function getJpegColorPreference(imageId, jpegUrl) {
   const hints = getDicomColorHints(imageId);
-  const detectedAsColor = detectColorImage(imageData, width, height);
 
+  return {
+    preColor: isColorByContext(hints, imageId, jpegUrl),
+    forceGrayscale: hints.forceGrayscale,
+  };
+}
+
+function isColorByContext(hints, imageId, jpegUrl) {
   if (hints.forceColor) {
     return true;
   }
@@ -150,122 +159,145 @@ function shouldDecodeJpegAsColor(imageId, jpegUrl, imageData, width, height) {
     return true;
   }
 
-  if (isColorReportUrl(jpegUrl) || isFundusByUrl || isEchoByUrl || detectedAsColor) {
-    return true;
-  }
-
-  // Multiframe OT (e.g. OCT B-scans) stays grayscale when pixels are not color.
-  if (hints.forceGrayscale && !detectedAsColor) {
-    return false;
-  }
-
-  // Default: preserve JPEG color unless explicitly mono DICOM.
-  return !hints.forceGrayscale;
+  return isColorReportUrl(jpegUrl) || isFundusByUrl || isEchoByUrl;
 }
 
 /**
- * Process JPEG image and convert to Cornerstone format
+ * JPEG from WADO is always RGBA in canvas; only reduce to grayscale when clearly mono.
+ * Multiframe OT (e.g. OCT B-scans) stays grayscale when pixels are not color.
+ */
+function shouldDecodeJpegAsColor(colorPreference, imageData, width, height) {
+  return (
+    colorPreference.preColor ||
+    detectColorImage(imageData, width, height) ||
+    !colorPreference.forceGrayscale
+  );
+}
+
+function createCornerstoneJpegImage(imageId, { width, height, color, pixelData }) {
+  const samplesPerPixel = color ? 3 : 1;
+  const image = {
+    imageId: imageId,
+    minPixelValue: 0,
+    maxPixelValue: 255,
+    slope: 1,
+    intercept: 0,
+    windowCenter: 128,
+    windowWidth: 255,
+    getPixelData: () => pixelData,
+    rows: height,
+    columns: width,
+    height: height,
+    width: width,
+    color: color,
+    rgba: false,
+    columnPixelSpacing: 0.076923076923,
+    rowPixelSpacing: 0.076923076923,
+    invert: false,
+    sizeInBytes: pixelData.length,
+    photometricInterpretation: color ? 'RGB' : 'MONOCHROME2',
+    bitsAllocated: 8,
+    bitsStored: 8,
+    samplesPerPixel: samplesPerPixel,
+    numberOfComponents: samplesPerPixel,
+    planarConfiguration: 0,
+    pixelRepresentation: 0,
+  };
+
+  syncImageNumberOfComponents(image);
+  ensureImagePreScale(image);
+
+  return image;
+}
+
+let mainThreadDecodeCanvas = null;
+
+/**
+ * One shared canvas; its pixel buffer is freed (size 0) right after each decode
+ * instead of waiting for GC to collect a canvas per frame.
+ */
+function getMainThreadDecodeContext(width, height) {
+  mainThreadDecodeCanvas ??= document.createElement('canvas');
+  mainThreadDecodeCanvas.width = width;
+  mainThreadDecodeCanvas.height = height;
+  return mainThreadDecodeCanvas.getContext('2d', { willReadFrequently: true });
+}
+
+function releaseMainThreadDecodeCanvas() {
+  if (mainThreadDecodeCanvas) {
+    mainThreadDecodeCanvas.width = 0;
+    mainThreadDecodeCanvas.height = 0;
+  }
+}
+
+function decodeJpegOnMainThread(jpegBlob, colorPreference) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(jpegBlob);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const ctx = getMainThreadDecodeContext(img.width, img.height);
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, img.width, img.height);
+        releaseMainThreadDecodeCanvas();
+        const color = shouldDecodeJpegAsColor(colorPreference, imageData, img.width, img.height);
+        const pixelCount = imageData.width * imageData.height;
+        const pixelData = new Uint8Array(color ? pixelCount * 3 : pixelCount);
+
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          const pixelIndex = i / 4;
+          if (color) {
+            pixelData[pixelIndex * 3] = imageData.data[i];
+            pixelData[pixelIndex * 3 + 1] = imageData.data[i + 1];
+            pixelData[pixelIndex * 3 + 2] = imageData.data[i + 2];
+          } else {
+            pixelData[pixelIndex] = Math.round(
+              0.299 * imageData.data[i] +
+                0.587 * imageData.data[i + 1] +
+                0.114 * imageData.data[i + 2]
+            );
+          }
+        }
+
+        resolve({ width: img.width, height: img.height, color, pixelData });
+      } catch (error) {
+        releaseMainThreadDecodeCanvas();
+        reject(new Error(`Failed to process JPEG image: ${error.message}`));
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Failed to load JPEG image'));
+    };
+
+    img.src = objectUrl;
+  });
+}
+
+/**
+ * Process JPEG image and convert to Cornerstone format. Decodes in a worker when
+ * available so many frames arriving together do not block the UI thread.
  */
 async function processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject) {
-  const img = new Image();
+  try {
+    const colorPreference = getJpegColorPreference(imageId, jpegUrl);
+    const decoded =
+      (await decodeJpegInWorker(jpegBlob, colorPreference)) ??
+      (await decodeJpegOnMainThread(jpegBlob, colorPreference));
 
-  img.onload = () => {
-    try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+    const image = createCornerstoneJpegImage(imageId, decoded);
 
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      let pixelData, color, rgba, photometricInterpretation, samplesPerPixel, sizeInBytes;
-
-      const isColorImage = shouldDecodeJpegAsColor(
-        imageId,
-        jpegUrl,
-        imageData,
-        canvas.width,
-        canvas.height
-      );
-
-      if (isColorImage) {
-        // Convert RGBA to RGB for color images
-        pixelData = new Uint8Array(imageData.width * imageData.height * 3);
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          const pixelIndex = i / 4;
-          pixelData[pixelIndex * 3] = imageData.data[i]; // R
-          pixelData[pixelIndex * 3 + 1] = imageData.data[i + 1]; // G
-          pixelData[pixelIndex * 3 + 2] = imageData.data[i + 2]; // B
-        }
-        color = true;
-        rgba = false;
-        photometricInterpretation = 'RGB';
-        samplesPerPixel = 3;
-      } else {
-        // Convert to grayscale
-        pixelData = new Uint8Array(imageData.width * imageData.height);
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          const pixelIndex = i / 4;
-          pixelData[pixelIndex] = Math.round(
-            0.299 * imageData.data[i] +
-              0.587 * imageData.data[i + 1] +
-              0.114 * imageData.data[i + 2]
-          );
-        }
-        color = false;
-        rgba = false;
-        photometricInterpretation = 'MONOCHROME2';
-        samplesPerPixel = 1;
-      }
-
-      sizeInBytes = pixelData.length;
-
-      const image = {
-        imageId: imageId,
-        minPixelValue: 0,
-        maxPixelValue: 255,
-        slope: 1,
-        intercept: 0,
-        windowCenter: 128,
-        windowWidth: 255,
-        getPixelData: () => pixelData,
-        rows: img.height,
-        columns: img.width,
-        height: img.height,
-        width: img.width,
-        color: color,
-        rgba: rgba,
-        columnPixelSpacing: 0.076923076923,
-        rowPixelSpacing: 0.076923076923,
-        invert: false,
-        sizeInBytes: sizeInBytes,
-        photometricInterpretation: photometricInterpretation,
-        bitsAllocated: 8,
-        bitsStored: 8,
-        samplesPerPixel: samplesPerPixel,
-        numberOfComponents: samplesPerPixel,
-        planarConfiguration: 0,
-        pixelRepresentation: 0,
-      };
-
-      syncImageNumberOfComponents(image);
-      ensureImagePreScale(image);
-
-      // Mark this image is fully ready for UI loaders that rely on progress events.
-      // We don't get streaming progress from `fetch()` here, but we can guarantee completion.
-      dispatchJPEGLoadProgress(imageId, 1, true);
-      resolve(image);
-    } catch (error) {
-      reject(new Error(`Failed to process JPEG image: ${error.message}`));
-    }
-  };
-
-  img.onerror = () => {
-    reject(new Error('Failed to load JPEG image'));
-  };
-
-  img.src = URL.createObjectURL(jpegBlob);
+    // Mark this image is fully ready for UI loaders that rely on progress events.
+    // We don't get streaming progress from `fetch()` here, but we can guarantee completion.
+    dispatchJPEGLoadProgress(imageId, 1, true);
+    resolve(image);
+  } catch (error) {
+    reject(error instanceof Error ? error : new Error(String(error)));
+  }
 }
 // Get a cookie value by name (used for token or patientToken - both are sent to PACS WADO-URI)
 function getCookie(name) {
@@ -293,7 +325,14 @@ function getTokenFromCookie() {
     if (demoToken) return demoToken;
   }
   // Get token or patientToken from cookie (parent app may set either for PACS API)
-  return getCookie('token') || getCookie('patientToken') || getCookie('accessToken') || getCookie('authToken') || getCookie('jwt') || null;
+  return (
+    getCookie('token') ||
+    getCookie('patientToken') ||
+    getCookie('accessToken') ||
+    getCookie('authToken') ||
+    getCookie('jwt') ||
+    null
+  );
 }
 /**
  * Custom image loader for JPEG images from WADO-URI endpoints
@@ -302,8 +341,12 @@ function handleJpegLoader401(_xhr, reject) {
   const appConfig = window.config || {};
   const errorHandler = window.__OHIF_ERROR_HANDLER__;
   if (errorHandler && errorHandler._servicesManager) {
-    const userAuthenticationService = errorHandler._servicesManager?.services?.userAuthenticationService;
-    if (userAuthenticationService && typeof userAuthenticationService.handleUnauthenticated === 'function') {
+    const userAuthenticationService =
+      errorHandler._servicesManager?.services?.userAuthenticationService;
+    if (
+      userAuthenticationService &&
+      typeof userAuthenticationService.handleUnauthenticated === 'function'
+    ) {
       userAuthenticationService.handleUnauthenticated();
       if (isRedirectToRisOn401Enabled(appConfig)) {
         return true;
@@ -351,74 +394,104 @@ export function fetchJpegBlobFromImageId(imageId) {
   return requestJpegBlob(jpegUrl).promise;
 }
 
+/** Delays before re-sending after a network-level failure (connection reset, proxy drop). */
+const JPEG_NETWORK_RETRY_DELAYS_MS = [400, 1500];
+
 function requestJpegBlob(jpegUrl, { imageId, onProgress } = {}) {
   /** @type {XMLHttpRequest | undefined} */
   let xhr;
+  let cancelled = false;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let retryTimer;
+  /** @type {((reason?: unknown) => void) | undefined} */
+  let rejectPending;
 
   const promise = new Promise((resolve, reject) => {
-    const authHeader = buildJpegAuthHeader();
-    xhr = new XMLHttpRequest();
-    xhr.open('GET', jpegUrl, true);
-    xhr.responseType = 'blob';
-    xhr.setRequestHeader('Accept', 'image/jpeg');
-    xhr.setRequestHeader('Content-Type', 'image/jpeg');
-    if (authHeader) {
-      xhr.setRequestHeader('Authorization', authHeader);
-    }
+    rejectPending = reject;
+    const send = attempt => {
+      const authHeader = buildJpegAuthHeader();
+      xhr = new XMLHttpRequest();
+      xhr.open('GET', jpegUrl, true);
+      xhr.responseType = 'blob';
+      xhr.setRequestHeader('Accept', 'image/jpeg');
+      xhr.setRequestHeader('Content-Type', 'image/jpeg');
+      if (authHeader) {
+        xhr.setRequestHeader('Authorization', authHeader);
+      }
 
-    if (onProgress) {
-      xhr.onprogress = event => {
-        if (event.lengthComputable && event.total > 0) {
-          onProgress(Math.min(1, event.loaded / event.total));
+      if (onProgress) {
+        xhr.onprogress = event => {
+          if (event.lengthComputable && event.total > 0) {
+            onProgress(Math.min(1, event.loaded / event.total));
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        try {
+          if (xhr.status === 401) {
+            handleJpegLoader401(xhr, reject);
+            return;
+          }
+          if (isUnsupportedFormatStatus(xhr.status)) {
+            handleJpegLoader406(xhr, reject);
+            return;
+          }
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+            return;
+          }
+
+          const jpegBlob = xhr.response;
+          if (!jpegBlob || !(jpegBlob instanceof Blob)) {
+            reject(new Error('Invalid JPEG response'));
+            return;
+          }
+
+          if (imageId) {
+            dispatchJPEGLoadProgress(imageId, 1, true);
+          }
+
+          resolve(jpegBlob);
+        } catch (err) {
+          reject(err);
         }
       };
-    }
 
-    xhr.onload = () => {
-      try {
-        if (xhr.status === 401) {
-          handleJpegLoader401(xhr, reject);
+      xhr.onerror = () => {
+        if (!cancelled && attempt < JPEG_NETWORK_RETRY_DELAYS_MS.length) {
+          retryTimer = setTimeout(() => {
+            retryTimer = undefined;
+            if (cancelled) {
+              reject(new Error('Request aborted'));
+              return;
+            }
+            send(attempt + 1);
+          }, JPEG_NETWORK_RETRY_DELAYS_MS[attempt]);
           return;
         }
-        if (xhr.status === 406) {
-          handleJpegLoader406(xhr, reject);
-          return;
-        }
-        if (xhr.status < 200 || xhr.status >= 300) {
-          reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
-          return;
-        }
+        reject(new Error(`Network error loading JPEG (${jpegUrl})`));
+      };
 
-        const jpegBlob = xhr.response;
-        if (!jpegBlob || !(jpegBlob instanceof Blob)) {
-          reject(new Error('Invalid JPEG response'));
-          return;
-        }
+      xhr.onabort = () => {
+        reject(new Error('Request aborted'));
+      };
 
-        if (imageId) {
-          dispatchJPEGLoadProgress(imageId, 1, true);
-        }
-
-        resolve(jpegBlob);
-      } catch (err) {
-        reject(err);
-      }
+      xhr.send();
     };
 
-    xhr.onerror = () => {
-      reject(new Error('Network error loading JPEG'));
-    };
-
-    xhr.onabort = () => {
-      reject(new Error('Request aborted'));
-    };
-
-    xhr.send();
+    send(0);
   });
 
   return {
     promise,
     cancel: () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+        rejectPending?.(new Error('Request aborted'));
+      }
       if (xhr && xhr.readyState !== 4) {
         xhr.abort();
       }
@@ -428,14 +501,29 @@ function requestJpegBlob(jpegUrl, { imageId, onProgress } = {}) {
 
 function loadJPEGImage(imageId) {
   const jpegUrl = buildJpegUrlFromImageId(imageId);
-  const { promise, cancel } = requestJpegBlob(jpegUrl, {
-    imageId,
-    onProgress: progress => dispatchJPEGLoadProgress(imageId, progress, true),
-  });
+  let cancelled = false;
+  let cancelRequest = () => {};
 
   const imagePromise = (async () => {
     dispatchJPEGLoadProgress(imageId, 0, true);
-    const jpegBlob = await promise;
+
+    const cacheKey = toPersistentImageCacheKey(jpegUrl);
+    let jpegBlob = await getPersistentCachedBlob(cacheKey);
+
+    if (!jpegBlob) {
+      if (cancelled) {
+        throw new Error('Request aborted');
+      }
+
+      const request = requestJpegBlob(jpegUrl, {
+        imageId,
+        onProgress: progress => dispatchJPEGLoadProgress(imageId, progress, true),
+      });
+      cancelRequest = request.cancel;
+      jpegBlob = await request.promise;
+      void setPersistentCachedImage(cacheKey, jpegBlob);
+    }
+
     return new Promise((resolve, reject) => {
       processJPEGImage(jpegBlob, imageId, jpegUrl, resolve, reject);
     });
@@ -443,8 +531,64 @@ function loadJPEGImage(imageId) {
 
   return {
     promise: imagePromise,
-    cancel,
+    cancel: () => {
+      cancelled = true;
+      cancelRequest();
+    },
   };
+}
+
+/**
+ * dicomweb: (whole-file DICOM P10) through the persistent cache. Same flow as
+ * dicom-image-loader's wadouri.loadImage, but the file download step checks
+ * IndexedDB first and stores the bytes after a network fetch. One entry per
+ * instance file — frames are selected after parsing, so `frame` is not in the key.
+ */
+function loadDicomwebImageWithPersistentCache(imageId) {
+  const wadouri = dicomImageLoader?.wadouri;
+  const canUseCache =
+    isPersistentImageCacheEnabled() &&
+    typeof wadouri?.parseImageId === 'function' &&
+    typeof wadouri?.loadImageFromPromise === 'function' &&
+    typeof wadouri?.getLoaderForScheme === 'function' &&
+    wadouri?.dataSetCacheManager;
+
+  if (!canUseCache) {
+    return wadouri.loadImage(imageId);
+  }
+
+  const parsed = wadouri.parseImageId(imageId);
+  const networkLoader = wadouri.getLoaderForScheme(parsed.scheme);
+
+  if (!networkLoader || wadouri.dataSetCacheManager.isLoaded(parsed.url)) {
+    return wadouri.loadImage(imageId);
+  }
+
+  const cachingLoader = async (uri, requestImageId) => {
+    const cacheKey = toPersistentImageCacheKey(getWadoUriFileCacheUrl(uri));
+    const cached = await getPersistentCachedArrayBuffer(cacheKey);
+
+    if (cached) {
+      // Viewport download overlays finish on this event; a cache hit has no XHR.
+      window.dispatchEvent(
+        new CustomEvent('ohif:dicom-loader-xhr', {
+          detail: { phase: 'end', imageId: requestImageId, url: uri },
+        })
+      );
+      return cached;
+    }
+
+    const result = await networkLoader(uri, requestImageId);
+
+    if (result instanceof ArrayBuffer) {
+      void setPersistentCachedImage(cacheKey, result);
+    }
+
+    return result;
+  };
+
+  const dataSetPromise = wadouri.dataSetCacheManager.load(parsed.url, cachingLoader, imageId);
+  return wadouri.loadImageFromPromise(dataSetPromise, imageId, parsed.frame, parsed.url, {});
 }
 
 /**
@@ -454,7 +598,7 @@ function loadJPEGImage(imageId) {
 function wrapDicomwebLoaderForJpeg() {
   const dicomwebLoader =
     typeof dicomImageLoader?.wadouri?.loadImage === 'function'
-      ? imageId => dicomImageLoader.wadouri.loadImage(imageId)
+      ? loadDicomwebImageWithPersistentCache
       : null;
 
   imageLoader.registerImageLoader('dicomweb', imageId => {

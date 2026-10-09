@@ -58,7 +58,8 @@ function ViewportPane({
       onScroll={onInteractionHandler}
       onWheel={onInteractionHandler}
       className={classNames(
-        'group/pane relative h-full w-full overflow-hidden transition duration-300',
+        // isolate: z-indexes inside the tile (border, cine bar) must not rise above dialogs.
+        'group/pane relative isolate h-full w-full overflow-hidden transition duration-300',
         className
       )}
       style={customStyle}
@@ -67,7 +68,7 @@ function ViewportPane({
 
       {/* Border overlay */}
       <div
-        className={classNames('pointer-events-none absolute inset-0 rounded-md border', {
+        className={classNames('pointer-events-none absolute inset-0 z-[60] rounded-md border', {
           'border-highlight': isActive,
           'group-hover/pane:border-highlight/50 border-transparent': !isActive,
           '!border-secondary-light border-dashed': isHighlighted,

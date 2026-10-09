@@ -38,6 +38,7 @@ const Thumbnail = ({
   ThumbnailMenuItems = () => {},
   onPrefetchDisplaySet,
   showInstanceLoadProgressUi = true,
+  failedInstances = 0,
 }: withAppTypes): React.ReactNode => {
   const normalizedLoadingProgress =
     typeof loadingProgress === 'object' && loadingProgress != null
@@ -48,7 +49,7 @@ const Thumbnail = ({
     showInstanceLoadProgressUi &&
     ((normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading);
 
-  // Instance count + bar: show only for user-triggered preload (download click).
+  // Instance count + bar: user-triggered preload, or the series a viewport is downloading.
   const showUserPreloadProgress =
     Boolean(showStudyPanelProgress) &&
     numInstances != null &&
@@ -56,10 +57,13 @@ const Thumbnail = ({
     normalizedLoadingProgress < 1;
 
   // Show preload button when series is not fully downloaded. Thumbnail (first instance) loaded
-  // for display does not count as "downloaded" — only full series load does.
-  const isFullyLoaded = normalizedLoadingProgress != null && normalizedLoadingProgress >= 1;
+  // for display does not count as "downloaded" — only full series load does. While a download
+  // is running the live progress replaces it; failed instances bring it back as a retry.
+  const isFullyLoaded =
+    normalizedLoadingProgress != null && normalizedLoadingProgress >= 1 && !(failedInstances > 0);
   const supportsPreload = modality !== 'SR';
-  const showPrefetchButton = Boolean(onPrefetchDisplaySet) && supportsPreload && !isFullyLoaded;
+  const showPrefetchButton =
+    Boolean(onPrefetchDisplaySet) && supportsPreload && !isFullyLoaded && !showUserPreloadProgress;
 
   const handlePrefetchClick = e => {
     e.stopPropagation();
@@ -73,6 +77,18 @@ const Thumbnail = ({
       : null;
   const loadingPercent =
     normalizedLoadingProgress != null ? Math.round(normalizedLoadingProgress * 100) : null;
+
+  const renderProgressLabel = () => (
+    <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
+      {loadedCount != null ? (
+        <span>
+          {loadedCount}/{numInstances} ({loadingPercent}%)
+        </span>
+      ) : (
+        <span>Loading…</span>
+      )}
+    </div>
+  );
   // TODO: We should wrap our thumbnail to create a "DraggableThumbnail", as
   // this will still allow for "drag", even if there is no drop target for the
   // specified item.
@@ -173,18 +189,9 @@ const Thumbnail = ({
             </div>
           </div>
         </div>
-        {/* Instance load progress: user preload on the active series only */}
         {showUserPreloadProgress && (
           <div className="flex w-[128px] flex-col gap-[2px] px-1 pb-0.5">
-            <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
-              {loadedCount != null ? (
-                <span>
-                  {loadedCount}/{numInstances} ({loadingPercent}%)
-                </span>
-              ) : (
-                <span>Loading…</span>
-              )}
-            </div>
+            {renderProgressLabel()}
             <div className="bg-primary/20 h-1 w-full overflow-hidden rounded-full">
               <div
                 className="bg-primary-light h-full rounded-full transition-[width] duration-200"
@@ -353,15 +360,7 @@ const Thumbnail = ({
         </div>
         {showUserPreloadProgress && (
           <div className="flex w-full flex-col gap-[2px] px-2 pb-1">
-            <div className="text-primary-light flex items-center gap-1 text-[10px] font-medium">
-              {loadedCount != null ? (
-                <span>
-                  {loadedCount}/{numInstances} ({loadingPercent}%)
-                </span>
-              ) : (
-                <span>Loading…</span>
-              )}
-            </div>
+            {renderProgressLabel()}
             <div className="bg-primary/20 h-1 w-full overflow-hidden rounded-full">
               <div
                 className="bg-primary-light h-full rounded-full transition-[width] duration-200"
@@ -380,7 +379,8 @@ const Thumbnail = ({
     <div
       className={classnames(
         className,
-        'bg-muted hover:bg-primary/30 group box-border flex cursor-pointer select-none flex-col rounded border outline-none',
+        // scroll-mt clears the sticky study header when the panel scrolls a thumbnail into view.
+        'bg-muted hover:bg-primary/30 group box-border flex scroll-mt-[calc(var(--study-sticky-h,56px)_+_4px)] cursor-pointer select-none flex-col rounded border outline-none',
         viewPreset === 'thumbnails' && 'h-[190px] w-[135px]',
         viewPreset === 'list' && 'min-h-[40px] w-full',
         isActive ? 'border-white' : 'border-transparent'
@@ -434,6 +434,8 @@ Thumbnail.propTypes = {
   isLayoutLoading: PropTypes.bool,
   /** When false, hide the instance load progress bar (study browser still uses loadingProgress for preload state). */
   showInstanceLoadProgressUi: PropTypes.bool,
+  /** Instances/frames that failed to download (still retried in the background). */
+  failedInstances: PropTypes.number,
   messages: PropTypes.object,
   isActive: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,

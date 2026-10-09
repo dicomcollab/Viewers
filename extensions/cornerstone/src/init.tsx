@@ -28,6 +28,34 @@ import RequestTypes from '@cornerstonejs/core/enums/RequestType';
 import initWADOImageLoader from './initWADOImageLoader';
 import initCornerstoneTools from './initCornerstoneTools';
 
+/**
+ * cache.putImageLoadObject returns a promise that rethrows load errors, and
+ * loadAndCacheImage drops it — so every failed frame (network blip, 404) became
+ * an "Uncaught (in promise)" error. Failures are still reported through
+ * IMAGE_LOAD_FAILED and the caller's own promise; only the orphan is handled.
+ */
+function markImageCacheRejectionsHandled(): void {
+  const imageCache = cornerstone.cache as unknown as {
+    putImageLoadObject: (imageId: string, imageLoadObject: unknown) => Promise<void>;
+    __ohifRejectionsHandled?: boolean;
+  };
+  if (imageCache.__ohifRejectionsHandled) {
+    return;
+  }
+  const putImageLoadObject = imageCache.putImageLoadObject.bind(imageCache);
+  imageCache.putImageLoadObject = (imageId, imageLoadObject) => {
+    const promise = putImageLoadObject(imageId, imageLoadObject);
+    promise?.catch?.(error => {
+      // Decoding into a new buffer failed: free cached frames so the retry fits.
+      if (isOutOfMemoryError(error)) {
+        relieveMemoryPressure('image decode');
+      }
+    });
+    return promise;
+  };
+  imageCache.__ohifRejectionsHandled = true;
+}
+
 // Import image cache module to ensure it initializes early
 // This sets up window.__OHIF_IMAGE_CACHE__ before image loading starts
 try {
@@ -43,8 +71,17 @@ import { connectToolsToMeasurementService } from './initMeasurementService';
 import initCineService from './initCineService';
 import { initUsFrameDistribution } from './utils/usFrameDistributionUtils';
 import { initUsInstanceFrameState } from './utils/usInstanceFrameState';
+import { initUsClipBuffering } from './utils/usClipBufferStore';
 import patchStackViewportDestroyedGuard from './utils/patchStackViewportDestroyedGuard';
 import { isAbortedImageLoadError } from './utils/isAbortedImageLoadError';
+import {
+  installMemoryPressureManager,
+  isOutOfMemoryError,
+  onMemoryRestore,
+  relieveMemoryPressure,
+} from './utils/memoryPressure';
+import { restoreStackViewportImage } from './utils/safeViewportFrameUtils';
+import { installRenderLoopGuard } from './utils/renderLoopGuard';
 import initStudyPrefetcherService from './initStudyPrefetcherService';
 import interleaveCenterLoader from './utils/interleaveCenterLoader';
 import nthLoader from './utils/nthLoader';
@@ -88,6 +125,7 @@ export default async function init({
   });
 
   patchStackViewportDestroyedGuard();
+  installRenderLoopGuard();
 
   // For debugging e2e tests that are failing on CI
   cornerstone.setUseCPURendering(Boolean(appConfig.useCPURendering));
@@ -100,11 +138,19 @@ export default async function init({
     },
   });
 
-  // For debugging large datasets, otherwise prefer the defaults
-  const { maxCacheSize } = appConfig;
-  if (maxCacheSize) {
-    cornerstone.cache.setMaxCacheSize(maxCacheSize);
-  }
+  // Device-sized cache budget (appConfig.maxCacheSize overrides it), trimmed in
+  // hidden tabs and after allocation failures so several open studies fit in memory.
+  installMemoryPressureManager({ configuredMaxCacheSize: appConfig.maxCacheSize });
+  onMemoryRestore(() => {
+    cornerstone.getRenderingEngines().forEach(engine => {
+      if (engine.hasBeenDestroyed) {
+        return;
+      }
+      engine.getViewports().forEach(viewport => {
+        void restoreStackViewportImage(viewport);
+      });
+    });
+  });
 
   initCornerstoneTools();
 
@@ -213,6 +259,8 @@ export default async function init({
     };
   }, 10000);
 
+  markImageCacheRejectionsHandled();
+
   // These are set reasonably low to allow for interleaved retrieves and slower
   // connections.
   imageLoadPoolManager.maxNumRequests = {
@@ -242,6 +290,7 @@ export default async function init({
 
   initCineService(servicesManager);
   initUsInstanceFrameState(servicesManager);
+  initUsClipBuffering(servicesManager);
   initUsFrameDistribution(servicesManager);
   initStudyPrefetcherService(servicesManager);
 

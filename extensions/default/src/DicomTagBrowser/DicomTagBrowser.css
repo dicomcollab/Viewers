@@ -54,3 +54,16 @@
 .dicom-tag-browser-dialog > button {
   color: white;
 }
+
+.dicom-tag-browser-dialog h2 {
+  color: #ffffff;
+}
+
+.dicom-tag-browser-dialog input,
+.dicom-tag-browser-dialog input::placeholder {
+  color: #ffffff;
+}
+
+.dicom-tag-browser-dialog input::placeholder {
+  opacity: 0.7;
+}

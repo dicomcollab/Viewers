@@ -95,10 +95,15 @@ function mergeMonotonicViewportByteProgress(
   incoming: number
 ): Record<string, number | null> {
   const cur = prev[viewportId];
-  if (typeof cur === 'number' && !Number.isNaN(cur) && incoming < cur) {
+  if (typeof cur === 'number' && !Number.isNaN(cur) && incoming <= cur) {
     return prev;
   }
   return { ...prev, [viewportId]: incoming };
+}
+
+/** Same object when the value is unchanged, so React skips the re-render. */
+function withRecordValue<T>(prev: Record<string, T>, key: string, value: T): Record<string, T> {
+  return prev[key] === value ? prev : { ...prev, [key]: value };
 }
 
 /**
@@ -265,6 +270,39 @@ function isStructuredReportDisplaySet(displaySet: any): boolean {
 
 function viewportHasOnlyStructuredReportDisplaySets(displaySets: any[]): boolean {
   return displaySets.length > 0 && displaySets.every(isStructuredReportDisplaySet);
+}
+
+/**
+ * Live check that the Cornerstone viewport has painted an image of this stack.
+ * The onFirstImageRendered flag can be reset after the paint already happened
+ * (display-set key change racing IMAGE_RENDERED), which used to leave the
+ * download skeleton over a visible image.
+ */
+function isViewportShowingStack(
+  cornerstoneViewportService: any,
+  viewportId: string,
+  stackImageIds: string[] | undefined
+): boolean {
+  if (!stackImageIds?.length) {
+    return false;
+  }
+
+  try {
+    const viewport = cornerstoneViewportService?.getCornerstoneViewport?.(viewportId);
+    const currentImageId = viewport?.getCurrentImageId?.();
+
+    if (!currentImageId || viewport?.viewportStatus !== 'rendered') {
+      return false;
+    }
+
+    const currentKey = normalizeImageIdForProgressMatch(currentImageId);
+    return stackImageIds.some(
+      imageId =>
+        imageId === currentImageId || normalizeImageIdForProgressMatch(imageId) === currentKey
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Match dicom-image-loader / Cornerstone imageId to the viewport showing that stack instance. */
@@ -729,7 +767,7 @@ function ViewerViewportGrid(props: withAppTypes) {
     displaySetService: null,
   });
 
-  const { displaySetService, hangingProtocolService, uiNotificationService, customizationService, studyPrefetcherService } =
+  const { displaySetService, hangingProtocolService, uiNotificationService, customizationService } =
     servicesManager.services;
 
   viewportsProgressRef.current = { viewports, displaySetService };
@@ -928,7 +966,6 @@ function ViewerViewportGrid(props: withAppTypes) {
     const dataSourceName = params.get('datasources') || '';
     return `${studyUIDs}|${dataSourceName}`;
   }, [location?.search]);
-  const [viewportLoadingState, setViewportLoadingState] = useState({});
   const [viewportFirstImageRenderedById, setViewportFirstImageRenderedById] = useState<Record<string, boolean>>({});
   const [viewportFirstImageDownloadedById, setViewportFirstImageDownloadedById] = useState<Record<string, boolean>>({});
   // User requirement: show the "Loading images..." overlay only for the initial
@@ -1004,9 +1041,9 @@ function ViewerViewportGrid(props: withAppTypes) {
       return { ...prev, [viewportId]: true };
     });
     markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
-    setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
-    setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
-    setViewportByteProgressById(prev => ({ ...prev, [viewportId]: 1 }));
+    setViewportInFlightById(prev => withRecordValue(prev, viewportId, false));
+    setViewportIsProgressComputableById(prev => withRecordValue(prev, viewportId, true));
+    setViewportByteProgressById(prev => withRecordValue(prev, viewportId, 1));
     setViewportLoadLoadedBytesById(prev => {
       const next = { ...prev };
       delete next[viewportId];
@@ -1135,6 +1172,20 @@ function ViewerViewportGrid(props: withAppTypes) {
   const viewportFirstTargetsRef = useRef(viewportFirstTargets);
   viewportFirstTargetsRef.current = viewportFirstTargets;
 
+  // First-image overlays also consult live viewport state, which emits no React
+  // update; re-render while any overlay is up so it clears as soon as the tile paints.
+  const firstImagePlaceholderVisibleRef = useRef(false);
+  const [, setFirstImagePlaceholderRecheck] = useState(0);
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (firstImagePlaceholderVisibleRef.current) {
+        setFirstImagePlaceholderRecheck(value => value + 1);
+      }
+    }, 300);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   // Key only by viewport + display set — do not include imageId. CornerstoneCacheService assigns
   // imageIds after first paint; including imageId caused a spurious reset that cleared download %.
   const viewportTargetKeyById = useMemo(() => {
@@ -1150,6 +1201,7 @@ function ViewerViewportGrid(props: withAppTypes) {
 
   const getViewportPanes = useCallback(() => {
     const viewportPanes = [];
+    firstImagePlaceholderVisibleRef.current = false;
 
     const numViewportPanes = viewportGridService.getNumViewportPanes();
     for (let i = 0; i < numViewportPanes; i++) {
@@ -1183,20 +1235,48 @@ function ViewerViewportGrid(props: withAppTypes) {
       // Show skeleton only before the first successful image render in this study scope.
       // After first render, suppress loader for all later layout switches (including advanced).
       const suppressLoaderAfterInitialRender = Boolean(hasRenderedAnyViewport);
-      const firstImageRendered = Boolean(viewportFirstImageRenderedById[viewportId]);
       const hasDisplaySetAssignment = Boolean(displaySetInstanceUIDsToUse.length);
-      const showViewportLoader =
-        hasDisplaySetAssignment &&
-        !isStructuredReportViewport &&
-        !suppressLoaderAfterInitialRender &&
-        !initialComplete &&
-        !firstImageRendered;
+      // Once this tile shows an image of its stack, no first-image overlay is needed:
+      // US clips report their own download progress inside the viewport.
+      const firstImageRendered =
+        Boolean(viewportFirstImageRenderedById[viewportId]) ||
+        isViewportShowingStack(
+          servicesManager.services.cornerstoneViewportService,
+          viewportId,
+          firstTarget?.stackImageIds
+        );
+      const needsFirstImagePlaceholder =
+        hasDisplaySetAssignment && !isStructuredReportViewport && !firstImageRendered;
+      const primaryDisplaySet: any = displaySets[0];
+      const isUsClip =
+        primaryDisplaySet?.Modality === 'US' && (firstTarget?.stackImageIds?.length ?? 0) > 1;
+      const thumbnailSrc =
+        typeof primaryDisplaySet?.thumbnailSrc === 'string' && primaryDisplaySet.thumbnailSrc
+          ? primaryDisplaySet.thumbnailSrc
+          : null;
 
-      const showInstanceBytesSkeleton =
-        hasDisplaySetAssignment &&
-        !isStructuredReportViewport &&
+      let showViewportLoader =
+        needsFirstImagePlaceholder && !suppressLoaderAfterInitialRender && !initialComplete;
+
+      let showInstanceBytesSkeleton =
+        needsFirstImagePlaceholder &&
         Boolean(viewportInFlightById[viewportId]) &&
         !viewportFirstInstanceDownloadSkeletonDoneById[viewportId];
+
+      // Thumbnail already downloaded: show it in place of any skeleton until the tile paints.
+      const showThumbnailPlaceholder =
+        needsFirstImagePlaceholder &&
+        Boolean(thumbnailSrc) &&
+        (showViewportLoader || showInstanceBytesSkeleton || isUsClip);
+
+      if (showThumbnailPlaceholder) {
+        showViewportLoader = false;
+        showInstanceBytesSkeleton = false;
+      }
+
+      if (showViewportLoader || showInstanceBytesSkeleton || showThumbnailPlaceholder) {
+        firstImagePlaceholderVisibleRef.current = true;
+      }
 
       const { component: ViewportComponent } = _getViewportComponent(
         displaySets,
@@ -1297,7 +1377,7 @@ function ViewerViewportGrid(props: withAppTypes) {
                 }
                 viewportFirstPaintedRef.current[viewportId] = true;
                 setHasRenderedAnyViewport(true);
-                setViewportFirstImageRenderedById(prev => ({ ...prev, [viewportId]: true }));
+                setViewportFirstImageRenderedById(prev => withRecordValue(prev, viewportId, true));
                 tryFinalizeFirstViewportOverlay(viewportId);
               }}
             />
@@ -1318,19 +1398,31 @@ function ViewerViewportGrid(props: withAppTypes) {
                 </div>
               </div>
             )}
-            {showInstanceBytesSkeleton && (
+            {showThumbnailPlaceholder && (
               <div
-                className="pointer-events-none absolute inset-0 z-[99] flex flex-col items-center justify-center bg-black/50"
+                className="pointer-events-none absolute inset-0 z-[99] flex items-center justify-center bg-black"
+                aria-busy="true"
+                aria-label="Loading image"
+              >
+                <img
+                  src={thumbnailSrc}
+                  alt=""
+                  draggable={false}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            )}
+            {showInstanceBytesSkeleton && (
+              // Compact and centred so it never runs into the cine bar at the bottom of the tile.
+              <div
+                className="pointer-events-none absolute inset-0 z-[99] flex items-center justify-center bg-black/50"
                 aria-busy="true"
                 aria-label="Downloading DICOM instance"
               >
-                <div className="w-[280px] space-y-3 px-4">
-                  <div className="mx-auto aspect-[4/3] w-full max-w-[240px] animate-pulse rounded-lg bg-primary-light/20" />
-                  <div className="space-y-2">
-                    <div className="mx-auto h-2.5 w-32 animate-pulse rounded bg-primary-light/30" />
-                    <div className="mx-auto h-2 w-44 animate-pulse rounded bg-primary-light/20" />
-                  </div>
-                  <p className="text-primary-light/90 text-center text-sm font-medium">
+                <div className="w-[180px] space-y-2 rounded-md bg-black/60 px-3 py-2">
+                  <div className="mx-auto h-2 w-28 animate-pulse rounded bg-primary-light/30" />
+                  <div className="mx-auto h-1.5 w-36 animate-pulse rounded bg-primary-light/20" />
+                  <p className="text-primary-light/90 text-center text-xs font-medium">
                     Downloading image…
                   </p>
                 </div>
@@ -1672,7 +1764,7 @@ function ViewerViewportGrid(props: withAppTypes) {
       for (const viewportId of matchingViewportIds) {
         if (done) {
           viewportFirstBytesCompleteRef.current[viewportId] = true;
-          setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportFirstImageDownloadedById(prev => withRecordValue(prev, viewportId, true));
           if (isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURLGate || undefined, viewportId, targets)) {
             markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
           }
@@ -1680,9 +1772,9 @@ function ViewerViewportGrid(props: withAppTypes) {
             loaderUiViewportIds.includes(viewportId) &&
             isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURLGate || undefined, viewportId, targets)
           ) {
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+            setViewportInFlightById(prev => withRecordValue(prev, viewportId, false));
           }
-          setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportIsProgressComputableById(prev => withRecordValue(prev, viewportId, true));
           setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, 1));
           tryFinalizeFirstViewportOverlayRef.current(viewportId);
           continue;
@@ -1694,15 +1786,14 @@ function ViewerViewportGrid(props: withAppTypes) {
             loaderUiViewportIds.includes(viewportId) &&
             !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
           ) {
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+            setViewportInFlightById(prev => withRecordValue(prev, viewportId, true));
           }
         }
-        setViewportIsProgressComputableById(prev => ({
-          ...prev,
-          [viewportId]: Boolean(lengthComputable || prev[viewportId]),
-        }));
+        setViewportIsProgressComputableById(prev =>
+          withRecordValue(prev, viewportId, Boolean(lengthComputable || prev[viewportId]))
+        );
         if (xhrLoaded != null && xhrLoaded > 0) {
-          setViewportLoadLoadedBytesById(prev => ({ ...prev, [viewportId]: xhrLoaded }));
+          setViewportLoadLoadedBytesById(prev => withRecordValue(prev, viewportId, xhrLoaded));
         }
         if (typeof progress === 'number' && !Number.isNaN(progress)) {
           const clamped = Math.max(0, Math.min(1, progress));
@@ -1720,7 +1811,7 @@ function ViewerViewportGrid(props: withAppTypes) {
           setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, clamped));
           if (clamped >= 1) {
             viewportFirstBytesCompleteRef.current[viewportId] = true;
-            setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+            setViewportFirstImageDownloadedById(prev => withRecordValue(prev, viewportId, true));
             if (isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURL || undefined, viewportId, targets)) {
               markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
             }
@@ -1728,7 +1819,7 @@ function ViewerViewportGrid(props: withAppTypes) {
               loaderUiViewportIds.includes(viewportId) &&
               isLikelyPrimaryInstanceBytesDelivery(requestUrl, responseURL || undefined, viewportId, targets)
             ) {
-              setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+              setViewportInFlightById(prev => withRecordValue(prev, viewportId, false));
             }
             tryFinalizeFirstViewportOverlayRef.current(viewportId);
           }
@@ -1821,7 +1912,7 @@ function ViewerViewportGrid(props: withAppTypes) {
             loaderUiViewportIds.includes(viewportId) &&
             !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
           ) {
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+            setViewportInFlightById(prev => withRecordValue(prev, viewportId, true));
           }
         }
         return;
@@ -1856,7 +1947,7 @@ function ViewerViewportGrid(props: withAppTypes) {
 
         for (const viewportId of matchingViewportIds) {
           if (loaded > 0) {
-            setViewportLoadLoadedBytesById(prev => ({ ...prev, [viewportId]: loaded }));
+            setViewportLoadLoadedBytesById(prev => withRecordValue(prev, viewportId, loaded));
           }
           if (isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
             viewportFirstEverInFlightRef.current[viewportId] = true;
@@ -1864,20 +1955,19 @@ function ViewerViewportGrid(props: withAppTypes) {
               loaderUiViewportIds.includes(viewportId) &&
               !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
             ) {
-              setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+              setViewportInFlightById(prev => withRecordValue(prev, viewportId, true));
             }
           }
-          setViewportIsProgressComputableById(prev => ({
-            ...prev,
-            [viewportId]: Boolean(lengthComputable || prev[viewportId]),
-          }));
+          setViewportIsProgressComputableById(prev =>
+            withRecordValue(prev, viewportId, Boolean(lengthComputable || prev[viewportId]))
+          );
           if (typeof progress === 'number' && !Number.isNaN(progress)) {
             setViewportByteProgressById(prev =>
               mergeMonotonicViewportByteProgress(prev, viewportId, progress)
             );
             if (progress >= 1) {
               viewportFirstBytesCompleteRef.current[viewportId] = true;
-              setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+              setViewportFirstImageDownloadedById(prev => withRecordValue(prev, viewportId, true));
               if (isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
                 markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
               }
@@ -1885,7 +1975,7 @@ function ViewerViewportGrid(props: withAppTypes) {
                 loaderUiViewportIds.includes(viewportId) &&
                 isViewportPrimaryStackImageId(imageId, viewportId, targets)
               ) {
-                setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+                setViewportInFlightById(prev => withRecordValue(prev, viewportId, false));
               }
               tryFinalizeFirstViewportOverlayRef.current(viewportId);
             }
@@ -1908,7 +1998,7 @@ function ViewerViewportGrid(props: withAppTypes) {
         });
         for (const viewportId of matchingViewportIds) {
           viewportFirstBytesCompleteRef.current[viewportId] = true;
-          setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportFirstImageDownloadedById(prev => withRecordValue(prev, viewportId, true));
           if (isViewportPrimaryStackImageId(imageId, viewportId, targets)) {
             markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
           }
@@ -1916,9 +2006,9 @@ function ViewerViewportGrid(props: withAppTypes) {
             loaderUiViewportIds.includes(viewportId) &&
             isViewportPrimaryStackImageId(imageId, viewportId, targets)
           ) {
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+            setViewportInFlightById(prev => withRecordValue(prev, viewportId, false));
           }
-          setViewportIsProgressComputableById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportIsProgressComputableById(prev => withRecordValue(prev, viewportId, true));
           setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, 1));
           tryFinalizeFirstViewportOverlayRef.current(viewportId);
         }
@@ -1958,12 +2048,12 @@ function ViewerViewportGrid(props: withAppTypes) {
         const primary = isViewportPrimaryStackImageId(imageId, viewportId, targets);
         if (clamped >= 1) {
           viewportFirstBytesCompleteRef.current[viewportId] = true;
-          setViewportFirstImageDownloadedById(prev => ({ ...prev, [viewportId]: true }));
+          setViewportFirstImageDownloadedById(prev => withRecordValue(prev, viewportId, true));
           if (primary) {
             markViewportFirstInstanceSkeletonDoneRef.current(viewportId);
           }
           if (primary && loaderUiViewportIds.includes(viewportId)) {
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: false }));
+            setViewportInFlightById(prev => withRecordValue(prev, viewportId, false));
           }
           tryFinalizeFirstViewportOverlayRef.current(viewportId);
         } else if (primary) {
@@ -1972,15 +2062,14 @@ function ViewerViewportGrid(props: withAppTypes) {
             loaderUiViewportIds.includes(viewportId) &&
             !viewportFirstInstanceSkeletonLatchRef.current[viewportId]
           ) {
-            setViewportInFlightById(prev => ({ ...prev, [viewportId]: true }));
+            setViewportInFlightById(prev => withRecordValue(prev, viewportId, true));
           }
         }
 
         setViewportByteProgressById(prev => mergeMonotonicViewportByteProgress(prev, viewportId, clamped));
-        setViewportIsProgressComputableById(prev => ({
-          ...prev,
-          [viewportId]: Boolean(lengthComputable || prev[viewportId]),
-        }));
+        setViewportIsProgressComputableById(prev =>
+          withRecordValue(prev, viewportId, Boolean(lengthComputable || prev[viewportId]))
+        );
       }
     };
 
@@ -1989,35 +2078,6 @@ function ViewerViewportGrid(props: withAppTypes) {
       window.removeEventListener('ohif:jpeg-image-progress', handleJpegImageProgress);
     };
   }, []);
-
-  useEffect(() => {
-    if (!studyPrefetcherService?.subscribe) {
-      return;
-    }
-    const subProgress = studyPrefetcherService.subscribe(
-      studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_PROGRESS,
-      ({ displaySetInstanceUID, numInstances, loadingProgress }) => {
-        setViewportLoadingState(prev => ({
-          ...prev,
-          [displaySetInstanceUID]: { loadingProgress, numInstances },
-        }));
-      }
-    );
-    const subComplete = studyPrefetcherService.subscribe(
-      studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_COMPLETE,
-      ({ displaySetInstanceUID }) => {
-        setViewportLoadingState(prev => ({
-          ...prev,
-          [displaySetInstanceUID]: { ...(prev[displaySetInstanceUID] || {}), loadingProgress: 1 },
-        }));
-      }
-    );
-
-    return () => {
-      subProgress?.unsubscribe?.();
-      subComplete?.unsubscribe?.();
-    };
-  }, [studyPrefetcherService]);
 
   /**
    * Loading indicator until numCols and numRows are gotten from the HangingProtocolService

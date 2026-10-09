@@ -4,6 +4,7 @@ import ViewportImageScrollbar from './ViewportImageScrollbar';
 import CustomizableViewportOverlay from './CustomizableViewportOverlay';
 import ViewportOrientationMarkers from './ViewportOrientationMarkers';
 import ViewportImageSliceLoadingIndicator from './ViewportImageSliceLoadingIndicator';
+import CinePlayheadCover from './CinePlayheadCover';
 
 function CornerstoneOverlays(props: withAppTypes) {
   const { viewportId, element, scrollbarHeight, servicesManager } = props;
@@ -45,6 +46,8 @@ function CornerstoneOverlays(props: withAppTypes) {
 
   return (
     <div className="noselect">
+      <CinePlayheadCover viewportId={viewportId} />
+
       <ViewportImageScrollbar
         viewportId={viewportId}
         viewportData={viewportData}

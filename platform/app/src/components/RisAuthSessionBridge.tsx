@@ -29,12 +29,19 @@ export default function RisAuthSessionBridge() {
 
     const allowed = new Set(origins);
     const win = window as Window & {
+      __RIS_AUTH_BRIDGE_INSTALLED?: boolean;
       __RIS_AUTH_RECEIVED?: boolean;
       __RIS_AUTH_PENDING?: boolean;
       applyRisAuthSessionPayload?: (payload: unknown) => boolean;
       postViewerReadyToRis?: () => void;
       getViewerAccessBearerToken?: () => string | null;
     };
+
+    // The early bridge in app-config.js already listens and announces VIEWER_READY with backoff;
+    // a second listener + 250ms loop here only multiplies AUTH_SESSION round trips.
+    if (win.__RIS_AUTH_BRIDGE_INSTALLED) {
+      return;
+    }
 
     const hasToken = () => {
       if (typeof win.getViewerAccessBearerToken === 'function') {
@@ -88,13 +95,13 @@ export default function RisAuthSessionBridge() {
         let n = 0;
         intervalId = setInterval(() => {
           n += 1;
-          if (hasToken() || n >= 40) {
+          if (hasToken() || n >= 10) {
             win.__RIS_AUTH_PENDING = false;
             if (intervalId) clearInterval(intervalId);
             return;
           }
           announce();
-        }, 250);
+        }, 1500);
       }
     } catch {
       /* ignore cross-origin parent access */

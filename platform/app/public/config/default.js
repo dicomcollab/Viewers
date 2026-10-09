@@ -65,6 +65,34 @@ function resolvePacsIntegrationFromDicomSourceCookie() {
 const PACS_INTEGRATION = resolvePacsIntegrationFromDicomSourceCookie();
 
 /**
+ * Med-PACS WADO-RS frames requested in each instance's original (compressed) transfer syntax.
+ * Selected via the RIS "Data Source Format" preference (dataSourceFormat).
+ */
+const ORIGINAL_SYNTAX_DATA_SOURCE = 'localviewer-original-dicom';
+/** Azure PACS has no per-instance syntax source; transfer-syntax=* returns frames as stored. */
+const AZURE_ORIGINAL_SYNTAX_DATA_SOURCE = 'frame-multipart-octet-wildcard';
+
+/** User-facing names for the RIS "Data Source Format" values. */
+const DATA_SOURCE_FORMAT_LABELS = {
+  'localviewer-image-jpeg': 'Quick Preview (Standard Image)',
+  'localviewer-application-dicom': 'Diagnostic View (Full DICOM Data)',
+  'localviewer-raw-dicom': 'Advanced View (Detailed DICOM Layers)',
+  [ORIGINAL_SYNTAX_DATA_SOURCE]: 'Original Quality (Compressed DICOM)',
+  [AZURE_ORIGINAL_SYNTAX_DATA_SOURCE]: 'Original Quality (Compressed DICOM)',
+};
+
+function getDataSourceFormatLabel(name) {
+  return DATA_SOURCE_FORMAT_LABELS[name] || name;
+}
+
+function resolveDataSourceNameForIntegration(name) {
+  if (PACS_INTEGRATION === 'azurepacs' && name === ORIGINAL_SYNTAX_DATA_SOURCE) {
+    return AZURE_ORIGINAL_SYNTAX_DATA_SOURCE;
+  }
+  return name;
+}
+
+/**
  * Public deployment settings from window.__OHIF_BUILD_ENV__ (build-time injection).
  * Never hardcode secrets here — they would be visible to every browser.
  * @param {string} key
@@ -242,6 +270,12 @@ function applyRisAuthSessionFromPostMessage(data) {
       setUserPreferenceCookie('viewerLayout', data.preferences.viewerLayout);
       mergePreferencesCache({ viewerLayout: data.preferences.viewerLayout });
     }
+  }
+
+  const sessionDataSourceFormat = readDataSourceFormatFromRisPayload(data);
+  if (sessionDataSourceFormat) {
+    mergePreferencesCache({ dataSourceFormat: sessionDataSourceFormat });
+    applyDataSourceFormatBeforeAppStart(sessionDataSourceFormat);
   }
 
   // Keep early-bridge memory/sessionStorage in sync (iframe / new-tab handoff).
@@ -813,8 +847,36 @@ function setRisHostCookie(name, value) {
   }
 }
 
+let _lastRisAuthSessionPayload = null;
+let _lastRisAuthSessionSignature = null;
+
+function getRisAuthSessionSignature(payload) {
+  try {
+    return JSON.stringify([
+      payload.token || '',
+      payload.cookies || null,
+      payload.preferences || null,
+    ]);
+  } catch (_) {
+    return null;
+  }
+}
+
 function applyRisAuthSessionPayload(payload) {
   if (!payload || typeof payload !== 'object') return false;
+
+  // Up to three listeners (early bridge + two React bridges) receive the same message, and RIS
+  // may answer every VIEWER_READY with an identical AUTH_SESSION; apply each distinct one once.
+  const signature = getRisAuthSessionSignature(payload);
+  if (
+    payload === _lastRisAuthSessionPayload ||
+    (signature && signature === _lastRisAuthSessionSignature)
+  ) {
+    _lastRisAuthSessionPayload = payload;
+    return Boolean(window.__RIS_AUTH_RECEIVED);
+  }
+  _lastRisAuthSessionPayload = payload;
+  _lastRisAuthSessionSignature = signature;
 
   // Shared apply path: in-memory token, preference cache, viewer-origin cookies.
   applyRisAuthSessionFromPostMessage(payload);
@@ -877,7 +939,19 @@ function restoreRisAuthSessionFromStorage() {
   return false;
 }
 
+const VIEWER_READY_MIN_INTERVAL_MS = 1000;
+let _lastViewerReadyAt = 0;
+
+/**
+ * All VIEWER_READY announcements go through here (early bridge and both React bridges).
+ * RIS may answer each one with a fresh getPreferences + AUTH_SESSION, so keep them rare.
+ */
 function postViewerReadyToRis() {
+  const now = Date.now();
+  if (now - _lastViewerReadyAt < VIEWER_READY_MIN_INTERVAL_MS) {
+    return;
+  }
+  _lastViewerReadyAt = now;
   const msg = { source: 'DICOMRIS_VIEWER', type: 'VIEWER_READY' };
   const origins = getRisAuthAllowedOrigins();
   const targets = [];
@@ -957,18 +1031,26 @@ function installRisAuthSessionBridge() {
     return;
   }
 
+  // Back off (1s, 2s, 4s, ...) instead of announcing every 250ms until AUTH_SESSION arrives.
   postViewerReadyToRis();
-  var attempts = 0;
-  var maxAttempts = Math.ceil(RIS_AUTH_HANDOFF_MAX_MS / 250);
-  var readyInterval = setInterval(function () {
-    attempts += 1;
-    if (window.__RIS_AUTH_RECEIVED || getTokenFromCookie() || attempts >= maxAttempts) {
-      window.__RIS_AUTH_PENDING = false;
-      clearInterval(readyInterval);
-      return;
-    }
-    postViewerReadyToRis();
-  }, 250);
+  var startedAt = Date.now();
+  var delayMs = 1000;
+  var scheduleAnnounce = function () {
+    setTimeout(function () {
+      if (
+        window.__RIS_AUTH_RECEIVED ||
+        getTokenFromCookie() ||
+        Date.now() - startedAt >= RIS_AUTH_HANDOFF_MAX_MS
+      ) {
+        window.__RIS_AUTH_PENDING = false;
+        return;
+      }
+      postViewerReadyToRis();
+      delayMs = Math.min(delayMs * 2, 4000);
+      scheduleAnnounce();
+    }, delayMs);
+  };
+  scheduleAnnounce();
 
   setTimeout(function () {
     window.__RIS_AUTH_PENDING = false;
@@ -984,6 +1066,8 @@ if (typeof window !== 'undefined') {
 // Shared cache: one in-flight promise and resolved result so getPreferences is called only once per session
 let _preferencesPromise = null;
 let _preferencesCache = undefined;
+let _preferencesApiPromise = null;
+let _preferencesApiData = undefined;
 
 const USER_PREFERENCES_COOKIE_PREFIX = 'userPreferences_';
 
@@ -1260,22 +1344,11 @@ async function fetchPreferences() {
         return fromCookies;
       }
 
-      const token = getTokenFromCookie();
-      if (!token) {
+      const data = await requestPreferencesFromApi();
+      if (data == null) {
         console.warn('No token found in cookie');
         return null;
       }
-      const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/getPreferences`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Token: token,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
       _preferencesCache = data;
       return data;
     } catch (error) {
@@ -1322,23 +1395,88 @@ async function waitForAuthToken(maxMs = 4000) {
   return token;
 }
 
-async function fetchViewerLayoutFromApi() {
-  try {
-    const token = await waitForAuthToken(8000);
-    if (!token) {
-      return null;
+/** Failed GET for a token: auth failures are final for that token, others retry after a cooldown. */
+let _preferencesApiFailure = null;
+const PREFERENCES_API_RETRY_COOLDOWN_MS = 60000;
+
+function isPreferencesApiBlocked(token) {
+  if (!_preferencesApiFailure || _preferencesApiFailure.token !== token) {
+    return false;
+  }
+  if (_preferencesApiFailure.status === 401 || _preferencesApiFailure.status === 403) {
+    return true;
+  }
+  return Date.now() - _preferencesApiFailure.at < PREFERENCES_API_RETRY_COOLDOWN_MS;
+}
+
+/**
+ * The only GET /preferences/getPreferences of the page. Every reader shares the
+ * in-flight request and then the stored response; saves and resets update the
+ * stored copy instead of fetching again. A failed request is not repeated for the
+ * same token (see isPreferencesApiBlocked), so many readers cannot fan out into
+ * many requests. Waiting for a token happens outside the shared request so a
+ * reader that does not wait is never held up by one that does.
+ */
+async function requestPreferencesFromApi({ waitForTokenMs = 0 } = {}) {
+  if (_preferencesApiData !== undefined) {
+    return _preferencesApiData;
+  }
+  if (_preferencesApiPromise) {
+    return _preferencesApiPromise;
+  }
+  let token = getTokenFromCookie();
+  if (!token && waitForTokenMs > 0) {
+    token = await waitForAuthToken(waitForTokenMs);
+    if (_preferencesApiData !== undefined) {
+      return _preferencesApiData;
     }
-    const response = await fetch(`${RIS_API_BASE}/api/v1/preferences/getPreferences`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Token: token,
-      },
-    });
+    if (_preferencesApiPromise) {
+      return _preferencesApiPromise;
+    }
+  }
+  if (!token || isPreferencesApiBlocked(token)) {
+    return null;
+  }
+  _preferencesApiPromise = (async () => {
+    let response;
+    try {
+      response = await fetch(`${RIS_API_BASE}/api/v1/preferences/getPreferences`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Token: token,
+        },
+      });
+    } catch (error) {
+      _preferencesApiFailure = { token, status: 0, at: Date.now() };
+      throw error;
+    }
     if (!response.ok) {
-      return null;
+      _preferencesApiFailure = { token, status: response.status, at: Date.now() };
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
+    _preferencesApiData = data;
+    _preferencesApiFailure = null;
+    return data;
+  })().finally(() => {
+    _preferencesApiPromise = null;
+  });
+  return _preferencesApiPromise;
+}
+
+function mergePreferencesApiData(partial) {
+  if (_preferencesApiData && typeof _preferencesApiData === 'object' && partial) {
+    _preferencesApiData = { ..._preferencesApiData, ...partial };
+  }
+}
+
+async function fetchViewerLayoutFromApi() {
+  try {
+    const data = await requestPreferencesFromApi({ waitForTokenMs: 8000 });
+    if (!data) {
+      return null;
+    }
     const persist = coercePersistFlag(data?.persistViewerLayout);
     const layout = data?.viewerLayout || null;
     setUserPreferenceCookie('persistViewerLayout', persist);
@@ -1406,6 +1544,9 @@ async function savePreferences(payload) {
           : incoming;
       setUserPreferenceCookie('viewerLayout', mergedLayout);
       console.log('[savePreferences] viewerLayout posted to RIS');
+      mergePreferencesApiData({ ...payload, viewerLayout: mergedLayout });
+    } else {
+      mergePreferencesApiData(payload);
     }
     clearPreferencesCache();
     return await response.json();
@@ -1508,6 +1649,7 @@ function applyResetPreferencesLocally(prefs) {
 
   _preferencesCache = next;
   _preferencesPromise = Promise.resolve(next);
+  _preferencesApiData = next;
   if (_risPostMessageAuth.preferences && typeof _risPostMessageAuth.preferences === 'object') {
     _risPostMessageAuth.preferences = {
       ..._risPostMessageAuth.preferences,
@@ -1562,24 +1704,205 @@ async function resetViewerPreferences(payload) {
   }
 }
 
+const DATA_SOURCE_FORMAT_VERIFIED_KEY = 'ohifDataSourceFormatVerified';
+const DATA_SOURCE_FORMAT_SWITCH_KEY_PREFIX = 'ohifDataSourceFormatSwitch:';
+
+function normalizeDataSourceFormat(value) {
+  const parsed = parseCookieValue(value);
+  return typeof parsed === 'string' ? parsed.trim() : '';
+}
+
+function readDataSourceFormatCookie() {
+  return normalizeDataSourceFormat(getCookie('userPreferences_dataSourceFormat'));
+}
+
+function readDataSourceFormatFromRisPayload(data) {
+  const fromPreferences = normalizeDataSourceFormat(data?.preferences?.dataSourceFormat);
+  if (fromPreferences) return fromPreferences;
+  return normalizeDataSourceFormat(data?.cookies?.userPreferences_dataSourceFormat);
+}
+
+/**
+ * Last value confirmed by GET getPreferences, with the cookie value seen at that time.
+ * A cookie that can't be overwritten from the viewer (e.g. set on the RIS parent domain)
+ * would otherwise keep winning over the newer API value on every load.
+ */
+function readVerifiedDataSourceFormat() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DATA_SOURCE_FORMAT_VERIFIED_KEY) || 'null');
+    if (parsed && typeof parsed.value === 'string' && parsed.value) {
+      return {
+        value: parsed.value,
+        cookie: typeof parsed.cookie === 'string' ? parsed.cookie : '',
+      };
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
+function writeVerifiedDataSourceFormat(value) {
+  try {
+    localStorage.setItem(
+      DATA_SOURCE_FORMAT_VERIFIED_KEY,
+      JSON.stringify({ value, cookie: readDataSourceFormatCookie() })
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** API-verified value while the cookie is unchanged since verification; otherwise the cookie. */
+function getPreferredDataSourceFormat() {
+  const cookieValue = readDataSourceFormatCookie();
+  const verified = readVerifiedDataSourceFormat();
+  if (verified && verified.cookie === cookieValue) {
+    return verified.value;
+  }
+  return cookieValue;
+}
+
+function getAppStartupDataSourceName() {
+  return typeof window !== 'undefined' ? window.__OHIF_STARTUP_DATA_SOURCE || null : null;
+}
+
+/** Data source named in the URL (/{mode}/{dataSource} or ?datasources=), which always wins. */
+function getExplicitRouteDataSourceName() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    for (const [key, value] of params) {
+      if (key.toLowerCase() === 'datasources' && value) return value;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const known = new Set(
+    ((window.config && window.config.dataSources) || []).map(ds => ds && ds.sourceName)
+  );
+  const segments = (window.location.pathname || '').split('/').filter(Boolean);
+  for (const segment of segments) {
+    let name = segment;
+    try {
+      name = decodeURIComponent(segment);
+    } catch (_) {
+      /* ignore */
+    }
+    if (known.has(name)) return name;
+  }
+  return null;
+}
+
+/** Before the app has read its config, a new value only needs to replace the default. */
+function applyDataSourceFormatBeforeAppStart(format) {
+  if (!format || getAppStartupDataSourceName()) return false;
+  const resolved = resolveDataSourceNameForIntegration(format);
+  try {
+    localStorage.setItem('defaultDataSourceName', resolved);
+  } catch (_) {
+    /* ignore */
+  }
+  if (typeof window !== 'undefined' && window.config) {
+    window.config.defaultDataSourceName = resolved;
+  }
+  return true;
+}
+
+function showDataSourceSwitchNotice(fromName, toName) {
+  if (typeof document === 'undefined' || !document.body) return;
+  const id = 'ohif-data-source-switch-notice';
+  if (document.getElementById(id)) return;
+  const notice = document.createElement('div');
+  notice.id = id;
+  notice.setAttribute('role', 'status');
+  notice.style.cssText =
+    'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;background:#111827;color:#f9fafb;padding:12px 18px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.45);font-family:system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.4;max-width:90vw;';
+  notice.textContent = `Data source updated in RIS: switching from ${getDataSourceFormatLabel(fromName)} to ${getDataSourceFormatLabel(toName)}…`;
+  document.body.appendChild(notice);
+}
+
+/**
+ * Store the RIS data source preference (cookie + localStorage) and, if the running app
+ * started with a different one, reload once so the new data source is used.
+ */
+function applyDataSourceFormatPreference(format) {
+  const value = normalizeDataSourceFormat(format);
+  if (!value) return;
+
+  if (readDataSourceFormatCookie() !== value) {
+    setUserPreferenceCookie('dataSourceFormat', value);
+  }
+  writeVerifiedDataSourceFormat(value);
+  mergePreferencesCache({ dataSourceFormat: value });
+  mergePreferencesApiData({ dataSourceFormat: value });
+
+  if (applyDataSourceFormatBeforeAppStart(value)) return;
+
+  const resolved = resolveDataSourceNameForIntegration(value);
+  try {
+    localStorage.setItem('defaultDataSourceName', resolved);
+  } catch (_) {
+    /* ignore */
+  }
+  const startup = getAppStartupDataSourceName();
+  const switchKey = `${DATA_SOURCE_FORMAT_SWITCH_KEY_PREFIX}${window.location.pathname}${window.location.search}`;
+  if (startup === resolved) {
+    try {
+      sessionStorage.removeItem(switchKey);
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
+  if (getExplicitRouteDataSourceName()) return;
+
+  // A reload to this same target already happened and did not stick: never loop.
+  try {
+    if (sessionStorage.getItem(switchKey) === resolved) {
+      console.warn(
+        `[DataSourcePreference] "${resolved}" differs from running "${startup}" but this page was already reloaded for it; not reloading again.`
+      );
+      return;
+    }
+    sessionStorage.setItem(switchKey, resolved);
+  } catch (_) {
+    return;
+  }
+
+  console.log(
+    `[DataSourcePreference] RIS data source changed: ${startup} -> ${resolved}; reloading.`
+  );
+  showDataSourceSwitchNotice(startup, resolved);
+  setTimeout(() => window.location.reload(), 600);
+}
+
+async function syncDataSourcePreferenceFromApi() {
+  try {
+    const data = await requestPreferencesFromApi({ waitForTokenMs: 8000 });
+    if (data && data.dataSourceFormat) {
+      applyDataSourceFormatPreference(data.dataSourceFormat);
+    }
+  } catch (error) {
+    console.warn('[DataSourcePreference] Could not verify data source with RIS:', error);
+  }
+}
+
 function getDefaultDataSourceName() {
-  // Prefer cookie value first so initial route uses user preference immediately
-  // (avoids stale localStorage selecting a different datasource like wadouri).
-  const cookieDataSourceRaw = getCookie('userPreferences_dataSourceFormat');
-  const cookieDataSourceParsed = parseCookieValue(cookieDataSourceRaw);
-  const cookieDataSource =
-    typeof cookieDataSourceParsed === 'string' ? cookieDataSourceParsed.trim() : '';
-  if (cookieDataSource) {
-    console.log(`Using cookie default data source: ${cookieDataSource}`);
-    localStorage.setItem('defaultDataSourceName', cookieDataSource);
-    return cookieDataSource;
+  const preferredDataSource = getPreferredDataSourceFormat();
+  if (preferredDataSource) {
+    const resolved = resolveDataSourceNameForIntegration(preferredDataSource);
+    console.log(`Using preferred default data source: ${resolved}`);
+    localStorage.setItem('defaultDataSourceName', resolved);
+    return resolved;
   }
 
   // Check localStorage first for cached value
   const cachedDataSource = localStorage.getItem('defaultDataSourceName');
   if (cachedDataSource) {
-    console.log(`Using cached default data source: ${cachedDataSource}`);
-    return cachedDataSource;
+    const resolved = resolveDataSourceNameForIntegration(cachedDataSource);
+    console.log(`Using cached default data source: ${resolved}`);
+    return resolved;
   }
   const defaultName = PACS_INTEGRATION === 'azurepacs' ? 'dicomweb' : 'localviewer-image-jpeg';
   console.log(`Using fallback default data source: ${defaultName}`);
@@ -1853,6 +2176,43 @@ function getClinicalDicomWebDataSources() {
     },
     {
       namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+      sourceName: ORIGINAL_SYNTAX_DATA_SOURCE,
+      configuration: {
+        friendlyName: 'Med-PACS original compressed DICOM (WADO-RS frames)',
+        name: 'aws',
+        wadoUriRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        wadoRoot: MED_PACS_DICOMWEB_API_ROOT,
+        qidoSupportsIncludeField: true,
+        imageRendering: 'wadors',
+        thumbnailRendering: 'wadors',
+        enableStudyLazyLoad: true,
+        supportsFuzzyMatching: false,
+        supportsWildcard: true,
+        staticWado: true,
+        singlepart: 'bulkdata,video',
+        bulkDataURI: {
+          enabled: true,
+          relativeResolution: 'studies',
+          transform: url => url.replace('/pixeldata.mp4', '/rendered'),
+        },
+        omitQuotationForMultipartRequest: true,
+        /**
+         * Request each frame in the instance's original stored transfer syntax
+         * ((0002,0010) from series metadata), e.g. RLE 1.2.840.10008.1.2.5:
+         *   Accept: multipart/related; type=application/dicom; transfer-syntax=<TransferSyntaxUID>
+         * Instances that are uncompressed, have no TransferSyntaxUID, or that the
+         * PACS cannot serve in that syntax fall back to transfer-syntax=*.
+         * Optional: transferSyntaxes: [...allow-list], modalities: ['US'].
+         */
+        instanceTransferSyntax: {
+          enabled: true,
+          acceptType: 'application/dicom',
+        },
+      },
+    },
+    {
+      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
       sourceName: 'demo',
       configuration: {
         friendlyName: 'Demo PACS (viewer-access proxy)',
@@ -1881,27 +2241,6 @@ function getClinicalDicomWebDataSources() {
   ];
 }
 
-async function updateDefaultDataSourceName() {
-  try {
-    const preferences = await fetchPreferences();
-    console.log('preferences', preferences.dataSourceFormat);
-    if (preferences && preferences.dataSourceFormat) {
-      const newDataSource = preferences.dataSourceFormat;
-      console.log(`Updating default data source to: ${newDataSource}`);
-      // Update localStorage cache
-      localStorage.setItem('defaultDataSourceName', newDataSource);
-      // Update config if it exists
-      if (window['config']) {
-        window['config'].defaultDataSourceName = newDataSource;
-      }
-      return newDataSource;
-    }
-  } catch (e) {
-    console.log('Error fetching preferences:', e);
-  }
-  return null;
-}
-
 /** @type {AppTypes.Config} */
 // @ts-expect-error - Adding custom property to window
 window.config = {
@@ -1917,8 +2256,8 @@ window.config = {
   createReportAppBaseUrl: isDev ? RIS_DEV_PORTAL_ORIGIN : undefined,
   createReportAppBaseUrlProduction: `${RIS_PORTAL_ORIGIN}`, // optional; default = new URL(risWorklistUrl).origin
   // RIS redirects (see platform/core risEnvironmentDefaults for build-time defaults)
-  redirectRootToRis: false,
-  redirectToRisOn401: false,
+  redirectRootToRis: true,
+  redirectToRisOn401: true,
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
@@ -1959,6 +2298,17 @@ window.config = {
   loadSeriesMetadataOnDemand: true,
   // When loadSeriesMetadataOnDemand is true, load this many series in background so thumbnails appear (0 = none).
   loadSeriesMetadataOnDemandBackgroundCount: 5,
+  /**
+   * Browser-side image cache (IndexedDB) so reopening a study / reloading the page
+   * does not re-download pixels. Least-recently-used eviction past maxSizeMB (also
+   * capped at 50% of browser quota), entries expire after maxAgeDays, wiped when a
+   * different user signs in on the device and on logout (window.clearOhifImageCache()).
+   */
+  persistentImageCache: {
+    enabled: true,
+    maxSizeMB: 1024,
+    maxAgeDays: 7,
+  },
   studyPrefetcher: {
     enabled: true,
     maxNumPrefetchRequests: 3,
@@ -1973,14 +2323,19 @@ window.config = {
     prefetch: 25,
   },
   showErrorDetails: 'dev', // 'always' | 'dev' (no full-screen overlay in production) | 'production'
-  // When PACS returns HTTP 406 (e.g. US rejecting JPEG WADO-URI), switch data source and prompt page restart.
+  // When PACS rejects the requested format (HTTP 406/415, e.g. US rejecting image/jpeg), prompt a
+  // restart of this study with the original data source. Original is the last resort, so it has no entry.
   dataSource406Fallback: {
     enabled: true,
     fallbackMap: {
-      'localviewer-image-jpeg': 'localviewer-raw-dicom',
-      'localviewer-application-dicom': 'localviewer-raw-dicom',
+      'localviewer-image-jpeg': resolveDataSourceNameForIntegration(ORIGINAL_SYNTAX_DATA_SOURCE),
+      'localviewer-application-dicom': resolveDataSourceNameForIntegration(
+        ORIGINAL_SYNTAX_DATA_SOURCE
+      ),
+      'localviewer-raw-dicom': resolveDataSourceNameForIntegration(ORIGINAL_SYNTAX_DATA_SOURCE),
     },
   },
+  dataSourceFormatLabels: DATA_SOURCE_FORMAT_LABELS,
   /**
    * Dev/demo iframe embed preview: when true, the root page shows a 50/50 split — left side is a
    * placeholder parent app, right side loads this viewer inside an iframe (same URL). Set false
@@ -2203,9 +2558,9 @@ window.config = {
       console.warn(
         '[DICOMweb] Auth rejected — check session cookie / viewer-access token (and ShortCode share link if used).'
       );
-    } else if (status === 406) {
+    } else if (status === 406 || status === 415) {
       console.warn(
-        '[DICOMweb] Not Acceptable — PACS rejected the requested representation (e.g. JPEG for ultrasound). Switching data source if configured.'
+        '[DICOMweb] PACS rejected the requested representation (e.g. JPEG for ultrasound). Offering Change with the original data source.'
       );
       if (typeof window !== 'undefined' && typeof window.handleDataSource406 === 'function') {
         window.handleDataSource406({ source: 'config-http-error-handler' });
@@ -2239,10 +2594,8 @@ window.config = {
   // },
 };
 
-// Update defaultDataSourceName asynchronously and cache it
-updateDefaultDataSourceName().catch(error => {
-  console.error('Failed to update default data source name:', error);
-});
+// Verify the data source against RIS (shares the page's single getPreferences request).
+syncDataSourcePreferenceFromApi();
 
 // One-time cleanup: older builds stored ohif406ActiveDataSource and redirected every visit.
 try {
