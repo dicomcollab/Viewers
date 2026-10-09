@@ -13,6 +13,8 @@ import {
   getOriginalSyntaxAcceptFromParams,
   registerOriginalSyntaxWadorsLoader,
 } from './utils/instanceTransferSyntax';
+import { trackImageRequest } from './utils/imageRequestSession';
+import { installDataSetCacheBudget } from './utils/dataSetCacheBudget';
 import {
   handleDataSource406,
   isUnsupportedFormatStatus,
@@ -21,8 +23,14 @@ import {
   clear406FallbackPersistence,
 } from './utils/dataSource406Fallback.js';
 
+/** IndexedDB response cache; off unless appConfig.persistentImageCache.enabled. */
+let responseCacheEnabled = false;
+
 // Get image cache utilities from global window object
 const getImageCache = () => {
+  if (!responseCacheEnabled) {
+    return null;
+  }
   if (typeof window !== 'undefined' && window.__OHIF_IMAGE_CACHE__) {
     return window.__OHIF_IMAGE_CACHE__;
   }
@@ -302,6 +310,7 @@ function interceptXHRForImageCaching() {
 
       if (!imageCache) {
         wireWadoXhrProgress(xhr, requestId, requestUrl);
+        trackImageRequest(xhr, requestUrl);
         return originalSend.apply(this, args);
       }
 
@@ -423,6 +432,7 @@ function interceptXHRForImageCaching() {
 
       const proceedWithNetworkRequest = () => {
         wireWadoXhrProgress(xhr, requestId, requestUrl);
+        trackImageRequest(xhr, requestUrl);
 
         // Restore original event handlers and add caching logic
         const cacheResponse = () => {
@@ -498,6 +508,8 @@ export default function initWADOImageLoader(
     'cornerstoneStreamingDynamicImageVolume',
     cornerstoneStreamingDynamicImageVolumeLoader
   );
+
+  responseCacheEnabled = appConfig?.persistentImageCache?.enabled === true;
 
   // XHR hook: WADO/DICOM download % (all formats using dicom-image-loader XHR) + optional cache
   interceptXHRForImageCaching();
@@ -691,6 +703,7 @@ export default function initWADOImageLoader(
   registerOriginalSyntaxWadorsLoader(
     () => extensionManager.getActiveDataSource()?.[0]?.getConfig?.() ?? {}
   );
+  installDataSetCacheBudget(appConfig.dicomFileCacheMaxSizeMB);
 
   if (typeof window !== 'undefined') {
     clear406FallbackPersistence();

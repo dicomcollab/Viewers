@@ -5,6 +5,7 @@ import {
   setPersistentCachedImage,
   toPersistentImageCacheKey,
 } from './persistentImageCache';
+import { getImageRequestGeneration } from './imageRequestSession';
 
 /**
  * WADO-RS in the instance's stored (original) transfer syntax.
@@ -26,7 +27,13 @@ import {
  *   }
  */
 
-/** Compressed syntaxes the dicom-image-loader decode worker supports. */
+/**
+ * Compressed syntaxes the dicom-image-loader decode worker supports.
+ * Uncompressed instances (1.2.840.10008.1.2, .1.2.1, .1.2.2) are left out on purpose:
+ * their transfer-syntax=* frames are already the stored pixels, fetched one frame at a
+ * time, while this path downloads and holds the whole uncompressed file (hundreds of MB
+ * for a long clip). Add them through `transferSyntaxes` to force the file download.
+ */
 const DEFAULT_TRANSFER_SYNTAXES = [
   '1.2.840.10008.1.2.5', // RLE Lossless
   '1.2.840.10008.1.2.4.50', // JPEG Baseline
@@ -157,11 +164,25 @@ function markInstanceFallback({ instanceKey, transferSyntaxUID }, reason) {
   );
 }
 
-function describeFailure(reason) {
+/** `window.XMLHttpRequest` is wrapped by the image loader, so `instanceof` cannot be used. */
+function getFailedXhr(reason) {
   const error = reason?.error ?? reason;
-  if (typeof XMLHttpRequest !== 'undefined' && error instanceof XMLHttpRequest) {
-    return `HTTP ${error.status}`;
+  return error && typeof error === 'object' && 'readyState' in error && typeof error.status === 'number'
+    ? error
+    : null;
+}
+
+/** Aborted, timed out or dropped: says nothing about whether the PACS serves the syntax. */
+function isTransportFailure(reason) {
+  return getFailedXhr(reason)?.status === 0;
+}
+
+function describeFailure(reason) {
+  const xhr = getFailedXhr(reason);
+  if (xhr) {
+    return `HTTP ${xhr.status}`;
   }
+  const error = reason?.error ?? reason;
   return error?.message || String(error);
 }
 
@@ -302,11 +323,16 @@ function loadFrameFromOriginalInstance(imageId, options, request, fallbackLoader
     loadOptions
   );
 
-  let usedFallback = false;
+  const generation = getImageRequestGeneration();
+  let released = false;
 
   const promise = imageLoadObject.promise.catch(reason => {
-    usedFallback = true;
+    released = true;
     dataSetCacheManager.unload(dataSetKey);
+    // Study switched, or the download was cut: fail this frame; the next request retries.
+    if (generation !== getImageRequestGeneration() || isTransportFailure(reason)) {
+      throw reason;
+    }
     markInstanceFallback(request, describeFailure(reason));
     return fallbackLoader(imageId, options).promise;
   });
@@ -315,7 +341,7 @@ function loadFrameFromOriginalInstance(imageId, options, request, fallbackLoader
     promise,
     cancelFn: undefined,
     decache: () => {
-      if (!usedFallback) {
+      if (!released) {
         dataSetCacheManager.unload(dataSetKey);
       }
     },
@@ -352,9 +378,18 @@ function getOriginalSyntaxAcceptFromParams(params) {
   return params?.[ACCEPT_PARAM] || null;
 }
 
+/** Study switch: failures of the previous study must not send the next one to transfer-syntax=*. */
+function resetOriginalSyntaxState() {
+  fallbackInstances.clear();
+  failuresBySyntax.clear();
+  disabledSyntaxes.clear();
+  warned.clear();
+}
+
 export {
   DEFAULT_TRANSFER_SYNTAXES,
   getOriginalSyntaxAcceptFromParams,
   getOriginalSyntaxRequest,
   registerOriginalSyntaxWadorsLoader,
+  resetOriginalSyntaxState,
 };

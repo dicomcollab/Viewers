@@ -209,9 +209,10 @@ module.exports = (env, argv) => {
 
   if (isProdBuild) {
     mergedConfig.plugins.push(
+      // Hashed names: staticwebapp.config.json serves *.css as immutable for a year.
       new MiniCssExtractPlugin({
-        filename: '[name].bundle.css',
-        chunkFilename: '[id].css',
+        filename: '[name].bundle.[contenthash].css',
+        chunkFilename: '[id].[contenthash].css',
       })
     );
     // OHIF viewer app bundle is large by design (extensions, cornerstone, etc.)

@@ -10,10 +10,19 @@ const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
 let dbPromise = null;
 
+/** Off unless appConfig.persistentImageCache.enabled: every study load must hit the PACS. */
+function isCacheEnabled() {
+  return typeof window !== 'undefined' && window.config?.persistentImageCache?.enabled === true;
+}
+
 /**
  * Initialize IndexedDB
  */
 function initDB() {
+  if (!isCacheEnabled()) {
+    return Promise.resolve(null);
+  }
+
   if (dbPromise) {
     return dbPromise;
   }

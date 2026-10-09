@@ -30,6 +30,7 @@ const DB_VERSION = 1;
 const META_STORE = 'meta';
 const DATA_STORE = 'data';
 const OWNER_STORAGE_KEY = 'ohif-image-cache-owner';
+const DELETED_STORAGE_KEY = 'ohif-image-cache-deleted';
 const DEFAULT_MAX_SIZE_MB = 1024;
 const DEFAULT_MAX_AGE_DAYS = 7;
 /** Max share of the browser's storage quota the cache may use. */
@@ -255,14 +256,36 @@ async function applyQuotaLimit(configuredMaxBytes: number): Promise<void> {
   }
 }
 
+/** Caching was switched off: drop what earlier builds stored, once per browser. */
+function deleteStoredCacheOnce(): void {
+  try {
+    if (localStorage.getItem(DELETED_STORAGE_KEY) === '1') {
+      return;
+    }
+    localStorage.setItem(DELETED_STORAGE_KEY, '1');
+    localStorage.removeItem(OWNER_STORAGE_KEY);
+    indexedDB.deleteDatabase(DB_NAME);
+  } catch {
+    // Storage unavailable.
+  }
+}
+
 function initPersistentImageCache(config: PersistentImageCacheConfig = {}): void {
-  if (
-    config.enabled === false ||
-    typeof window === 'undefined' ||
-    typeof indexedDB === 'undefined'
-  ) {
+  if (typeof window === 'undefined' || typeof indexedDB === 'undefined') {
     enabled = false;
     return;
+  }
+
+  if (config.enabled !== true) {
+    enabled = false;
+    deleteStoredCacheOnce();
+    return;
+  }
+
+  try {
+    localStorage.removeItem(DELETED_STORAGE_KEY);
+  } catch {
+    // Storage unavailable.
   }
 
   enabled = true;

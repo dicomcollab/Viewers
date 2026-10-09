@@ -2265,8 +2265,6 @@ window.config = {
   /** “← Report” → POST viewDicomImg, then Synapse `/createreport/{dicomData._id}/{studyUID}?tempId=`. */
   risReportUseViewDicomApi: true,
   risApiBase: RIS_API_BASE,
-  // SR text push endpoint (used by SR text viewport "Send SR Text to RIS" button)
-  risSrTextUploadPath: '/api/v1/structured-report/send-text',
   keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images-user/upload`,
   // JWT session auth via cookie (see getKeyImagesAuthHeader) — no Basic credentials in client config.
   // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
@@ -2303,24 +2301,33 @@ window.config = {
    * does not re-download pixels. Least-recently-used eviction past maxSizeMB (also
    * capped at 50% of browser quota), entries expire after maxAgeDays, wiped when a
    * different user signs in on the device and on logout (window.clearOhifImageCache()).
+   * Off: every study opened from RIS downloads its images from the PACS again; the cache
+   * stored by earlier builds is deleted once per browser.
    */
   persistentImageCache: {
-    enabled: true,
+    enabled: false,
     maxSizeMB: 1024,
     maxAgeDays: 7,
   },
+  /**
+   * Whole DICOM files kept in memory to decode frames from (original-syntax instances,
+   * WADO-URI). Not part of the decoded-image cache budget; past this size the files of
+   * clips that are not on screen are released (their decoded frames stay).
+   */
+  dicomFileCacheMaxSizeMB: 512,
   studyPrefetcher: {
     enabled: true,
     maxNumPrefetchRequests: 3,
     maxImagesPerDisplaySetToPrefetch: 30, // Cap prefetch per series to reduce API calls (e.g. 464-instance series)
     prefetchAllSeries: false,
   },
+  // Every running request holds its whole response in memory (an original-syntax request
+  // downloads the full instance), and the browser serves at most 6 per host over HTTP/1.1,
+  // so higher numbers only queue more downloads in memory ahead of the frames on screen.
   maxNumRequests: {
-    interaction: 100,
-    thumbnail: 75,
-    // Prefetch number is dependent on the http protocol. For http 2 or
-    // above, the number of requests can be go a lot higher.
-    prefetch: 25,
+    interaction: 24,
+    thumbnail: 8,
+    prefetch: 8,
   },
   showErrorDetails: 'dev', // 'always' | 'dev' (no full-screen overlay in production) | 'production'
   // When PACS rejects the requested format (HTTP 406/415, e.g. US rejecting image/jpeg), prompt a

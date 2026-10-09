@@ -49,6 +49,7 @@ import {
 import { useToggleOneUpViewportGridStore } from '@ohif/extension-default';
 import { clearUsInstanceFrameState } from './utils/usInstanceFrameStateStore';
 import { clearClipBuffers } from './utils/usClipBufferStore';
+import { releaseStudyImageResourcesIfStudyChanged } from './utils/releaseStudyImageResources';
 import { useActiveViewportSegmentationRepresentations } from './hooks/useActiveViewportSegmentationRepresentations';
 import { useMeasurements } from './hooks/useMeasurements';
 import getPanelModule from './getPanelModule';
@@ -99,6 +100,8 @@ const cornerstoneExtension: Types.Extensions.Extension = {
   id,
 
   onModeEnter: ({ servicesManager, commandsManager }: withAppTypes): void => {
+    releaseStudyImageResourcesIfStudyChanged();
+
     const { cornerstoneViewportService, toolbarService, segmentationService } =
       servicesManager.services;
 
