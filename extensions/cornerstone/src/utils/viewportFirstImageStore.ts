@@ -46,6 +46,10 @@ function isAwaitingFirstImage(viewportId: string | undefined): boolean {
   return Boolean(viewportId && pendingByViewport.has(viewportId));
 }
 
+function getAwaitingFirstImageCount(): number {
+  return pendingByViewport.size;
+}
+
 function subscribeFirstImageWait(
   listener: (viewportId: string, waiting: boolean) => void
 ): () => void {
@@ -54,4 +58,10 @@ function subscribeFirstImageWait(
   return () => listeners.delete(listener);
 }
 
-export { beginFirstImageWait, endFirstImageWait, isAwaitingFirstImage, subscribeFirstImageWait };
+export {
+  beginFirstImageWait,
+  endFirstImageWait,
+  getAwaitingFirstImageCount,
+  isAwaitingFirstImage,
+  subscribeFirstImageWait,
+};

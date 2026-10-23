@@ -5,10 +5,17 @@ import { HangingProtocolService, CommandsManager } from '@ohif/core';
 import { useAppConfig } from '@state';
 import ViewerHeader from './ViewerHeader';
 import ViewerHpCineBar from './ViewerHpCineBar';
+import MobileBottomSheet from './MobileBottomSheet';
+import MobileBottomToolbar from './MobileBottomToolbar';
+import MobileCineBar from './MobileCineBar';
+import MobileSeriesSheet from './MobileSeriesSheet';
+import MobileSeriesStrip from './MobileSeriesStrip';
+import MobileToolsSheet from './MobileToolsSheet';
 import SidePanelWithServices from '../Components/SidePanelWithServices';
 import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@ohif/ui-next';
 import useResizablePanels from './ResizablePanelsHook';
 import useViewerLayoutPersistence from '../hooks/useViewerLayoutPersistence';
+import useIsMobileLayout, { isMobileOrTabletScreen } from '../hooks/useIsMobileLayout';
 import {
   getViewerLayoutSync,
   hasExplicitViewerLayout,
@@ -22,8 +29,7 @@ import './ViewerLayout.css';
 
 const resizableHandleClassName = 'mt-[1px] bg-black';
 
-/** Tablet landscape and below; desktop layouts stay wider. */
-const MOBILE_TABLET_MAX_WIDTH_PX = 1024;
+type MobileSheetId = 'series' | 'tools' | 'keyImages' | null;
 
 const isInIframe = () => {
   try {
@@ -31,36 +37,6 @@ const isInIframe = () => {
   } catch (e) {
     return true;
   }
-};
-
-/** iPadOS 13+ may report as Mac; still treat as tablet when touch-capable. */
-const isIPad = () =>
-  typeof navigator !== 'undefined' &&
-  (/iPad/i.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
-
-/**
- * Phones and tablets only — not desktop browsers with a narrow window.
- * Uses touch-primary media queries plus viewport width (and iPad fallback).
- */
-const isMobileOrTabletScreen = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  const withinMobileTabletWidth = window.matchMedia(
-    `(max-width: ${MOBILE_TABLET_MAX_WIDTH_PX}px)`
-  ).matches;
-
-  if (!withinMobileTabletWidth) {
-    return false;
-  }
-
-  if (isIPad()) {
-    return true;
-  }
-
-  return window.matchMedia('(hover: none), (pointer: coarse)').matches;
 };
 
 /** Close both sidebars by default only when embedded or on a mobile/tablet device. */
@@ -85,6 +61,7 @@ function ViewerLayout({
   rightPanelMinimumExpandedWidth,
 }: withAppTypes): React.FunctionComponent {
   const [appConfig] = useAppConfig();
+  const isMobileLayout = useIsMobileLayout();
 
   const { panelService, hangingProtocolService, customizationService } = servicesManager.services;
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(appConfig.showLoadingIndicator);
@@ -116,8 +93,9 @@ function ViewerLayout({
         : typeof savedViewerLayout?.rightPanel?.closed === 'boolean'
           ? savedViewerLayout.rightPanel.closed
           : rightPanelClosed;
-  const restoredLeftPanelWidth = savedViewerLayout?.leftPanel?.width;
-  const restoredRightPanelWidth = savedViewerLayout?.rightPanel?.width;
+  // Mobile drawers ignore restored widths — only open/closed matters.
+  const restoredLeftPanelWidth = isMobileLayout ? undefined : savedViewerLayout?.leftPanel?.width;
+  const restoredRightPanelWidth = isMobileLayout ? undefined : savedViewerLayout?.rightPanel?.width;
 
   const hasPanels = useCallback(
     (side): boolean => !!panelService.getPanels(side).length,
@@ -201,6 +179,9 @@ function ViewerLayout({
   const skipFirstRightWidthSaveRef = useRef(true);
 
   useEffect(() => {
+    if (isMobileLayout) {
+      return;
+    }
     if (skipFirstLeftWidthSaveRef.current) {
       skipFirstLeftWidthSaveRef.current = false;
       return;
@@ -215,9 +196,12 @@ function ViewerLayout({
       { leftPanel: { width: Math.round(leftPanelProps.expandedWidth) } },
       { debounceMs: 500, userAction: true }
     );
-  }, [leftPanelProps?.expandedWidth, persistPanelChange]);
+  }, [leftPanelProps?.expandedWidth, persistPanelChange, isMobileLayout]);
 
   useEffect(() => {
+    if (isMobileLayout) {
+      return;
+    }
     if (skipFirstRightWidthSaveRef.current) {
       skipFirstRightWidthSaveRef.current = false;
       return;
@@ -232,7 +216,7 @@ function ViewerLayout({
       { rightPanel: { width: Math.round(rightPanelProps.expandedWidth) } },
       { debounceMs: 500, userAction: true }
     );
-  }, [rightPanelProps?.expandedWidth, persistPanelChange]);
+  }, [rightPanelProps?.expandedWidth, persistPanelChange, isMobileLayout]);
 
   const leftPanelPropsRef = useRef(leftPanelProps);
   const rightPanelPropsRef = useRef(rightPanelProps);
@@ -296,6 +280,12 @@ function ViewerLayout({
       const rightClosed = layout.rightPanel?.closed === true;
       setLeftPanelClosed(leftClosed);
       setRightPanelClosed(rightClosed);
+
+      // Mobile: open/closed state is enough; skip resizable-panel sync.
+      if (isMobileOrTabletScreen()) {
+        unlock();
+        return;
+      }
 
       const trySync = () => {
         if (userAdjustedPanelsRef.current || generation !== applyGenerationRef.current) {
@@ -408,6 +398,21 @@ function ViewerLayout({
     };
   }, [isIframeMode]);
 
+  useLayoutEffect(() => {
+    const cls = 'ohif-mobile-layout';
+    if (isMobileLayout) {
+      document.documentElement.classList.add(cls);
+      document.body.classList.add(cls);
+    } else {
+      document.documentElement.classList.remove(cls);
+      document.body.classList.remove(cls);
+    }
+    return () => {
+      document.documentElement.classList.remove(cls);
+      document.body.classList.remove(cls);
+    };
+  }, [isMobileLayout]);
+
   /**
    * Iframe: Cornerstone ignores resize at 0×0. Production embeds often settle layout after
    * first paint, and ViewportGrid mounts only after hanging protocol assigns rows/cols — so
@@ -501,6 +506,93 @@ function ViewerLayout({
     };
   }, [isIframeMode, servicesManager]);
 
+  /** Keep mobile primary toolbar capped even if mode-enter detection missed touch. */
+  useEffect(() => {
+    if (!isMobileLayout) {
+      return;
+    }
+    const { toolbarService, customizationService } = servicesManager.services;
+    if (!toolbarService?.updateSection) {
+      return;
+    }
+    toolbarService.updateSection('primary', [
+      'WindowLevel',
+      'Pan',
+      'Zoom',
+      'MeasurementTools',
+      'AddKeyImage',
+      'MoreTools',
+    ]);
+    customizationService?.setCustomizations?.({
+      'viewportOverlay.topLeft': { $set: [] },
+      'viewportOverlay.topRight': { $set: [] },
+      'viewportOverlay.bottomLeft': {
+        $set: [
+          {
+            id: 'WindowLevel',
+            inheritsFrom: 'ohif.overlayItem.windowLevel',
+          },
+        ],
+      },
+      'viewportOverlay.bottomRight': {
+        $set: [
+          {
+            id: 'InstanceNumber',
+            inheritsFrom: 'ohif.overlayItem.instanceNumber',
+          },
+        ],
+      },
+    });
+  }, [isMobileLayout, servicesManager]);
+
+  /** Default to 1×1 on mobile enter only — navbar Layout menu can change it afterward. */
+  useEffect(() => {
+    if (!isMobileLayout || !commandsManager) {
+      return;
+    }
+    const { viewportGridService } = servicesManager.services;
+    const applyOneUp = () => {
+      try {
+        const { layout } = viewportGridService.getState();
+        if (layout?.numRows === 1 && layout?.numCols === 1) {
+          return;
+        }
+        commandsManager.runCommand('setViewportGridLayout', {
+          numRows: 1,
+          numCols: 1,
+        });
+      } catch (e) {
+        console.warn('[ViewerLayout] mobile 1×1 layout failed:', e);
+      }
+    };
+    applyOneUp();
+    const t = window.setTimeout(applyOneUp, 400);
+    const t2 = window.setTimeout(applyOneUp, 1200);
+    return () => {
+      window.clearTimeout(t);
+      window.clearTimeout(t2);
+    };
+  }, [isMobileLayout, commandsManager, servicesManager]);
+
+  /** Resize Cornerstone when mobile layout or sheet open state changes. */
+  useEffect(() => {
+    if (!isMobileLayout) {
+      return;
+    }
+    const { cornerstoneViewportService } = servicesManager.services;
+    if (!cornerstoneViewportService?.resize) {
+      return;
+    }
+    const id = requestAnimationFrame(() => {
+      try {
+        cornerstoneViewportService.resize();
+      } catch (e) {
+        console.warn('[ViewerLayout] mobile cornerstone resize failed:', e);
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isMobileLayout, leftPanelClosedState, rightPanelClosedState, servicesManager]);
+
   /** Hide startup overlay when viewports are ready (PROTOCOL_CHANGED alone can miss in slow prod loads). */
   useEffect(() => {
     if (!showLoadingIndicator) {
@@ -567,12 +659,79 @@ function ViewerLayout({
 
   const viewportComponents = viewports.map(getViewportComponentData);
 
-  const headerHeight = isIframeMode ? 44 : 48;
+  const headerHeight = isMobileLayout || isIframeMode ? 48 : 48;
+  const [mobileSheet, setMobileSheet] = useState<MobileSheetId>(null);
+
+  const closeMobileSheet = useCallback(() => {
+    setMobileSheet(null);
+    setLeftPanelClosedAndPersist(true);
+    setRightPanelClosedAndPersist(true);
+  }, [setLeftPanelClosedAndPersist, setRightPanelClosedAndPersist]);
+
+  const openSeriesSheet = useCallback(() => {
+    setMobileSheet('series');
+    setLeftPanelClosedAndPersist(false);
+    setRightPanelClosedAndPersist(true);
+  }, [setLeftPanelClosedAndPersist, setRightPanelClosedAndPersist]);
+
+  const openToolsSheet = useCallback(() => {
+    setMobileSheet('tools');
+    setRightPanelClosedAndPersist(false);
+    setLeftPanelClosedAndPersist(true);
+  }, [setLeftPanelClosedAndPersist, setRightPanelClosedAndPersist]);
+
+  const openKeyImagesSheet = useCallback(() => {
+    setMobileSheet('keyImages');
+    setRightPanelClosedAndPersist(false);
+    setLeftPanelClosedAndPersist(true);
+  }, [setLeftPanelClosedAndPersist, setRightPanelClosedAndPersist]);
+
+  const toggleSeriesSheet = useCallback(() => {
+    if (mobileSheet === 'series') {
+      closeMobileSheet();
+    } else {
+      openSeriesSheet();
+    }
+  }, [mobileSheet, closeMobileSheet, openSeriesSheet]);
+
+  const toggleToolsSheet = useCallback(() => {
+    if (mobileSheet === 'tools' || mobileSheet === 'keyImages') {
+      closeMobileSheet();
+    } else {
+      openToolsSheet();
+    }
+  }, [mobileSheet, closeMobileSheet, openToolsSheet]);
+
+  const renderViewportColumn = (opts?: { hideHpBar?: boolean }) => (
+    <div className={`flex h-full flex-1 flex-col ${isIframeMode ? 'iframe-mode' : ''}`}>
+      {!opts?.hideHpBar ? (
+        <ViewerHpCineBar
+          servicesManager={servicesManager}
+          commandsManager={commandsManager}
+          isIframeMode={isIframeMode || isMobileLayout}
+        />
+      ) : null}
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black"
+        onMouseEnter={handleMouseEnter}
+      >
+        <ViewportGridComp
+          servicesManager={servicesManager}
+          viewportComponents={viewportComponents}
+          commandsManager={commandsManager}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div
       className={`ohif-viewer-layout-root flex w-full flex-col ${
-        isIframeMode ? 'ohif-iframe-fixed-root min-h-0' : 'h-screen'
+        isIframeMode
+          ? 'ohif-iframe-fixed-root min-h-0'
+          : isMobileLayout
+            ? 'ohif-mobile-layout-root min-h-0'
+            : 'h-screen'
       }`}
     >
       <ViewerHeader
@@ -581,75 +740,125 @@ function ViewerLayout({
         servicesManager={servicesManager}
         appConfig={appConfig}
         isIframeMode={isIframeMode}
+        isMobileLayout={isMobileLayout}
+        hasLeftPanels={hasLeftPanels}
+        hasRightPanels={hasRightPanels}
+        leftPanelOpen={mobileSheet === 'series'}
+        rightPanelOpen={mobileSheet === 'tools' || mobileSheet === 'keyImages'}
+        onToggleLeftPanel={toggleSeriesSheet}
+        onToggleRightPanel={toggleToolsSheet}
       />
       <div
         className="ohif-viewer-layout-main relative flex min-h-0 w-full flex-row flex-nowrap items-stretch overflow-hidden bg-black"
-        style={isIframeMode ? undefined : { height: `calc(100vh - ${headerHeight}px)` }}
+        style={
+          isIframeMode || isMobileLayout
+            ? undefined
+            : { height: `calc(100vh - ${headerHeight}px)` }
+        }
       >
         <React.Fragment>
           {showLoadingIndicator && <LoadingIndicatorProgress className="h-full w-full bg-black" />}
-          <ResizablePanelGroup
-            {...resizablePanelGroupProps}
-            className="h-full min-h-0"
-          >
-            {/* LEFT SIDEPANELS — full height under header */}
-            {hasLeftPanels ? (
-              <>
-                <ResizablePanel {...resizableLeftPanelProps}>
-                  <SidePanelWithServices
-                    side="left"
-                    isExpanded={!leftPanelClosedState}
-                    servicesManager={servicesManager}
-                    {...leftPanelProps}
-                  />
-                </ResizablePanel>
-                <ResizableHandle
-                  onDragging={handlePanelDragging}
-                  disabled={!leftPanelResizable}
-                  className={resizableHandleClassName}
-                />
-              </>
-            ) : null}
-            {/* HP/cine strip + viewport grid — strip matches viewport column width only */}
-            <ResizablePanel {...resizableViewportGridPanelProps}>
-              <div className={`flex h-full flex-1 flex-col ${isIframeMode ? 'iframe-mode' : ''}`}>
-                <ViewerHpCineBar
-                  servicesManager={servicesManager}
-                  commandsManager={commandsManager}
-                  isIframeMode={isIframeMode}
-                />
-                <div
-                  className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black"
-                  onMouseEnter={handleMouseEnter}
-                >
-                  <ViewportGridComp
-                    servicesManager={servicesManager}
-                    viewportComponents={viewportComponents}
-                    commandsManager={commandsManager}
-                  />
-                </div>
+          {isMobileLayout ? (
+            <div className="ohif-mobile-viewport-column relative flex h-full min-h-0 w-full flex-1 flex-col">
+              {/* Image first — ≥60% via flex-1; HP bar hidden on mobile */}
+              <div className="ohif-mobile-image-area relative flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
+                {renderViewportColumn({ hideHpBar: true })}
               </div>
-            </ResizablePanel>
-            {hasRightPanels ? (
-              <>
-                <ResizableHandle
-                  onDragging={handlePanelDragging}
-                  disabled={!rightPanelResizable}
-                  className={resizableHandleClassName}
-                />
-                <ResizablePanel {...resizableRightPanelProps}>
-                  <SidePanelWithServices
-                    side="right"
-                    isExpanded={!rightPanelClosedState}
-                    servicesManager={servicesManager}
-                    {...rightPanelProps}
+              <MobileCineBar
+                servicesManager={servicesManager}
+                commandsManager={commandsManager}
+              />
+              <MobileSeriesStrip
+                servicesManager={servicesManager}
+                commandsManager={commandsManager}
+                onExpandSeriesSheet={openSeriesSheet}
+              />
+            </div>
+          ) : (
+            <ResizablePanelGroup
+              {...resizablePanelGroupProps}
+              className="h-full min-h-0"
+            >
+              {/* LEFT SIDEPANELS — full height under header */}
+              {hasLeftPanels ? (
+                <>
+                  <ResizablePanel {...resizableLeftPanelProps}>
+                    <SidePanelWithServices
+                      side="left"
+                      isExpanded={!leftPanelClosedState}
+                      servicesManager={servicesManager}
+                      {...leftPanelProps}
+                    />
+                  </ResizablePanel>
+                  <ResizableHandle
+                    onDragging={handlePanelDragging}
+                    disabled={!leftPanelResizable}
+                    className={resizableHandleClassName}
                   />
-                </ResizablePanel>
-              </>
-            ) : null}
-          </ResizablePanelGroup>
+                </>
+              ) : null}
+              {/* HP/cine strip + viewport grid — strip matches viewport column width only */}
+              <ResizablePanel {...resizableViewportGridPanelProps}>
+                {renderViewportColumn()}
+              </ResizablePanel>
+              {hasRightPanels ? (
+                <>
+                  <ResizableHandle
+                    onDragging={handlePanelDragging}
+                    disabled={!rightPanelResizable}
+                    className={resizableHandleClassName}
+                  />
+                  <ResizablePanel {...resizableRightPanelProps}>
+                    <SidePanelWithServices
+                      side="right"
+                      isExpanded={!rightPanelClosedState}
+                      servicesManager={servicesManager}
+                      {...rightPanelProps}
+                    />
+                  </ResizablePanel>
+                </>
+              ) : null}
+            </ResizablePanelGroup>
+          )}
         </React.Fragment>
       </div>
+      {isMobileLayout ? (
+        <>
+          <MobileBottomToolbar
+            onOpenMore={openToolsSheet}
+            onOpenKeyImages={openKeyImagesSheet}
+          />
+          {hasLeftPanels ? (
+            <MobileBottomSheet
+              open={mobileSheet === 'series'}
+              onClose={closeMobileSheet}
+              title="Series"
+              initialSnap="half"
+            >
+              <MobileSeriesSheet
+                servicesManager={servicesManager}
+                commandsManager={commandsManager}
+                onClose={closeMobileSheet}
+              />
+            </MobileBottomSheet>
+          ) : null}
+          {hasRightPanels ? (
+            <MobileBottomSheet
+              open={mobileSheet === 'tools' || mobileSheet === 'keyImages'}
+              onClose={closeMobileSheet}
+              title="Panels"
+              initialSnap="half"
+            >
+              <MobileToolsSheet
+                servicesManager={servicesManager}
+                commandsManager={commandsManager}
+                initialTab={mobileSheet === 'tools' ? 'measurements' : 'keyImages'}
+                onClose={closeMobileSheet}
+              />
+            </MobileBottomSheet>
+          ) : null}
+        </>
+      ) : null}
       <Onboarding tours={customizationService.getCustomization('ohif.tours')} />
     </div>
   );

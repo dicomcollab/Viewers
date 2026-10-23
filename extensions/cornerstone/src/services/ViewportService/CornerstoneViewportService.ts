@@ -979,8 +979,22 @@ class CornerstoneViewportService extends PubSubService implements IViewportServi
     // Todo: this is not optimal at all, we are re-enabling the already enabled
     // element which is not what we want. But enabledElement as part of the
     // renderingEngine is designed to be used like this. This will trigger
-    // ENABLED_ELEMENT again and again, which will run onEnableElement callbacks
-    renderingEngine.enableElement(viewportInput);
+    // ENABLED_ELEMENT again and again, which will run onEnableElement callbacks.
+    // vtk ImageMapper.delete can throw releaseGraphicsResources when a prior
+    // actor never built a texture; that must not abort the bind.
+    try {
+      renderingEngine.enableElement(viewportInput);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      if (!message.includes('releaseGraphicsResources')) {
+        throw error;
+      }
+      console.warn(
+        '[CornerstoneViewportService] enableElement hit a VTK graphics teardown race; retrying once.',
+        error
+      );
+      renderingEngine.enableElement(viewportInput);
+    }
 
     viewportInfo.setViewportOptions(viewportOptions);
     viewportInfo.setDisplaySetOptions(displaySetOptions);

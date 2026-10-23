@@ -81,21 +81,43 @@ function CustomizableViewportOverlay({
   // append functionality.  This code enables the historical usage, but
   // the recommended functionality is to append to the default values in
   // cornerstoneOverlay rather than defining individual items.
-  const topLeftCustomization = customizationService.getCustomization('viewportOverlay.topLeft');
-  let topRightCustomization = customizationService.getCustomization('viewportOverlay.topRight');
-  const bottomLeftCustomization = customizationService.getCustomization(
+  const isMobileLayout =
+    typeof document !== 'undefined' && document.body.classList.contains('ohif-mobile-layout');
+
+  // Mobile: keep canvas clean — W/L + frame only (patient/date live in the top bar).
+  let topLeftCustomization = isMobileLayout
+    ? []
+    : customizationService.getCustomization('viewportOverlay.topLeft');
+  let topRightCustomization = isMobileLayout
+    ? []
+    : customizationService.getCustomization('viewportOverlay.topRight');
+  let bottomLeftCustomization = customizationService.getCustomization(
     'viewportOverlay.bottomLeft'
   );
-  const bottomRightCustomization = customizationService.getCustomization(
+  let bottomRightCustomization = customizationService.getCustomization(
     'viewportOverlay.bottomRight'
   );
 
-  // Always add patient info to topRight overlay on canvas
-  const patientInfoItem = {
-    id: 'PatientInfo',
-    inheritsFrom: 'ohif.overlayItem.patientInfo',
-  };
-  topRightCustomization = [...(topRightCustomization || []), patientInfoItem];
+  if (isMobileLayout) {
+    bottomLeftCustomization = [
+      {
+        id: 'WindowLevel',
+        inheritsFrom: 'ohif.overlayItem.windowLevel',
+      },
+    ];
+    bottomRightCustomization = [
+      {
+        id: 'InstanceNumber',
+        inheritsFrom: 'ohif.overlayItem.instanceNumber',
+      },
+    ];
+  } else {
+    const patientInfoItem = {
+      id: 'PatientInfo',
+      inheritsFrom: 'ohif.overlayItem.patientInfo',
+    };
+    topRightCustomization = [...(topRightCustomization || []), patientInfoItem];
+  }
 
   const instanceNumber = useMemo(
     () =>

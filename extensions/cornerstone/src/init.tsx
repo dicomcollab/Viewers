@@ -71,7 +71,14 @@ import { connectToolsToMeasurementService } from './initMeasurementService';
 import initCineService from './initCineService';
 import { initUsFrameDistribution } from './utils/usFrameDistributionUtils';
 import { initUsInstanceFrameState } from './utils/usInstanceFrameState';
-import { initUsClipBuffering } from './utils/usClipBufferStore';
+import {
+  configureUsClipBuffer,
+  getClipBufferStats,
+  initUsClipBuffering,
+} from './utils/usClipBufferStore';
+import { initViewportDemandCoordinator } from './utils/viewportDemandCoordinator';
+import { configureCineBufferPolicy } from './utils/cineBufferPolicy';
+import { installPerfDebugHandle, registerPerfSnapshotProvider } from './utils/viewerPerfMetrics';
 import { installTileDiagnostics } from './utils/tileDiagnostics';
 import patchStackViewportDestroyedGuard from './utils/patchStackViewportDestroyedGuard';
 import { isAbortedImageLoadError, toHttpLoadFailure } from './utils/isAbortedImageLoadError';
@@ -289,12 +296,40 @@ export default async function init({
     extensionManager,
   });
 
+  configureCineBufferPolicy(appConfig.cineBuffer);
   initCineService(servicesManager);
   initUsInstanceFrameState(servicesManager);
+  configureUsClipBuffer(appConfig.usClipBuffer);
   initUsClipBuffering(servicesManager);
   installTileDiagnostics(servicesManager);
   initUsFrameDistribution(servicesManager);
   initStudyPrefetcherService(servicesManager);
+  initViewportDemandCoordinator(servicesManager, {
+    maxInitialPhaseMs: appConfig.viewportDemand?.maxInitialPhaseMs,
+  });
+  registerPerfSnapshotProvider('imageCache', () => ({
+    sizeMB: Math.round(cornerstone.cache.getCacheSize() / (1024 * 1024)),
+    maxMB: Math.round(cornerstone.cache.getMaxCacheSize() / (1024 * 1024)),
+  }));
+  registerPerfSnapshotProvider('requestPool', () => {
+    const pool = imageLoadPoolManager as unknown as {
+      numRequests?: Record<string, number>;
+      getRequestPool: () => Record<string, Record<string, unknown[]>>;
+    };
+    const queued = {};
+    Object.entries(pool.getRequestPool() ?? {}).forEach(([type, byPriority]) => {
+      queued[type] = Object.values(byPriority ?? {}).reduce(
+        (sum: number, requests) => sum + (Array.isArray(requests) ? requests.length : 0),
+        0
+      );
+    });
+    return { running: { ...(pool.numRequests ?? {}) }, queued };
+  });
+  registerPerfSnapshotProvider('clipBuffer', getClipBufferStats);
+  registerPerfSnapshotProvider('studyPrefetcher', () =>
+    servicesManager.services.studyPrefetcherService?.getStats?.()
+  );
+  installPerfDebugHandle();
 
   measurementService.subscribe(measurementService.EVENTS.JUMP_TO_MEASUREMENT, evt => {
     const { measurement } = evt;

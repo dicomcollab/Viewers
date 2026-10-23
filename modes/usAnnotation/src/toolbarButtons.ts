@@ -470,7 +470,7 @@ const toolbarButtons: Button[] = [
     id: 'ZoomIn',
     uiType: 'ohif.toolButton',
     props: {
-      icon: 'Plus',
+      icon: 'tool-zoom-in',
       label: i18n.t('Buttons:Zoom In'),
       tooltip: i18n.t('Buttons:Zoom In'),
       commands: 'zoomInWithState',

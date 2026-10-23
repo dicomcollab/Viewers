@@ -14,7 +14,7 @@ export type SidePanelWithServicesProps = {
   servicesManager: AppTypes.ServicesManager;
   side: 'left' | 'right';
   className?: string;
-  activeTabIndex: number;
+  activeTabIndex?: number;
   tabs?: any;
   expandedWidth?: number;
   onClose: () => void;

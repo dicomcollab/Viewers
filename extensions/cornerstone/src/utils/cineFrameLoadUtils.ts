@@ -98,6 +98,11 @@ function prefetchStackFrame(imageId: string | undefined, priority = NEXT_FRAME_P
   }
 }
 
+/** Queued frame requests dropped from the pool unsent: allow them to be queued again. */
+function forgetQueuedStackFrames(imageIds: string[]): void {
+  imageIds.forEach(imageId => queuedFrameRequests.delete(imageId));
+}
+
 function prefetchUpcomingStackFrames(
   imageIds: string[],
   fromIndex: number,
@@ -191,6 +196,7 @@ function pickSafeStackBindIndex(
 
 export {
   ensureStackFrameLoaded,
+  forgetQueuedStackFrames,
   getPrefetchCount,
   isStackFrameReady,
   pickSafeStackBindIndex,

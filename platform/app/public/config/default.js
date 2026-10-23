@@ -246,6 +246,8 @@ function applyRisAuthSessionFromPostMessage(data) {
     data.preferences = {
       ...data.preferences,
       persistViewerLayout: coercePersistFlag(data.preferences.persistViewerLayout),
+      // Default false when RIS has not sent this flag yet (older RIS deploy).
+      showToolCursor: coercePersistFlag(data.preferences.showToolCursor),
     };
     _risPostMessageAuth.preferences = data.preferences;
     _preferencesCache = data.preferences;
@@ -263,9 +265,15 @@ function applyRisAuthSessionFromPostMessage(data) {
   persistRisAuthSessionToCookies(data);
   if (data.preferences && typeof data.preferences === 'object') {
     const persistOn = coercePersistFlag(data.preferences.persistViewerLayout);
+    const showToolCursorOn = coercePersistFlag(data.preferences.showToolCursor);
     data.preferences.persistViewerLayout = persistOn;
+    data.preferences.showToolCursor = showToolCursorOn;
     setUserPreferenceCookie('persistViewerLayout', persistOn);
-    mergePreferencesCache({ persistViewerLayout: persistOn });
+    setUserPreferenceCookie('showToolCursor', showToolCursorOn);
+    mergePreferencesCache({
+      persistViewerLayout: persistOn,
+      showToolCursor: showToolCursorOn,
+    });
     if (persistOn && data.preferences.viewerLayout) {
       setUserPreferenceCookie('viewerLayout', data.preferences.viewerLayout);
       mergePreferencesCache({ viewerLayout: data.preferences.viewerLayout });
@@ -1262,6 +1270,9 @@ function getPreferencesFromCookies() {
   if (raw.persistViewerLayout != null) {
     prefs.persistViewerLayout = coercePersistFlag(parseCookieValue(raw.persistViewerLayout));
   }
+  if (raw.showToolCursor != null) {
+    prefs.showToolCursor = coercePersistFlag(parseCookieValue(raw.showToolCursor));
+  }
   if (raw.tools != null) {
     try {
       let parsed = typeof raw.tools === 'string' ? JSON.parse(raw.tools) : raw.tools;
@@ -1300,6 +1311,8 @@ function getPreferencesFromCookies() {
     (prefs.viewerLayout && Object.keys(prefs.viewerLayout).length > 0) ||
     prefs.persistViewerLayout === true ||
     prefs.persistViewerLayout === false ||
+    prefs.showToolCursor === true ||
+    prefs.showToolCursor === false ||
     prefs.windowLevelPresets != null ||
     prefs.dataSourceFormat != null;
   const cookiePrefs = hasAny ? prefs : null;
@@ -1307,6 +1320,10 @@ function getPreferencesFromCookies() {
     const persistFromCookie =
       cookiePrefs && cookiePrefs.persistViewerLayout != null
         ? coercePersistFlag(cookiePrefs.persistViewerLayout)
+        : null;
+    const showToolCursorFromCookie =
+      cookiePrefs && cookiePrefs.showToolCursor != null
+        ? coercePersistFlag(cookiePrefs.showToolCursor)
         : null;
     return {
       ...fromPostMessage,
@@ -1316,7 +1333,16 @@ function getPreferencesFromCookies() {
         persistFromCookie !== null
           ? persistFromCookie
           : coercePersistFlag(fromPostMessage.persistViewerLayout),
+      // Older RIS / missing flag → false so tool-icon cursor stays off by default.
+      showToolCursor:
+        showToolCursorFromCookie !== null
+          ? showToolCursorFromCookie
+          : coercePersistFlag(fromPostMessage.showToolCursor),
     };
+  }
+  // Prefer explicit false when other prefs exist but showToolCursor cookie is absent.
+  if (cookiePrefs && cookiePrefs.showToolCursor == null) {
+    cookiePrefs.showToolCursor = false;
   }
   return cookiePrefs;
 }
@@ -2261,11 +2287,14 @@ window.config = {
   // Optional: override targets (else risWorklistUrl + built-in fallbacks)
   // risRootRedirectUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   // risAuthRedirectUrl: `${RIS_PORTAL_ORIGIN}/login`,
+
   risWorklistUrl: `${RIS_PORTAL_ORIGIN}/worklist`,
   /** “← Report” → POST viewDicomImg, then Synapse `/createreport/{dicomData._id}/{studyUID}?tempId=`. */
   risReportUseViewDicomApi: true,
   risApiBase: RIS_API_BASE,
   keyImagesUploadUrl: `${RIS_API_BASE}/api/v1/key-images-user/upload`,
+  // Med-PACS DICOM API (same as RIS VITE_REACT_APP_DICOM_API); "Download Study" uses its /vault/download endpoints.
+  dicomApiRoot: MED_PACS_DICOMWEB_API_ROOT,
   // JWT session auth via cookie (see getKeyImagesAuthHeader) — no Basic credentials in client config.
   // risReportUrl: `${RIS_PORTAL_ORIGIN}/report`,
   // some windows systems have issues with more than 3 web workers
@@ -2317,17 +2346,47 @@ window.config = {
   dicomFileCacheMaxSizeMB: 512,
   studyPrefetcher: {
     enabled: true,
+    // Concurrent prefetch requests, including ones still running from before a page change.
     maxNumPrefetchRequests: 3,
-    maxImagesPerDisplaySetToPrefetch: 30, // Cap prefetch per series to reduce API calls (e.g. 464-instance series)
+    // Look-ahead: the next 4 display sets (one 2×2 page) after the active one…
+    displaySetsCount: 4,
+    // …first 30 frames each (enough to show it and start its cine). "Download study" loads
+    // these first for every display set, then the remaining frames.
+    maxImagesPerDisplaySetToPrefetch: 30,
+    // true: look-ahead covers every display set of the study (still first frames only).
     prefetchAllSeries: false,
+    // Prefetched frames may use at most this share of the decoded-image cache, so a
+    // study larger than memory is not downloaded only to be evicted again.
+    maxCacheFraction: 0.5,
   },
-  // Every running request holds its whole response in memory (an original-syntax request
-  // downloads the full instance), and the browser serves at most 6 per host over HTTP/1.1,
-  // so higher numbers only queue more downloads in memory ahead of the frames on screen.
+  // US cine. waitForFrames false: play on at the clip FPS; a frame not downloaded yet shows
+  // empty and appears on a later loop. true: start (and resume after running dry) only on
+  // decoded frames, about startSeconds of playback, between minStartFrames and maxStartFrames.
+  cineBuffer: {
+    waitForFrames: false,
+    startSeconds: 0.75,
+    minStartFrames: 8,
+    maxStartFrames: 30,
+    resumeFraction: 0.5,
+  },
+  // In-order US clip downloads. Kept at/under HTTP/1.1's ~6 connections per host so
+  // original-DICOM frames do not queue large bodies ahead of the frames on screen.
+  // Raise only when DevTools > Network > Protocol shows "h2".
+  usClipBuffer: {
+    maxInFlightPerClip: 3,
+    maxInFlightTotal: 6,
+  },
+  // While viewports wait for their first image (page change, study open), prefetch pauses
+  // and clips download one frame each; capped so a stuck tile cannot block them for good.
+  viewportDemand: {
+    maxInitialPhaseMs: 6000,
+  },
+  // Browser HTTP/1.1 ≈ 6 connections per host; original-DICOM responses are large.
+  // Higher numbers only buffer more downloads in memory ahead of on-screen frames.
   maxNumRequests: {
-    interaction: 24,
-    thumbnail: 8,
-    prefetch: 8,
+    interaction: 8,
+    thumbnail: 4,
+    prefetch: 2,
   },
   showErrorDetails: 'dev', // 'always' | 'dev' (no full-screen overlay in production) | 'production'
   // When PACS rejects the requested format (HTTP 406/415, e.g. US rejecting image/jpeg), prompt a

@@ -12,12 +12,29 @@ import {
 } from './safeViewportFrameUtils';
 import { isStackFrameReady } from './cineFrameLoadUtils';
 import { getCineGeneration } from './cineClipStateUtils';
-import { canShowClipFrame, ensureViewportClipBuffered } from './usClipBufferStore';
+import {
+  canShowClipFrame,
+  ensureViewportClipBuffered,
+  isClipFrameFailed,
+} from './usClipBufferStore';
+import {
+  getCineResumeFrames,
+  getCineStartFrames,
+  hasCineBuffer,
+  isCineBufferingEnabled,
+} from './cineBufferPolicy';
+import { countPerf, recordPerfTiming } from './viewerPerfMetrics';
+
+/** Decoded and resident, or failed for good (shown empty rather than held for). */
+export function isCineFramePlayable(imageId: string | undefined): boolean {
+  return isStackFrameReady(imageId) || isClipFrameFailed(imageId);
+}
 import { getCinePlayhead, setCinePlayhead, subscribeCinePlayhead } from './cinePlayheadStore';
+import { registerCineTick, unregisterCineTick } from './cineSharedTicker';
 
 const FPS_MIN = 1;
 const FPS_MAX = 90;
-const TICK_MS = 8;
+const SYNC_START_TICK_ID = 'syncStart';
 
 function clampFrameRate(value: number): number {
   return Math.max(FPS_MIN, Math.min(FPS_MAX, Number(value) || FPS_MIN));
@@ -53,12 +70,15 @@ type SyncStartViewportState = {
   /** Tile gone or still binding its first image: it never holds the layout restart. */
   inactive: boolean;
   advanceInFlight: boolean;
+  /** Holding on `frameIndex` until enough frames after it are decoded. */
+  buffering: boolean;
+  bufferingSince: number;
 };
 
 type SyncStartDriverState = {
   mode: 'syncStart';
   viewportIds: string[];
-  intervalId: ReturnType<typeof setInterval>;
+  tickId: string;
   cleanups: Array<() => void>;
 };
 
@@ -186,6 +206,50 @@ export function alignFollowersToFrame(
   });
 }
 
+/**
+ * For the sync master: whether every follower's matching frame for a master
+ * position is playable, so the whole layout buffers together instead of
+ * followers showing empty frames. Null when `masterViewportId` drives no sync.
+ * Followers still binding their first image do not hold playback.
+ */
+export function createSyncFollowerFrameCheck(
+  servicesManager: AppTypes.ServicesManager,
+  masterViewportId: string | undefined,
+  isPlayable: (imageId: string | undefined) => boolean
+): ((masterIndex: number, masterFrameCount: number) => boolean) | null {
+  if (
+    !masterViewportId ||
+    driver?.mode !== 'syncPlayback' ||
+    driver.masterViewportId !== masterViewportId
+  ) {
+    return null;
+  }
+
+  const { cornerstoneViewportService } = servicesManager.services;
+  const followers = getUsCineCapableLayoutViewportIds(servicesManager)
+    .filter(viewportId => viewportId !== masterViewportId)
+    .map(viewportId => getFrameInfo(cornerstoneViewportService, viewportId))
+    .filter(
+      ({ viewport, frameCount }) =>
+        viewport &&
+        frameCount > 1 &&
+        hasViewportPaintedFirstImage(viewport, { allowSwapInFlight: true })
+    )
+    .map(({ viewport, frameCount }) => ({
+      frameCount,
+      imageIds: (viewport.getImageIds?.() ?? []) as string[],
+    }));
+
+  if (!followers.length) {
+    return null;
+  }
+
+  return (masterIndex, masterFrameCount) =>
+    followers.every(({ frameCount, imageIds }) =>
+      isPlayable(imageIds[getCorrespondingFrameIndex(masterIndex, masterFrameCount, frameCount)])
+    );
+}
+
 export function stopSyncPlaybackDriver(): void {
   if (!driver) {
     return;
@@ -198,7 +262,7 @@ export function stopSyncPlaybackDriver(): void {
       // Element may already be detached after a layout swap.
     }
   } else {
-    clearInterval(driver.intervalId);
+    unregisterCineTick(driver.tickId);
   }
 
   driver.cleanups.forEach(cleanup => cleanup());
@@ -318,6 +382,8 @@ export function startSyncStartDriver(
         passStartAt: now,
         inactive: false,
         advanceInFlight: false,
+        buffering: false,
+        bufferingSince: 0,
       };
     })
     .filter(Boolean) as SyncStartViewportState[];
@@ -365,6 +431,7 @@ export function startSyncStartDriver(
       state.frameIndex = -1;
       state.playheadReady = true;
       state.passStartAt = tickNow;
+      state.buffering = false;
       setDrivenPlayhead(state.viewportId, null);
     }
 
@@ -385,11 +452,80 @@ export function startSyncStartDriver(
     ensureViewportClipBuffered(state.viewportId, imageIds);
 
     const periodMs = 1000 / state.frameRate;
+    const isPlayableIndex = (index: number) => isCineFramePlayable(imageIds[index]);
+    const holdAt = (index: number) => {
+      state.passStartAt = tickNow - Math.max(0, index) * periodMs;
+    };
+
+    // With waitForFrames, not enough decoded frames ahead (pass start, or ran
+    // dry): hold the shown frame and keep the pass clock still until they are.
+    const waitForFrames = isCineBufferingEnabled();
+    const bufferFrom = state.frameIndex < 0 ? 0 : state.frameIndex + 1;
+    if (waitForFrames && (state.frameIndex < 0 || state.buffering)) {
+      const required =
+        state.frameIndex < 0
+          ? getCineStartFrames(state.frameRate, state.frameCount)
+          : getCineResumeFrames(state.frameRate, state.frameCount);
+      const buffered =
+        bufferFrom >= state.frameCount ||
+        hasCineBuffer({
+          totalFrames: state.frameCount,
+          fromIndex: bufferFrom,
+          required,
+          wrap: false,
+          isPlayableIndex,
+        });
+
+      if (!buffered) {
+        if (!state.buffering) {
+          state.buffering = true;
+          state.bufferingSince = tickNow;
+          countPerf(state.frameIndex < 0 ? 'cineStartWaits' : 'cineUnderruns');
+        }
+        holdAt(state.frameIndex);
+        return;
+      }
+
+      if (state.buffering) {
+        state.buffering = false;
+        recordPerfTiming(
+          state.frameIndex < 0 ? 'cineStartBufferMs' : 'cineUnderrunMs',
+          tickNow - state.bufferingSince
+        );
+        holdAt(state.frameIndex);
+      }
+    }
+
     const target = Math.min(
       state.frameCount - 1,
       Math.max(0, Math.floor((tickNow - state.passStartAt) / periodMs))
     );
     const ready = isStackFrameReady(imageIds[target]);
+
+    if (
+      waitForFrames &&
+      !ready &&
+      target !== state.frameIndex &&
+      !isClipFrameFailed(imageIds[target])
+    ) {
+      state.buffering = true;
+      state.bufferingSince = tickNow;
+      countPerf('cineUnderruns');
+      holdAt(state.frameIndex);
+      return;
+    }
+
+    // Evicted after downloading: keep the last picture and hold the pass clock.
+    if (!ready && canShowClipFrame(imageIds[target])) {
+      holdAt(state.frameIndex);
+      state.playheadReady = true;
+      setDrivenPlayhead(state.viewportId, {
+        index: Math.max(0, state.frameIndex),
+        total: state.frameCount,
+        ready: true,
+      });
+      return;
+    }
 
     // Same frame period: nothing to do, unless the empty frame just arrived.
     if (target === state.frameIndex && (state.playheadReady || !ready)) {
@@ -403,8 +539,8 @@ export function startSyncStartDriver(
       return;
     }
 
-    // Evicted after downloading: keep the last picture while it reloads.
-    const showable = ready || canShowClipFrame(imageIds[target]);
+    // Not downloaded yet: empty frame until a later pass.
+    const showable = ready;
     state.frameIndex = target;
     state.playheadReady = showable;
     setDrivenPlayhead(state.viewportId, {
@@ -430,7 +566,7 @@ export function startSyncStartDriver(
     (!state.advanceInFlight &&
       tickNow - state.passStartAt >= state.frameCount * (1000 / state.frameRate));
 
-  const intervalId = window.setInterval(() => {
+  registerCineTick(SYNC_START_TICK_ID, () => {
     if (driver?.mode !== 'syncStart' || getCineGeneration() !== clipGeneration) {
       return;
     }
@@ -448,13 +584,14 @@ export function startSyncStartDriver(
       state.passStartAt = tickNow;
       state.frameIndex = -1;
       state.playheadReady = true;
+      state.buffering = false;
     });
-  }, TICK_MS);
+  });
 
   driver = {
     mode: 'syncStart',
     viewportIds: viewportStates.map(state => state.viewportId),
-    intervalId,
+    tickId: SYNC_START_TICK_ID,
     cleanups: [],
   };
 }

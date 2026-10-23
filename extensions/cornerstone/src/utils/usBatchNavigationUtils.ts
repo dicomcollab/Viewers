@@ -25,6 +25,7 @@ import {
 import { bumpCineGeneration } from './cineClipStateUtils';
 import { shouldSuppressCineAutoplay, suppressCineAutoplay } from './cineAutoplaySuppress';
 import { snapshotUsLayoutInstanceFrames } from './usInstanceFrameState';
+import { beginViewportNavigation } from './viewportDemandCoordinator';
 import { eventTarget, EVENTS } from '@cornerstonejs/core';
 import { utils } from '@ohif/core';
 
@@ -630,6 +631,7 @@ function advanceUsBatch(
     const { cines } = cineService.getState();
     const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
     stopCineOnViewports(servicesManager, layoutViewportIds);
+    beginViewportNavigation();
 
     if (target.type === 'batch') {
       setUsFrameDistributionBatchStart(target.batchStart);
@@ -680,6 +682,7 @@ function advanceUsBatch(
   const wasPlaying = layoutViewportIds.some(viewportId => cines?.[viewportId]?.isPlaying);
 
   stopCineOnViewports(servicesManager, layoutViewportIds);
+  beginViewportNavigation();
 
   const studyDisplaySets = getPageableStudyDisplaySets(
     displaySetService,

@@ -1,8 +1,11 @@
-import { DicomMetadataStore } from '@ohif/core';
 import { getActiveStudyInstanceUID } from './utils/getActiveStudyInstanceUID';
 import { getKeyImagesAuthHeader } from './utils/getKeyImagesAuthHeader';
 import { deleteKeyImageFromRis, uploadKeyImagesToRis } from './utils/keyImagesApi';
 import { captureKeyImage } from './utils/captureKeyImage';
+import {
+  resolveKeyImageNavigationTarget,
+  resolveKeyImageViewportContext,
+} from './utils/resolveKeyImageViewportContext';
 
 function refreshAddKeyImageToolbar(servicesManager, viewportId?: string) {
   const { toolbarService } = servicesManager.services;
@@ -16,6 +19,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
   const {
     viewportGridService,
     cornerstoneViewportService,
+    hangingProtocolService,
     measurementService,
     uiNotificationService,
     keyImagesService,
@@ -76,33 +80,21 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         return;
       }
 
-      const imageIds = typeof viewport.getImageIds === 'function' ? viewport.getImageIds() : [];
-      const currentImageIndex =
-        typeof viewport.getCurrentImageIdIndex === 'function'
-          ? viewport.getCurrentImageIdIndex()
-          : undefined;
-      const imageId =
-        (typeof viewport.getCurrentImageId === 'function'
-          ? viewport.getCurrentImageId()
-          : undefined) ||
-        (Array.isArray(imageIds) &&
-        currentImageIndex !== undefined &&
-        currentImageIndex >= 0 &&
-        currentImageIndex < imageIds.length
-          ? imageIds[currentImageIndex]
-          : undefined);
-      const imageIndex = imageId && Array.isArray(imageIds) ? imageIds.indexOf(imageId) : undefined;
+      const context = resolveKeyImageViewportContext({
+        servicesManager,
+        activeViewportId,
+        viewport,
+      });
 
-      let instance = null;
-      if (imageId) {
-        try {
-          instance = DicomMetadataStore.getInstanceByImageId(imageId);
-        } catch {
-          instance = null;
-        }
-      }
+      const {
+        imageId,
+        imageIndex,
+        studyInstanceUID,
+        seriesInstanceUID,
+        sopInstanceUID,
+        frameNumber,
+      } = context;
 
-      const studyInstanceUID = instance?.StudyInstanceUID;
       if (!studyInstanceUID) {
         uiNotificationService.show({
           title: 'Key Images',
@@ -141,8 +133,8 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       const existingKeyImage = keyImagesService.findKeyImageForInstance({
         studyInstanceUID,
         imageId,
-        sopInstanceUID: instance?.SOPInstanceUID,
-        frameNumber: instance?.frameNumber ?? null,
+        sopInstanceUID,
+        frameNumber,
       });
 
       if (existingKeyImage) {
@@ -171,18 +163,18 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         const measurements = measurementService.getMeasurements(
           m =>
             (imageId && m.referencedImageId === imageId) ||
-            (instance?.SOPInstanceUID && m.SOPInstanceUID === instance.SOPInstanceUID)
+            (sopInstanceUID && m.SOPInstanceUID === sopInstanceUID)
         );
 
         const pendingKeyImage = {
           id: `key-image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           imageId,
-          imageIndex: imageIndex >= 0 ? imageIndex : undefined,
+          imageIndex,
           viewportId: activeViewportId,
-          studyInstanceUID: instance?.StudyInstanceUID,
-          seriesInstanceUID: instance?.SeriesInstanceUID,
-          sopInstanceUID: instance?.SOPInstanceUID,
-          frameNumber: instance?.frameNumber ?? null,
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID,
+          frameNumber,
           createdAt: Date.now(),
           dataUrl,
           blob,
@@ -256,10 +248,24 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       }
 
       const activeViewportId = viewportGridService.getActiveViewportId();
+      if (!activeViewportId) {
+        return;
+      }
+
+      const { displaySet, imageIndex, referencedImageId } = resolveKeyImageNavigationTarget({
+        servicesManager,
+        keyImage,
+      });
+
+      const resolvedImageIndex =
+        imageIndex !== undefined && imageIndex !== null && Number.isFinite(imageIndex)
+          ? imageIndex
+          : keyImage.imageIndex;
+
       if (
-        keyImage.imageIndex === undefined ||
-        keyImage.imageIndex === null ||
-        !Number.isFinite(keyImage.imageIndex)
+        resolvedImageIndex === undefined ||
+        resolvedImageIndex === null ||
+        !Number.isFinite(resolvedImageIndex)
       ) {
         uiNotificationService.show({
           title: 'Key Images',
@@ -269,10 +275,87 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         return;
       }
 
-      commandsManager.run('jumpToImage', {
-        imageIndex: keyImage.imageIndex,
-        viewport: { id: activeViewportId },
-      });
+      const jumpToResolvedImage = () => {
+        try {
+          commandsManager.run('jumpToImage', {
+            imageIndex: resolvedImageIndex,
+            viewport: { id: activeViewportId },
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      // If series/SOP metadata cannot be matched, still jump within the current
+      // stack when an image index is available (same-series Go To).
+      if (!displaySet) {
+        if (jumpToResolvedImage()) {
+          return;
+        }
+        uiNotificationService.show({
+          title: 'Key Images',
+          message: 'Could not find the series for this key image in the current study.',
+          type: 'warning',
+        });
+        return;
+      }
+
+      const displaySetInstanceUID = displaySet.displaySetInstanceUID || displaySet.uid;
+      const currentDisplaySetUIDs =
+        viewportGridService.getDisplaySetsUIDsForViewport(activeViewportId) || [];
+      const needsSeriesSwitch = !currentDisplaySetUIDs.includes(displaySetInstanceUID);
+
+      if (needsSeriesSwitch) {
+        if (referencedImageId) {
+          commandsManager.run('updateStoredPositionPresentation', {
+            viewportId: activeViewportId,
+            displaySetInstanceUIDs: [displaySetInstanceUID],
+            referencedImageId,
+          });
+        }
+
+        let viewportsToUpdate =
+          hangingProtocolService?.getViewportsRequireUpdate?.(
+            activeViewportId,
+            displaySetInstanceUID
+          ) || [];
+
+        if (!viewportsToUpdate?.length) {
+          viewportsToUpdate = [
+            {
+              viewportId: activeViewportId,
+              displaySetInstanceUIDs: [displaySetInstanceUID],
+            },
+          ];
+        }
+
+        commandsManager.run('setDisplaySetsForViewports', { viewportsToUpdate });
+
+        // Stack bind is async after series switch. Do not jump immediately —
+        // the old stack may still be active and would make jumpToImage "succeed"
+        // on the wrong series. Retry until the target display set is loaded.
+        let attempts = 0;
+        const maxAttempts = 12;
+        const retry = () => {
+          attempts += 1;
+          const loadedUIDs =
+            viewportGridService.getDisplaySetsUIDsForViewport(activeViewportId) || [];
+          const seriesReady = loadedUIDs.includes(displaySetInstanceUID);
+          if (seriesReady && jumpToResolvedImage()) {
+            return;
+          }
+          if (attempts >= maxAttempts) {
+            return;
+          }
+          window.setTimeout(retry, 75);
+        };
+        window.setTimeout(retry, 50);
+
+        return;
+      }
+
+      jumpToResolvedImage();
     },
   };
 

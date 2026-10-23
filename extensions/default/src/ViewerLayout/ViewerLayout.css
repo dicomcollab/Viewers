@@ -43,6 +43,132 @@ html.ohif-iframe-embed #root > * {
   min-height: 0;
 }
 
+/*
+ * Mobile / tablet PWA layout: full-bleed viewport, overlay drawers, bottom tool bar.
+ * Uses 100dvh so the address-bar / notch / home-indicator are accounted for.
+ */
+.ohif-mobile-layout-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  box-sizing: border-box;
+}
+
+.ohif-mobile-layout-root .ohif-viewer-layout-main {
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
+}
+
+.ohif-mobile-layout-root .ohif-mobile-viewport-column {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Image canvas gets remaining height after cine (56) + series strip (64) + toolbar (64+) */
+.ohif-mobile-layout-root .ohif-mobile-image-area {
+  flex: 1 1 auto;
+  min-height: 60%;
+}
+
+.ohif-mobile-header-navbar {
+  padding-top: 0;
+  flex-shrink: 0;
+}
+
+.ohif-mobile-header-bar {
+  min-height: 48px;
+  height: 48px;
+}
+
+.ohif-mobile-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100vw - 72px);
+  height: 44px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.ohif-mobile-nav-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.ohif-mobile-nav-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.ohif-mobile-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ohif-mobile-nav-btn.is-active,
+.ohif-mobile-nav-btn[aria-pressed='true'] {
+  background: rgba(0, 163, 196, 0.35);
+  box-shadow: inset 0 -2px 0 #00a3c4;
+}
+
+.ohif-mobile-fps-stepper {
+  margin-left: 2px;
+}
+
+.ohif-mobile-image-tool-split,
+.ohif-mobile-fps-stepper {
+  flex-shrink: 0;
+}
+
+/* Dedicated MobileCineBar owns transport — reclaim image height from in-tile US cine */
+.ohif-mobile-layout .viewport-wrapper[data-us-cine='true'] {
+  --us-cine-bar-height: 0px;
+  --us-viewport-bottom-reserve: 0px;
+}
+
+.ohif-mobile-layout .us-viewport-cine-bar {
+  display: none !important;
+}
+
+.ohif-mobile-layout .viewport-wrapper[data-us-cine='true'] > .noselect {
+  height: 100% !important;
+}
+
+.ohif-mobile-layout .viewport-overlay,
+.ohif-mobile-layout .overlay-text {
+  font-size: 11px !important;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+
+/* Hide date / series description overlays if customization lags */
+.ohif-mobile-layout [data-cy='viewport-overlay-top-left'],
+.ohif-mobile-layout [data-cy='viewport-overlay-top-right'] {
+  display: none !important;
+}
+
+/* Avoid browser pull-to-refresh fighting touch on the canvas */
+.ohif-mobile-layout {
+  overscroll-behavior: contain;
+  touch-action: manipulation;
+}
+
+.ohif-mobile-layout .cornerstone-viewport-element,
+.ohif-mobile-layout .ohif-mobile-image-area {
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
 .iframe-mode {
   min-height: 0;
 }
@@ -63,9 +189,99 @@ html.ohif-iframe-embed #root > * {
   height: 1rem !important;
 }
 
-/* Toolbar row: even spacing across the iframe header */
-.iframe-toolbar-row {
-  gap: 0.5rem;
+/*
+ * Header toolbar groups (viewer + reporting iframe). Selectors are scoped under
+ * .ohif-header-toolbar so they out-rank the generic .iframe-toolbar-compact sizing rules.
+ */
+.ohif-toolbar-group {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+/* The group holding the active tool stands out so users can see where they are */
+.ohif-toolbar-group:has(span[data-active='true']) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.ohif-header-toolbar .ohif-toolbar-group [data-tool] button:not([data-cy='hanging-protocol-dropdown-trigger']),
+.ohif-header-toolbar .ohif-toolbar-group [data-cy='layout-button'] button,
+.ohif-header-toolbar .ohif-toolbar-group #Layout button {
+  position: relative;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  padding: 6px !important;
+  border-radius: 8px !important;
+}
+
+.ohif-header-toolbar .ohif-toolbar-group [data-tool] button svg,
+.ohif-header-toolbar .ohif-toolbar-group #Layout button svg {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+}
+
+/* Split-button chevron */
+.ohif-header-toolbar .ohif-toolbar-group [data-cy$='-split-button-secondary'] button {
+  width: 14px !important;
+  min-width: 14px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+}
+
+.ohif-header-toolbar .ohif-toolbar-group [data-cy$='-split-button-secondary'] svg {
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+}
+
+.ohif-header-toolbar .ohif-toolbar-group .bg-primary.w-px {
+  display: none;
+}
+
+/* "More" looks like every other tool inside a group */
+.ohif-header-toolbar .ohif-toolbar-group [data-tool='MoreTools'] button,
+.ohif-header-toolbar .ohif-toolbar-group [data-tool='MoreTools']:hover button {
+  border: 0 !important;
+  background-color: transparent !important;
+}
+
+.ohif-header-toolbar .ohif-toolbar-group [data-tool='MoreTools'] button:hover,
+.ohif-header-toolbar .ohif-toolbar-group [data-cy='MoreTools-button'][data-state='open'] button {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Active tool: subtle fill + accent underline */
+.ohif-header-toolbar .ohif-toolbar-group span[data-active='true'] > button {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.ohif-header-toolbar .ohif-toolbar-group span[data-active='true'] > button::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: hsl(var(--highlight));
+  transform: translateX(-50%);
 }
 
 /* Hide scrollbar but keep functionality */

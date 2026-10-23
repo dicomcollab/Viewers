@@ -18,6 +18,8 @@ import {
   setProtectedImageIdsProvider,
   subscribeMemoryState,
 } from './memoryPressure';
+import { isInitialFramesPhase, subscribeInitialFramesPhase } from './viewportDemandCoordinator';
+import { selectNextClipFrame } from './selectNextClipFrame';
 
 /**
  * In-order download for ultrasound clips: every frame of a displayed US
@@ -60,11 +62,17 @@ type ClipState = {
   status: ClipBufferStatus;
   autoRetryRound: number;
   autoRetryTimer: ReturnType<typeof setTimeout> | null;
+  /** Cached playhead distances; invalidated when a viewer playhead moves. */
+  rankCache: { signature: string; distances: number[] } | null;
 };
 
-/** Cap when few clips are active; with 4 visible clips each gets 12 / 4 = 3. */
-const MAX_IN_FLIGHT_PER_CLIP = 6;
-const MAX_IN_FLIGHT_TOTAL = 12;
+/**
+ * Cap when few clips are active; with 4 visible clips each gets 6 / 4 = 1–2.
+ * Overridable with appConfig.usClipBuffer { maxInFlightPerClip, maxInFlightTotal }.
+ * Defaults stay at/under HTTP/1.1's ~6 connections per host (original DICOM).
+ */
+let MAX_IN_FLIGHT_PER_CLIP = 3;
+let MAX_IN_FLIGHT_TOTAL = 6;
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [500, 1500, 4000];
 /**
@@ -85,9 +93,19 @@ const FRAME_LOAD_STALL_MS = 45_000;
 /**
  * Evicted frames are fetched again only this far ahead of the playhead, so a
  * clip set larger than the cache plays smoothly instead of re-downloading the
- * whole loop over and over.
+ * whole loop over and over. Keep this small: 4 large echo clips already fill
+ * the decode cache, and a long lookahead turns into constant network thrash.
  */
-const PLAYHEAD_LOOKAHEAD_FRAMES = 30;
+const PLAYHEAD_LOOKAHEAD_FRAMES = 10;
+/** Once every frame has been downloaded once, fewer slots are enough to refill. */
+const MAX_IN_FLIGHT_PER_CLIP_WHEN_READY = 2;
+/**
+ * While any on-screen cine is playing, keep clip downloads small so decode and
+ * paint stay ahead of the playhead (otherwise playback slides/stutters until
+ * the background download finishes).
+ */
+const MAX_IN_FLIGHT_TOTAL_WHILE_PLAYING = 2;
+const MAX_IN_FLIGHT_PER_CLIP_WHILE_PLAYING = 1;
 const PLAYHEAD_PUMP_INTERVAL_MS = 100;
 
 class FrameEvictedError extends Error {
@@ -108,13 +126,14 @@ function isMemoryRelatedLoadError(error: unknown): boolean {
   return /no multipart mime header/i.test(message);
 }
 
-/** Drop a still-pending cache entry so the next request starts a fresh download. */
+/**
+ * Drop a cache entry that is not decoded yet so the next request starts a
+ * fresh download. A hung load object would otherwise be reused forever and
+ * the frame would never finish.
+ */
 function dropPendingCacheEntry(imageId: string): void {
   try {
-    const entry = (
-      cache as unknown as { _imageCache?: Map<string, { loaded?: boolean }> }
-    )._imageCache?.get(imageId);
-    if (entry && !entry.loaded) {
+    if (!isStackFrameReady(imageId)) {
       cache.removeImageLoadObject(imageId);
     }
   } catch {
@@ -259,9 +278,17 @@ function getViewerFrameIndex(viewportId: string, total: number): number {
 /** How many frames until each frame of the clip plays again (smallest over its tiles). */
 function getFramesUntilNeeded(clip: ClipState): number[] {
   const total = clip.imageIds.length;
-  const distances = new Array<number>(total).fill(total);
+  const viewerIndexes: number[] = [];
   clip.viewers.forEach(viewportId => {
-    const at = getViewerFrameIndex(viewportId, total);
+    viewerIndexes.push(getViewerFrameIndex(viewportId, total));
+  });
+  const signature = `${total}|${viewerIndexes.join(',')}`;
+  if (clip.rankCache?.signature === signature) {
+    return clip.rankCache.distances;
+  }
+
+  const distances = new Array<number>(total).fill(total);
+  viewerIndexes.forEach(at => {
     for (let index = 0; index < total; index += 1) {
       const distance = (index - at + total) % total;
       if (distance < distances[index]) {
@@ -269,6 +296,7 @@ function getFramesUntilNeeded(clip: ClipState): number[] {
       }
     }
   });
+  clip.rankCache = { signature, distances };
   return distances;
 }
 
@@ -277,7 +305,11 @@ let playheadPumpTimer: ReturnType<typeof setTimeout> | null = null;
 /** The playhead moved on a clip with evicted frames: fetch the ones coming up. */
 function onPlayheadMoved(viewportId: string): void {
   const clip = clips.get(clipKeyByViewport.get(viewportId) ?? '');
-  if (!clip || clip.loaded >= clip.downloadedCount || playheadPumpTimer) {
+  if (!clip) {
+    return;
+  }
+  clip.rankCache = null;
+  if (clip.loaded >= clip.downloadedCount || playheadPumpTimer) {
     return;
   }
   playheadPumpTimer = setTimeout(() => {
@@ -418,6 +450,7 @@ function createClip(key: string, imageIds: string[]): ClipState {
     status: 'loading',
     autoRetryRound: 0,
     autoRetryTimer: null,
+    rankCache: null,
   };
 
   updateStatus(clip);
@@ -485,7 +518,18 @@ function loadFrame(clip: ClipState, index: number): void {
       return;
     }
     if (!clip.ready[index]) {
-      softRetry(RETRY_BACKOFF_MS[0]);
+      // Soft retry first; if eviction/hung-load retries are exhausted, count a
+      // real attempt so the frame eventually fails and auto-retries instead of
+      // spinning on the same slot forever.
+      if (!softRetry(RETRY_BACKOFF_MS[0])) {
+        const attempts = (clip.attempts.get(index) ?? 0) + 1;
+        clip.attempts.set(index, attempts);
+        if (attempts >= MAX_ATTEMPTS) {
+          clip.failed.add(index);
+        } else {
+          clip.retryAt.set(index, performance.now() + RETRY_BACKOFF_MS[attempts - 1]);
+        }
+      }
     }
     dropPendingCacheEntry(imageId);
     settle();
@@ -603,17 +647,27 @@ function hasPendingThumbnailRequests(): boolean {
 /**
  * Total request budget for clips right now. While thumbnails are loading each
  * visible clip gets a single slot (enough for its frame 1); full speed after.
+ * While cine is playing, keep the budget small so paint stays smooth.
  */
 function getClipRequestBudget(activeClipCount: number, now: number): number {
+  const playing = isAnyVisibleCinePlaying();
+  const cap = playing ? MAX_IN_FLIGHT_TOTAL_WHILE_PLAYING : MAX_IN_FLIGHT_TOTAL;
+
+  // A page is still putting up its first images (single frames included):
+  // one request per clip until it has, so they are not queued behind clip frames.
+  if (activeClipCount && isInitialFramesPhase()) {
+    return Math.min(cap, activeClipCount);
+  }
+
   if (!activeClipCount || !hasPendingThumbnailRequests()) {
     thumbnailsWaitStartedAt = null;
-    return MAX_IN_FLIGHT_TOTAL;
+    return cap;
   }
 
   thumbnailsWaitStartedAt ??= now;
 
   if (now - thumbnailsWaitStartedAt >= THUMBNAILS_FIRST_MAX_WAIT_MS) {
-    return MAX_IN_FLIGHT_TOTAL;
+    return cap;
   }
 
   if (!thumbnailsRecheckTimer) {
@@ -623,7 +677,7 @@ function getClipRequestBudget(activeClipCount: number, now: number): number {
     }, THUMBNAILS_RECHECK_MS);
   }
 
-  return Math.min(MAX_IN_FLIGHT_TOTAL, activeClipCount);
+  return Math.min(cap, activeClipCount);
 }
 
 function scheduleRetry(at: number): void {
@@ -640,49 +694,27 @@ function scheduleRetry(at: number): void {
   );
 }
 
-/**
- * Next frame to request, or -1 (reports the earliest pending retry):
- * evicted frames about to play first, then never-downloaded frames in order.
- */
+/** Next frame to request, or -1 (reports the earliest pending retry). */
 function findNextFrame(clip: ClipState, now: number, onRetryPending: (at: number) => void): number {
   const total = clip.imageIds.length;
-  const canRequest = (index: number): boolean => {
-    if (clip.ready[index] || clip.inFlight.has(index) || clip.failed.has(index)) {
-      return false;
-    }
-    const retryAt = clip.retryAt.get(index);
-    if (retryAt != null && retryAt > now) {
-      onRetryPending(retryAt);
-      return false;
-    }
-    return true;
-  };
-
-  if (clip.loaded < clip.downloadedCount) {
-    for (const viewportId of clip.viewers) {
-      const at = getViewerFrameIndex(viewportId, total);
-      const lookahead = Math.min(total, PLAYHEAD_LOOKAHEAD_FRAMES);
-      for (let step = 0; step < lookahead; step += 1) {
-        const index = (at + step) % total;
-        if (clip.downloaded[index] && canRequest(index)) {
-          return index;
-        }
-      }
-    }
-  }
-
-  for (let index = 0; index < total; index += 1) {
-    if (!clip.downloaded[index] && canRequest(index)) {
-      return index;
-    }
-  }
-
-  return -1;
+  const viewerIndexes = Array.from(clip.viewers, viewportId =>
+    getViewerFrameIndex(viewportId, total)
+  );
+  return selectNextClipFrame(clip, viewerIndexes, now, onRetryPending, PLAYHEAD_LOOKAHEAD_FRAMES);
 }
 
-function isAnyVisibleClipDownloading(): boolean {
+/**
+ * True while a visible clip has not finished its first-pass download yet
+ * (every frame downloaded at least once). Playhead refill after eviction must
+ * not keep study prefetch paused forever — that froze the study download count
+ * at the first layout's total (e.g. stuck at 617 after four clips finished).
+ */
+function isAnyVisibleClipFirstPassIncomplete(): boolean {
   for (const clip of clips.values()) {
-    if (clip.viewers.size && clip.status === 'loading') {
+    if (!clip.viewers.size) {
+      continue;
+    }
+    if (clip.downloadedCount < clip.imageIds.length) {
       return true;
     }
   }
@@ -690,22 +722,47 @@ function isAnyVisibleClipDownloading(): boolean {
   return false;
 }
 
+/** True when any on-screen clip viewport is actively playing cine. */
+function isAnyVisibleCinePlaying(): boolean {
+  const cines = boundServicesManager?.services?.cineService?.getState?.()?.cines;
+  if (!cines) {
+    return false;
+  }
+  for (const clip of clips.values()) {
+    for (const viewportId of clip.viewers) {
+      if (cines[viewportId]?.isPlaying) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /**
- * Background study prefetch competes for the same connections; hold it while
- * any visible clip is still downloading and resume once they are all ready.
+ * Hold study prefetch only while the current layout's clips are still on their
+ * first download. While cine is playing, keep prefetch in "smooth" mode (one
+ * request) so already-downloaded tiles stay fluid.
  */
 function updateBackgroundPrefetchPause(): void {
   // A hidden tab that gave its memory back must not refill it in the background.
-  const shouldPause = isMemoryTrimmedForHiddenTab() || isAnyVisibleClipDownloading();
+  const shouldPause = isMemoryTrimmedForHiddenTab() || isAnyVisibleClipFirstPassIncomplete();
+  const cinePlaying = !shouldPause && isAnyVisibleCinePlaying();
 
-  if (shouldPause === backgroundPrefetchPaused) {
-    return;
+  if (shouldPause !== backgroundPrefetchPaused) {
+    backgroundPrefetchPaused = shouldPause;
+
+    try {
+      boundServicesManager?.services?.studyPrefetcherService?.setPaused?.(
+        shouldPause,
+        'visibleClips'
+      );
+    } catch {
+      // Prefetcher not registered in this mode.
+    }
   }
 
-  backgroundPrefetchPaused = shouldPause;
-
   try {
-    boundServicesManager?.services?.studyPrefetcherService?.setPaused?.(shouldPause);
+    boundServicesManager?.services?.studyPrefetcherService?.setSmoothPlaybackMode?.(cinePlaying);
   } catch {
     // Prefetcher not registered in this mode.
   }
@@ -734,6 +791,7 @@ function pump(): void {
   );
 
   if (activeClips.length) {
+    const cinePlaying = isAnyVisibleCinePlaying();
     const budget = getClipRequestBudget(activeClips.length, now);
     const fairShare = Math.max(
       1,
@@ -751,7 +809,21 @@ function pump(): void {
             break;
           }
 
-          if (clip.inFlight.size >= perClipLimit) {
+          // Fully downloaded clips only refill the playhead window — do not let
+          // them monopolize every connection and starve first-pass downloads or
+          // make cine stutter while re-fetching 30 frames ahead forever.
+          // While playing, one in-flight per clip is enough for the warm window.
+          const readyCap = cinePlaying
+            ? MAX_IN_FLIGHT_PER_CLIP_WHILE_PLAYING
+            : MAX_IN_FLIGHT_PER_CLIP_WHEN_READY;
+          const clipLimit =
+            clip.status === 'ready' && clip.downloadedCount >= clip.imageIds.length
+              ? Math.min(perClipLimit, readyCap)
+              : cinePlaying
+                ? Math.min(perClipLimit, MAX_IN_FLIGHT_PER_CLIP_WHILE_PLAYING)
+                : perClipLimit;
+
+          if (clip.inFlight.size >= clipLimit) {
             continue;
           }
 
@@ -783,7 +855,11 @@ function releaseViewportClip(viewportId: string): void {
     return;
   }
 
-  clips.get(key)?.viewers.delete(viewportId);
+  const clip = clips.get(key);
+  if (clip) {
+    clip.viewers.delete(viewportId);
+    clip.rankCache = null;
+  }
   notify([viewportId]);
   updateBackgroundPrefetchPause();
 }
@@ -807,11 +883,16 @@ function ensureViewportClipBuffered(viewportId: string, imageIds: string[]): boo
     const previousKey = clipKeyByViewport.get(viewportId);
 
     if (previousKey) {
-      clips.get(previousKey)?.viewers.delete(viewportId);
+      const previous = clips.get(previousKey);
+      if (previous) {
+        previous.viewers.delete(viewportId);
+        previous.rankCache = null;
+      }
     }
 
     const clip = clips.get(key) ?? createClip(key, imageIds);
     clip.viewers.add(viewportId);
+    clip.rankCache = null;
     clipKeyByViewport.set(viewportId, key);
 
     // Coming back to a clip that gave up earlier (e.g. network was down): try again.
@@ -852,6 +933,15 @@ function getViewportClipDebugInfo(viewportId: string, imageIds: string[] = []) {
   const key = clipKeyByViewport.get(viewportId) ?? null;
   const clip = key ? clips.get(key) : undefined;
 
+  const pendingNew = clip
+    ? clip.downloaded.reduce((count, isDownloaded, index) => {
+        if (isDownloaded || clip.failed.has(index) || clip.inFlight.has(index)) {
+          return count;
+        }
+        return count + 1;
+      }, 0)
+    : 0;
+
   return {
     attached: Boolean(clip),
     attachedToShownStack: Boolean(key) && imageIds.length > 1 && key === getClipKey(imageIds),
@@ -859,6 +949,7 @@ function getViewportClipDebugInfo(viewportId: string, imageIds: string[] = []) {
     status: clip?.status ?? null,
     decoded: clip?.loaded ?? 0,
     downloaded: clip?.downloadedCount ?? 0,
+    pendingNew,
     total: clip?.imageIds.length ?? 0,
     inFlight: clip?.inFlight.size ?? 0,
     failed: clip?.failed.size ?? 0,
@@ -898,10 +989,39 @@ function syncViewportClip(servicesManager: AppTypes.ServicesManager, viewportId:
   scheduleProgressPublish();
 }
 
+function configureUsClipBuffer(config?: {
+  maxInFlightPerClip?: number;
+  maxInFlightTotal?: number;
+}): void {
+  const perClip = Math.floor(Number(config?.maxInFlightPerClip));
+  const total = Math.floor(Number(config?.maxInFlightTotal));
+
+  if (perClip > 0) {
+    MAX_IN_FLIGHT_PER_CLIP = perClip;
+  }
+  if (total > 0) {
+    MAX_IN_FLIGHT_TOTAL = total;
+  }
+}
+
 function initUsClipBuffering(servicesManager: AppTypes.ServicesManager): void {
-  const { cornerstoneViewportService, viewportGridService } = servicesManager.services;
+  const { cornerstoneViewportService, viewportGridService, cineService } =
+    servicesManager.services;
 
   boundServicesManager = servicesManager;
+
+  // Full request budget again once the page's first images are up.
+  subscribeInitialFramesPhase(active => {
+    if (!active) {
+      pump();
+    }
+  });
+
+  // Play / pause: raise or lower download pressure so on-screen cine stays smooth.
+  cineService?.subscribe?.(cineService.EVENTS.CINE_STATE_CHANGED, () => {
+    updateBackgroundPrefetchPause();
+    pump();
+  });
 
   cornerstoneViewportService.subscribe(
     cornerstoneViewportService.EVENTS.VIEWPORT_DATA_CHANGED,
@@ -984,10 +1104,62 @@ function canShowClipFrame(imageId: string | undefined): boolean {
   return Boolean(imageId) && (isStackFrameReady(imageId) || downloadedImageIds.has(imageId));
 }
 
+/**
+ * Every attempt to download the frame failed: playback may pass over it (as an
+ * empty frame) instead of waiting for it.
+ */
+function isClipFrameFailed(imageId: string | undefined): boolean {
+  if (!imageId) {
+    return false;
+  }
+  const keys = clipKeysByImageId.get(imageId);
+  if (!keys) {
+    return false;
+  }
+  for (const key of keys) {
+    const clip = clips.get(key);
+    const index = clip ? clip.imageIds.indexOf(imageId) : -1;
+    if (clip && index >= 0 && clip.failed.has(index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Totals for diagnostics (no image ids). */
+function getClipBufferStats() {
+  let visibleClips = 0;
+  let decoded = 0;
+  let frames = 0;
+  let failed = 0;
+  clips.forEach(clip => {
+    if (!clip.viewers.size) {
+      return;
+    }
+    visibleClips += 1;
+    decoded += clip.loaded;
+    frames += clip.imageIds.length;
+    failed += clip.failed.size;
+  });
+  return {
+    clips: clips.size,
+    visibleClips,
+    visibleFramesDecoded: decoded,
+    visibleFramesTotal: frames,
+    visibleFramesFailed: failed,
+    inFlight: totalInFlight,
+    maxInFlightTotal: MAX_IN_FLIGHT_TOTAL,
+    maxInFlightPerClip: MAX_IN_FLIGHT_PER_CLIP,
+  };
+}
+
 export {
   canShowClipFrame,
   clearClipBuffers,
+  configureUsClipBuffer,
   ensureViewportClipBuffered,
+  getClipBufferStats,
+  isClipFrameFailed,
   getViewportClipDebugInfo,
   getViewportClipProgress,
   initUsClipBuffering,

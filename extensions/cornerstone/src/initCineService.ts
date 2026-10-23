@@ -2,9 +2,18 @@ import { getEnabledElement, Enums, eventTarget, EVENTS } from '@cornerstonejs/co
 import { utilities } from '@cornerstonejs/tools';
 import { getSyncedViewports } from './utils/cineSyncUtils';
 import {
+  createSyncFollowerFrameCheck,
+  isCineFramePlayable,
   isCinePlaybackManaged,
   validateSyncPlaybackDriver,
 } from './utils/usCineSyncPlaybackDriver';
+import {
+  getCineResumeFrames,
+  getCineStartFrames,
+  isCineBufferingEnabled,
+  measureCineBuffer,
+} from './utils/cineBufferPolicy';
+import { countPerf, recordPerfTiming } from './utils/viewerPerfMetrics';
 import {
   canShowClipFrame,
   ensureViewportClipBuffered,
@@ -42,8 +51,6 @@ import { syncUsViewportGridToReviewOrder } from './utils/usBatchNavigationUtils'
 
 export const DEFAULT_FRAME_STEP = 4;
 export const STEP_INTERVAL_MS = 400;
-/** Tick fast enough to hit 90 FPS (~11ms) without relying on display refresh alone. */
-const LIVE_CLIP_TICK_MS = 8;
 const FPS_MAX = 90;
 const liveClipCleanups = new Map<string, () => void>();
 
@@ -175,6 +182,45 @@ function startLiveStackClip(
     playheadIndex = index;
   };
 
+  // Holding on the shown frame until enough frames after it are decoded.
+  let buffering = false;
+  let bufferingSince = 0;
+
+  const enterBuffering = (
+    index: number,
+    total: number,
+    imageIds: string[],
+    missingIndex: number,
+    now: number,
+    starting: boolean
+  ) => {
+    if (!buffering) {
+      buffering = true;
+      bufferingSince = now;
+      countPerf(starting ? 'cineStartWaits' : 'cineUnderruns');
+    }
+    playheadReady = true;
+    setCinePlayhead(viewportId, { index, total, ready: true });
+    if (missingIndex >= 0) {
+      setCineWaitingForFrame(viewportId, {
+        imageIndex: missingIndex,
+        imageId: imageIds[missingIndex],
+      });
+    }
+  };
+
+  const leaveBuffering = (now: number, starting: boolean) => {
+    if (!buffering) {
+      if (starting) {
+        recordPerfTiming('cineStartBufferMs', 0);
+      }
+      return;
+    }
+    buffering = false;
+    recordPerfTiming(starting ? 'cineStartBufferMs' : 'cineUnderrunMs', now - bufferingSince);
+    setCineWaitingForFrame(viewportId, null);
+  };
+
   const advanceUsTimeline = (
     liveViewport,
     imageIds: string[],
@@ -183,8 +229,46 @@ function startLiveStackClip(
     now: number
   ) => {
     const total = imageIds.length;
+    // As the sync master, the followers' matching frames must be decoded too.
+    // Built on first use: most ticks never check a new frame.
+    let followersPlayable: ReturnType<typeof createSyncFollowerFrameCheck> | undefined;
+    const isPlayableIndex = (index: number) => {
+      if (!isCineFramePlayable(imageIds[index])) {
+        return false;
+      }
+      if (followersPlayable === undefined) {
+        followersPlayable = createSyncFollowerFrameCheck(
+          servicesManager,
+          viewportId,
+          isCineFramePlayable
+        );
+      }
+      return !followersPlayable || followersPlayable(index, total);
+    };
+    const stepsPerSecond = 1000 / periodMs;
 
+    const waitForFrames = isCineBufferingEnabled();
+
+    // Start (or restart after the stack changed). With waitForFrames, only on a
+    // decoded run of frames, so the bar never walks over frames not there yet.
     if (timelineBase < 0 || playheadIndex >= total) {
+      const buffer = waitForFrames
+        ? measureCineBuffer({
+            totalFrames: total,
+            fromIndex: currentIndex,
+            frameStep,
+            required: getCineStartFrames(stepsPerSecond, total, frameStep),
+            isPlayableIndex,
+          })
+        : null;
+
+      if (buffer && buffer.ready < buffer.needed) {
+        timelineBase = -1;
+        enterBuffering(currentIndex, total, imageIds, buffer.firstMissing, now, true);
+        return;
+      }
+
+      leaveBuffering(now, true);
       rebaseTimeline(currentIndex, periodMs, now);
       playheadReady = true;
       setCinePlayhead(viewportId, { index: currentIndex, total, ready: true });
@@ -195,11 +279,47 @@ function startLiveStackClip(
       rebaseTimeline(playheadIndex, periodMs, now);
     }
 
+    // Ran dry: stay on the shown frame (clock stopped) until enough follow it.
+    if (buffering) {
+      const buffer = measureCineBuffer({
+        totalFrames: total,
+        fromIndex: (playheadIndex + frameStep) % total,
+        frameStep,
+        required: getCineResumeFrames(stepsPerSecond, total, frameStep),
+        isPlayableIndex,
+      });
+
+      rebaseTimeline(playheadIndex, periodMs, now);
+      if (buffer.ready < buffer.needed) {
+        enterBuffering(playheadIndex, total, imageIds, buffer.firstMissing, now, false);
+        return;
+      }
+      leaveBuffering(now, false);
+      return;
+    }
+
     const steps = Math.floor((now - timelineStartAt) / timelinePeriodMs);
     const target = (timelineBase + steps * frameStep) % total;
     const ready = isStackFrameReady(imageIds[target]);
-    // Evicted after downloading: keep the last picture while it reloads.
-    const showable = ready || canShowClipFrame(imageIds[target]);
+
+    if (waitForFrames && target !== playheadIndex && !isPlayableIndex(target)) {
+      rebaseTimeline(playheadIndex, periodMs, now);
+      enterBuffering(playheadIndex, total, imageIds, target, now, false);
+      return;
+    }
+
+    // Downloaded before but evicted from the decode cache: keep the last picture
+    // and hold the clock. Walking the playhead over missing pixels makes the tile
+    // blink and the bar race ahead of the canvas while 4 large clips thrash memory.
+    if (!ready && canShowClipFrame(imageIds[target])) {
+      rebaseTimeline(playheadIndex, periodMs, now);
+      playheadReady = true;
+      setCinePlayhead(viewportId, { index: playheadIndex, total, ready: true });
+      return;
+    }
+
+    // Not downloaded yet: empty frame; it appears on a later pass (MedDream-style).
+    const showable = ready;
 
     // Same frame period: nothing to do, unless the empty frame just arrived.
     if (target === playheadIndex && (playheadReady || !ready)) {
@@ -318,7 +438,7 @@ function startLiveStackClip(
     });
   }
 
-  const intervalId = window.setInterval(() => {
+  const onTick = () => {
     if (advanceInFlight) {
       return;
     }
@@ -345,6 +465,7 @@ function startLiveStackClip(
       return;
     }
 
+    // Per-viewport FPS (from this tile's cine control), not the shared wake-up rate.
     const periodMs = getLiveClipPeriodMs(
       servicesManager,
       viewportId,
@@ -480,9 +601,9 @@ function startLiveStackClip(
         window.clearTimeout(hangWatch);
         advanceInFlight = false;
       });
-  }, LIVE_CLIP_TICK_MS);
+  };
 
-  setCustomClip(element, intervalId, viewportId);
+  setCustomClip(element, onTick, viewportId);
 }
 
 function isStackCineViewport(viewport): boolean {

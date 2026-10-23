@@ -25,6 +25,11 @@ import { useToggleOneUpViewportGridStore } from './stores/useToggleOneUpViewport
 import requestDisplaySetCreationForStudy from './Panels/requestDisplaySetCreationForStudy';
 import promptSaveReport from './utils/promptSaveReport';
 import { getStudyPanelNavigationOrder } from './utils/studyPanelNavigationOrder';
+import {
+  startStudyDownload,
+  studyDownloadErrorMessage,
+  studyDownloadStartedMessage,
+} from './utils/studyDownload';
 
 const { compareDisplaySetsByReviewOrder } = utils;
 
@@ -60,7 +65,76 @@ const commandsModule = ({
   // Define a context menu controller for use with any context menus
   const contextMenuController = new ContextMenuController(servicesManager, commandsManager);
 
+  let downloadingStudyUID: string | null = null;
+
+  const getActiveStudyInstanceUID = (): string | null => {
+    const hpActiveStudyUID = hangingProtocolService.getState()?.activeStudyUID;
+    if (hpActiveStudyUID) {
+      return hpActiveStudyUID;
+    }
+    const activeViewportId = viewportGridService.getActiveViewportId();
+    const displaySetUIDs = activeViewportId
+      ? viewportGridService.getDisplaySetsUIDsForViewport(activeViewportId) || []
+      : [];
+    for (const uid of displaySetUIDs) {
+      const studyUID = displaySetService.getDisplaySetByUID(uid)?.StudyInstanceUID;
+      if (studyUID) {
+        return studyUID;
+      }
+    }
+    return null;
+  };
+
   const actions = {
+    /**
+     * Downloads the original DICOM files of the active study as a ZIP from the DICOM API vault.
+     */
+    downloadStudy: async ({ StudyInstanceUID }: { StudyInstanceUID?: string } = {}) => {
+      const studyUID = StudyInstanceUID || getActiveStudyInstanceUID();
+      if (!studyUID) {
+        uiNotificationService.show({
+          title: 'Download Study',
+          message: 'No active study found. Open a study before downloading.',
+          type: 'warning',
+        });
+        return;
+      }
+      if (downloadingStudyUID) {
+        uiNotificationService.show({
+          title: 'Download Study',
+          message: 'A study download is already being prepared, please wait...',
+          type: 'info',
+          id: 'download-study-in-progress',
+          allowDuplicates: false,
+          deduplicationInterval: 2000,
+        });
+        return;
+      }
+
+      downloadingStudyUID = studyUID;
+      const downloadPromise = startStudyDownload(studyUID);
+      uiNotificationService.show({
+        title: 'Download Study',
+        message: 'Preparing download…',
+        promise: downloadPromise,
+        promiseMessages: {
+          loading: 'Preparing download…',
+          success: studyDownloadStartedMessage,
+          error: studyDownloadErrorMessage,
+        },
+        id: 'download-study',
+        allowDuplicates: false,
+      });
+
+      try {
+        await downloadPromise;
+      } catch (error) {
+        console.error('Study download error:', error);
+      } finally {
+        downloadingStudyUID = null;
+      }
+    },
+
     /**
      * Adds a display set as a layer to the specified viewport
      *
@@ -857,6 +931,7 @@ const commandsModule = ({
     scrollActiveThumbnailIntoView: actions.scrollActiveThumbnailIntoView,
     addDisplaySetAsLayer: actions.addDisplaySetAsLayer,
     removeDisplaySetLayer: actions.removeDisplaySetLayer,
+    downloadStudy: actions.downloadStudy,
   };
 
   return {

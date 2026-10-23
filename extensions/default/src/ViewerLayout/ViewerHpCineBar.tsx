@@ -29,7 +29,7 @@ function ViewerHpCineBar({
       }`}
       data-cy="viewer-hp-cine-bar"
     >
-      <div className="flex min-w-0 items-center gap-1">
+      <div className="scrollbar-hide flex min-w-0 items-center gap-1 overflow-x-auto">
         <Toolbar buttonSection="secondary" />
         <FrameDistributionControl
           commandsManager={commandsManager}

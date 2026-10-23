@@ -4,6 +4,9 @@ import {
   getKeyImageUploadFileName,
   resolveKeyImageUploadBlob,
 } from './captureKeyImage';
+import { parseS3KeyMetadata } from './parseS3KeyMetadata';
+
+export { parseS3KeyMetadata } from './parseS3KeyMetadata';
 
 type RisKeyImageApiItem = {
   key: string;
@@ -61,43 +64,6 @@ function getAuthHeaders(): Record<string, string> {
     );
   }
   return authHeaders;
-}
-
-function parseS3KeyMetadata(s3Key: string): {
-  seriesInstanceUID?: string;
-  sopInstanceUID?: string;
-  imageIndex?: number;
-} {
-  const segments = s3Key.split('/').filter(Boolean);
-  if (segments.length < 2) {
-    return {};
-  }
-
-  const seriesInstanceUID = segments.length >= 5 ? segments[4] : undefined;
-  const fileName = segments[segments.length - 1] || '';
-  const underscoreIndex = fileName.indexOf('_');
-  if (underscoreIndex <= 0) {
-    return { seriesInstanceUID };
-  }
-
-  const imageIndexRaw = fileName.slice(0, underscoreIndex);
-  const remainder = fileName.slice(underscoreIndex + 1);
-  const secondUnderscore = remainder.indexOf('_');
-  if (secondUnderscore <= 0) {
-    return { seriesInstanceUID };
-  }
-
-  const sopInstanceUID = remainder.slice(0, secondUnderscore);
-  const imageIndex =
-    imageIndexRaw !== 'unknownIndex' && Number.isFinite(Number(imageIndexRaw))
-      ? Number(imageIndexRaw)
-      : undefined;
-
-  return {
-    seriesInstanceUID,
-    sopInstanceUID: sopInstanceUID !== 'unknownSopUID' ? sopInstanceUID : undefined,
-    imageIndex,
-  };
 }
 
 export function mapRisItemToKeyImageItem(

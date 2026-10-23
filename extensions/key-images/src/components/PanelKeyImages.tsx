@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useActiveViewportDisplaySets } from '@ohif/core';
+import { getActiveStudyInstanceUID } from '../utils/getActiveStudyInstanceUID';
 
 type PanelKeyImagesProps = {
   servicesManager: AppTypes.ServicesManager;
@@ -21,15 +21,9 @@ function PanelKeyImages({ servicesManager, commandsManager }: PanelKeyImagesProp
     };
   };
 
-  const activeDisplaySets = useActiveViewportDisplaySets();
-
   const resolveActiveStudyUID = useCallback(() => {
-    return (
-      hangingProtocolService?.getState?.()?.activeStudyUID ||
-      activeDisplaySets?.[0]?.StudyInstanceUID ||
-      null
-    );
-  }, [activeDisplaySets, hangingProtocolService]);
+    return getActiveStudyInstanceUID(servicesManager);
+  }, [servicesManager]);
 
   const refreshKeyImages = useCallback(() => {
     setKeyImages(keyImagesService.getKeyImagesForStudy(resolveActiveStudyUID()));

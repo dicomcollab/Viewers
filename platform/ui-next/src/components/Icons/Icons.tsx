@@ -14,6 +14,7 @@ import DisplayFillAndOutline from './Sources/DisplayFillAndOutline';
 import DisplayFillOnly from './Sources/DisplayFillOnly';
 import DisplayOutlineOnly from './Sources/DisplayOutlineOnly';
 import Download from './Sources/Download';
+import DownloadCloud from './Sources/DownloadCloud';
 import Export from './Sources/Export';
 import EyeHidden from './Sources/EyeHidden';
 import EyeVisible from './Sources/EyeVisible';
@@ -38,6 +39,9 @@ import Patient from './Sources/Patient';
 import Pin from './Sources/Pin';
 import PinFill from './Sources/PinFill';
 import Plus from './Sources/Plus';
+import ToolZoomIn from './Sources/ToolZoomIn';
+import ToolKeyImage from './Sources/ToolKeyImage';
+import ToolZoomOut from './Sources/ToolZoomOut';
 import PowerOff from './Sources/PowerOff';
 import Redo from './Sources/Redo';
 import Refresh from './Sources/Refresh';
@@ -490,6 +494,7 @@ export const Icons = {
   FillOnly: DisplayFillOnly,
   OutlineOnly: DisplayOutlineOnly,
   Download,
+  DownloadCloud,
   Export,
   EyeHidden,
   EyeVisible,
@@ -751,6 +756,9 @@ export const Icons = {
   'tool-probe': (props: IconProps) => ToolProbe(props),
   'icon-tool-probe': (props: IconProps) => ToolProbe(props),
   'tool-zoom': (props: IconProps) => ToolZoom(props),
+  'tool-zoom-in': (props: IconProps) => ToolZoomIn(props),
+  'tool-zoom-out': (props: IconProps) => ToolZoomOut(props),
+  'tool-key-image': (props: IconProps) => ToolKeyImage(props),
   'tool-layout': (props: IconProps) => ToolLayout(props),
   'icon-transferring': (props: IconProps) => IconTransferring(props),
   'icon-alert-small': (props: IconProps) => Alert(props),

@@ -277,11 +277,17 @@ const useResizablePanels = (
 
     // This observer kicks in when the ViewportLayout resizable panel group
     // component is resized. This typically occurs when the browser window resizes.
+    // Mobile layout skips ResizablePanelGroup — ref is null; do not observe.
+    const panelGroupEl = resizablePanelGroupElemRef.current;
+    if (!panelGroupEl || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
     const observer = new ResizeObserver(() => {
       refreshPanelSizeConstraints();
     });
 
-    observer.observe(resizablePanelGroupElemRef.current);
+    observer.observe(panelGroupEl);
 
     return () => {
       observer.disconnect();

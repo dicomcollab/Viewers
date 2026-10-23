@@ -184,6 +184,29 @@ declare global {
         displaySetsCount: number;
         maxNumPrefetchRequests: number;
         order: 'closest' | 'downward' | 'upward';
+        /** Look-ahead loads only the first N frames per display set (0 = all). */
+        maxImagesPerDisplaySetToPrefetch?: number;
+        /** Look-ahead covers every display set of the study instead of `displaySetsCount`. */
+        prefetchAllSeries?: boolean;
+        /** Share of the decoded-image cache prefetched frames may use before prefetch stops. */
+        maxCacheFraction?: number;
+      };
+      /** US cine: wait for decoded frames (true) or play on with empty frames (false, default). */
+      cineBuffer?: {
+        waitForFrames?: boolean;
+        startSeconds?: number;
+        minStartFrames?: number;
+        maxStartFrames?: number;
+        resumeFraction?: number;
+      };
+      /** US clip download concurrency (requests sent outside the Cornerstone pool). */
+      usClipBuffer?: {
+        maxInFlightPerClip?: number;
+        maxInFlightTotal?: number;
+      };
+      /** Background work holds back while viewports wait for their first image (ms cap). */
+      viewportDemand?: {
+        maxInitialPhaseMs?: number;
       };
       /** Parent RIS postMessage bridge: AUTH_SESSION (cross-origin token) and LOAD_STUDY */
       risPostMessage?: {

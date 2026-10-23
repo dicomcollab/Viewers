@@ -2,7 +2,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-import { Button, Header, Icons, useModal } from '@ohif/ui-next';
+import {
+  Button,
+  Header,
+  Icons,
+  useModal,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+} from '@ohif/ui-next';
 import {
   DicomMetadataStore,
   useSystem,
@@ -106,7 +116,24 @@ function getCreateReportBaseUrl(appConfig: AppTypes.Config): string | null {
 function ViewerHeader({
   appConfig,
   isIframeMode = false,
-}: withAppTypes<{ appConfig: AppTypes.Config; isIframeMode?: boolean }>) {
+  isMobileLayout = false,
+  hasLeftPanels = false,
+  hasRightPanels = false,
+  leftPanelOpen = false,
+  rightPanelOpen = false,
+  onToggleLeftPanel,
+  onToggleRightPanel,
+}: withAppTypes<{
+  appConfig: AppTypes.Config;
+  isIframeMode?: boolean;
+  isMobileLayout?: boolean;
+  hasLeftPanels?: boolean;
+  hasRightPanels?: boolean;
+  leftPanelOpen?: boolean;
+  rightPanelOpen?: boolean;
+  onToggleLeftPanel?: () => void;
+  onToggleRightPanel?: () => void;
+}>) {
   const { servicesManager, extensionManager, commandsManager } = useSystem();
   const useViewDicomForReport = Boolean(appConfig.risReportUseViewDicomApi);
   const { customizationService } = servicesManager.services;
@@ -257,6 +284,29 @@ function ViewerHeader({
     },
   ];
 
+  // Without viewDicom API: direct link to risReportUrl or worklist (no static createreport id).
+  const reportNavigationHref = useViewDicomForReport
+    ? undefined
+    : appConfig.risReportUrl || resolveRisWorklistUrlFromConfig(appConfig);
+
+  const onReportNavigation =
+    !isIframeMode && useViewDicomForReport ? handleReportViaViewDicomApi : undefined;
+
+  // Mobile: Report lives in settings (header is too narrow for the Report button).
+  if (isMobileLayout && (onReportNavigation || reportNavigationHref)) {
+    menuOptions.unshift({
+      title: t('Header:Report') !== 'Header:Report' ? t('Header:Report') : 'Report',
+      icon: 'clipboard',
+      onClick: () => {
+        if (onReportNavigation) {
+          void onReportNavigation();
+        } else if (reportNavigationHref) {
+          window.location.assign(reportNavigationHref);
+        }
+      },
+    });
+  }
+
   if (appConfig.oidc) {
     menuOptions.push({
       title: t('Header:Logout'),
@@ -267,13 +317,247 @@ function ViewerHeader({
     });
   }
 
-  // Without viewDicom API: direct link to risReportUrl or worklist (no static createreport id).
-  const reportNavigationHref = useViewDicomForReport
-    ? undefined
-    : appConfig.risReportUrl || resolveRisWorklistUrlFromConfig(appConfig);
+  const setMobileLayoutGrid = (numRows: number, numCols: number) => {
+    try {
+      commandsManager.runCommand('setViewportGridLayout', { numRows, numCols });
+    } catch {
+      try {
+        commandsManager.run('setViewportGridLayout', { numRows, numCols });
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
-  const onReportNavigation =
-    !isIframeMode && useViewDicomForReport ? handleReportViaViewDicomApi : undefined;
+  const FPS_MIN = 1;
+  const FPS_MAX = 90;
+  const IMAGE_TOOLS = [
+    { id: 'rotate', label: 'Rotate', command: 'rotateViewportCW', Icon: Icons.ToolRotateRight },
+    { id: 'invert', label: 'Invert', command: 'invertViewport', Icon: Icons.ToolInvert },
+    { id: 'reset', label: 'Reset', command: 'resetViewport', Icon: Icons.ToolReset },
+    {
+      id: 'flipH',
+      label: 'Flip H',
+      command: 'flipViewportHorizontal',
+      Icon: Icons.ToolFlipHorizontal,
+    },
+  ] as const;
+
+  const [selectedFps, setSelectedFps] = useState(25);
+  // Default Rotate so the primary button is always actionable.
+  const [selectedImageTool, setSelectedImageTool] = useState<string>('rotate');
+
+  // Keep FPS stepper in sync with active viewport cine rate.
+  useEffect(() => {
+    if (!isMobileLayout) {
+      return;
+    }
+    const { cineService, viewportGridService } = servicesManager.services;
+    const syncFps = () => {
+      const { activeViewportId } = viewportGridService.getState();
+      const rate = cineService.getState?.()?.cines?.[activeViewportId]?.frameRate;
+      if (Number.isFinite(rate) && rate > 0) {
+        setSelectedFps(Math.round(rate));
+      }
+    };
+    syncFps();
+    const sub = cineService.subscribe?.(cineService.EVENTS.CINE_STATE_CHANGED, syncFps);
+    const timer = window.setInterval(syncFps, 1000);
+    return () => {
+      sub?.unsubscribe?.();
+      window.clearInterval(timer);
+    };
+  }, [isMobileLayout, servicesManager]);
+
+  const applyFps = (fps: number) => {
+    const next = Math.max(FPS_MIN, Math.min(FPS_MAX, Math.round(fps)));
+    const { cineService, viewportGridService } = servicesManager.services;
+    const { activeViewportId } = viewportGridService.getState();
+    if (!activeViewportId) {
+      return;
+    }
+    cineService.setCine?.({ id: activeViewportId, frameRate: next });
+    setSelectedFps(next);
+  };
+
+  const bumpFps = (delta: number) => {
+    applyFps((selectedFps || 25) + delta);
+  };
+
+  const runImageCommand = (command: string) => {
+    try {
+      commandsManager.run(command);
+    } catch {
+      try {
+        commandsManager.runCommand(command);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  /** Run the currently selected image tool (primary tap — does not open menu). */
+  const runSelectedImageTool = () => {
+    const tool = IMAGE_TOOLS.find(t => t.id === selectedImageTool) || IMAGE_TOOLS[0];
+    runImageCommand(tool.command);
+  };
+
+  /** Pick a different tool from the menu, select it, and run it once. */
+  const selectAndRunImageTool = (toolId: string, command: string) => {
+    setSelectedImageTool(toolId);
+    runImageCommand(command);
+  };
+
+  const SelectedImageIcon =
+    IMAGE_TOOLS.find(t => t.id === selectedImageTool)?.Icon || Icons.ToolRotateRight;
+  const selectedImageLabel =
+    IMAGE_TOOLS.find(t => t.id === selectedImageTool)?.label || 'Rotate';
+
+  const mobileNavBtn =
+    'ohif-mobile-nav-btn h-9 w-9 shrink-0 text-white hover:bg-primary-active';
+
+  const mobileLayoutMenu = isMobileLayout ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={mobileNavBtn}
+          aria-label="Layout"
+          data-cy="mobile-layout-menu"
+        >
+          <Icons.ToolLayout className="h-5 w-5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[10rem]">
+        <DropdownMenuLabel>Layout</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => setMobileLayoutGrid(1, 1)}>1 × 1</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setMobileLayoutGrid(1, 2)}>1 × 2</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setMobileLayoutGrid(2, 1)}>2 × 1</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setMobileLayoutGrid(2, 2)}>2 × 2</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
+  // Compact − FPS + stepper
+  const mobileFpsStepper = isMobileLayout ? (
+    <div
+      className="ohif-mobile-fps-stepper inline-flex h-9 items-center rounded-md bg-black/25"
+      data-cy="mobile-fps-stepper"
+    >
+      <button
+        type="button"
+        className="flex h-9 w-7 items-center justify-center text-sm font-bold text-white"
+        aria-label="Decrease FPS"
+        onClick={() => bumpFps(-1)}
+      >
+        −
+      </button>
+      <span className="min-w-[1.5rem] text-center text-[11px] font-semibold tabular-nums text-white">
+        {selectedFps}
+      </span>
+      <button
+        type="button"
+        className="flex h-9 w-7 items-center justify-center text-sm font-bold text-white"
+        aria-label="Increase FPS"
+        onClick={() => bumpFps(1)}
+      >
+        +
+      </button>
+    </div>
+  ) : null;
+
+  // Split: tap icon = run tool; chevron = pick another
+  const mobileImageToolsControl = isMobileLayout ? (
+    <div
+      className="ohif-mobile-image-tool-split inline-flex h-9 items-stretch overflow-hidden rounded-md bg-primary-active/50"
+      data-cy="mobile-image-tools"
+    >
+      <button
+        type="button"
+        className="flex h-9 w-9 items-center justify-center text-white"
+        aria-label={`Use ${selectedImageLabel}`}
+        title={`Tap to ${selectedImageLabel}`}
+        onClick={runSelectedImageTool}
+      >
+        <SelectedImageIcon className="h-5 w-5" />
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-9 w-6 items-center justify-center border-l border-white/20 text-white"
+            aria-label="Choose image tool"
+            data-cy="mobile-image-tools-menu"
+          >
+            <Icons.ChevronClosed className="h-3 w-3" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[11rem]">
+          <DropdownMenuLabel>Image tools</DropdownMenuLabel>
+          {IMAGE_TOOLS.map(tool => {
+            const isSelected = selectedImageTool === tool.id;
+            const Icon = tool.Icon;
+            return (
+              <DropdownMenuItem
+                key={tool.id}
+                onSelect={() => selectAndRunImageTool(tool.id, tool.command)}
+                className={`flex items-center gap-2 ${isSelected ? 'bg-primary/30 font-semibold' : ''}`}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="flex-1">{tool.label}</span>
+                {isSelected ? <span aria-hidden>✓</span> : null}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  ) : null;
+
+  // Mobile sequence: Series → Tools | Layout | Image | −FPS+
+  const mobileHeaderActions = isMobileLayout ? (
+    <div
+      className="ohif-mobile-nav-actions"
+      data-cy="mobile-nav-actions"
+    >
+      {hasLeftPanels ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          data-cy="mobile-toggle-left-panel"
+          aria-label="Series"
+          aria-pressed={leftPanelOpen}
+          className={`${mobileNavBtn} ${leftPanelOpen ? 'is-active' : ''}`}
+          onClick={onToggleLeftPanel}
+        >
+          <Icons.ThumbnailView className="h-5 w-5" />
+        </Button>
+      ) : null}
+      {hasRightPanels ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          data-cy="mobile-toggle-right-panel"
+          aria-label="Tools"
+          aria-pressed={rightPanelOpen}
+          className={`${mobileNavBtn} ${rightPanelOpen ? 'is-active' : ''}`}
+          onClick={onToggleRightPanel}
+        >
+          <Icons.Clipboard className="h-5 w-5" />
+        </Button>
+      ) : null}
+      {(hasLeftPanels || hasRightPanels) && (mobileLayoutMenu || mobileImageToolsControl || mobileFpsStepper) ? (
+        <span className="ohif-mobile-nav-divider" aria-hidden />
+      ) : null}
+      {mobileLayoutMenu}
+      {mobileImageToolsControl}
+      {mobileFpsStepper}
+    </div>
+  ) : null;
 
   return (
     <Header
@@ -281,43 +565,49 @@ function ViewerHeader({
       isReturnEnabled={!!appConfig.showStudyList}
       onClickReturnButton={onClickReturnButton}
       WhiteLabeling={appConfig.whiteLabeling}
-      reportNavigationHref={isIframeMode ? undefined : reportNavigationHref}
-      onReportNavigation={onReportNavigation}
+      reportNavigationHref={isIframeMode || isMobileLayout ? undefined : reportNavigationHref}
+      onReportNavigation={isMobileLayout ? undefined : onReportNavigation}
       Secondary={null}
       isIframeMode={isIframeMode}
-      HeaderActions={null}
+      isMobileLayout={isMobileLayout}
+      HeaderActions={mobileHeaderActions}
       UndoRedo={
-        <div className="text-primary flex cursor-pointer items-center">
-          <Button
-            variant="ghost"
-            className="hover:bg-primary-dark"
-            onClick={() => {
-              commandsManager.run('undo');
-            }}
-          >
-            <Icons.Undo className="" />
-          </Button>
-          <Button
-            variant="ghost"
-            className="hover:bg-primary-dark"
-            onClick={() => {
-              commandsManager.run('redo');
-            }}
-          >
-            <Icons.Redo className="" />
-          </Button>
-        </div>
+        isMobileLayout ? null : (
+          <div className="text-primary flex cursor-pointer items-center">
+            <Button
+              variant="ghost"
+              className="hover:bg-primary-dark"
+              onClick={() => {
+                commandsManager.run('undo');
+              }}
+            >
+              <Icons.Undo className="" />
+            </Button>
+            <Button
+              variant="ghost"
+              className="hover:bg-primary-dark"
+              onClick={() => {
+                commandsManager.run('redo');
+              }}
+            >
+              <Icons.Redo className="" />
+            </Button>
+          </div>
+        )
       }
     >
-      <div
-        className={`relative flex w-full justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'iframe-toolbar-compact iframe-toolbar-row' : 'gap-[4px]'}`}
-      >
+      {isMobileLayout ? null : (
         <div
-          className={`flex w-full items-center whitespace-nowrap ${isIframeMode ? 'iframe-toolbar-row justify-center gap-2' : 'justify-center gap-1'}`}
+          className={`ohif-header-toolbar relative flex w-full justify-center overflow-x-auto overflow-y-hidden ${isIframeMode ? 'ohif-header-toolbar--iframe iframe-toolbar-compact' : ''}`}
         >
-          <Toolbar buttonSection="primary" />
+          <div className="flex w-full items-center justify-center gap-2 whitespace-nowrap">
+            <Toolbar
+              buttonSection="primary"
+              grouped
+            />
+          </div>
         </div>
-      </div>
+      )}
     </Header>
   );
 }

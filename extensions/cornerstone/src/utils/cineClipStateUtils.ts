@@ -1,7 +1,8 @@
 import { utilities as csToolsUtils } from '@cornerstonejs/tools';
+import { registerCineTick, unregisterCineTick } from './cineSharedTicker';
 
 type CustomClipState = {
-  intervalId: ReturnType<typeof setInterval>;
+  tickId: string;
   element: HTMLElement;
   viewportId?: string;
 };
@@ -10,6 +11,7 @@ const clipsByElement = new Map<HTMLElement, CustomClipState>();
 const clipsByViewportId = new Map<string, CustomClipState>();
 
 let cineGeneration = 0;
+let tickSeq = 0;
 
 function bumpCineGeneration(): number {
   cineGeneration += 1;
@@ -20,12 +22,17 @@ function getCineGeneration(): number {
   return cineGeneration;
 }
 
+function nextTickId(viewportId?: string): string {
+  tickSeq += 1;
+  return viewportId ? `vp:${viewportId}` : `el:${tickSeq}`;
+}
+
 function clearClipState(clip: CustomClipState | undefined): void {
   if (!clip) {
     return;
   }
 
-  clearInterval(clip.intervalId);
+  unregisterCineTick(clip.tickId);
   clipsByElement.delete(clip.element);
 
   if (clip.viewportId) {
@@ -33,18 +40,17 @@ function clearClipState(clip: CustomClipState | undefined): void {
   }
 }
 
-function setCustomClip(
-  element: HTMLElement,
-  intervalId: ReturnType<typeof setInterval>,
-  viewportId?: string
-): void {
+function setCustomClip(element: HTMLElement, tick: () => void, viewportId?: string): void {
   if (viewportId) {
     clearCustomClipByViewportId(viewportId);
   }
 
   clearCustomClip(element);
 
-  const clip: CustomClipState = { intervalId, element, viewportId };
+  const tickId = nextTickId(viewportId);
+  registerCineTick(tickId, tick);
+
+  const clip: CustomClipState = { tickId, element, viewportId };
   clipsByElement.set(element, clip);
 
   if (viewportId) {
@@ -88,8 +94,13 @@ function isCineClipRunning(
   }
 
   try {
-    if (viewportId && typeof csToolsUtils.cine?.getToolStateByViewportId === 'function') {
-      const byId = csToolsUtils.cine.getToolStateByViewportId(viewportId);
+    // getToolStateByViewportId only exists in some @cornerstonejs/tools versions.
+    const cineUtils = csToolsUtils.cine as typeof csToolsUtils.cine & {
+      getToolStateByViewportId?: (viewportId: string) => { intervalId?: unknown } | undefined;
+    };
+
+    if (viewportId && typeof cineUtils?.getToolStateByViewportId === 'function') {
+      const byId = cineUtils.getToolStateByViewportId(viewportId);
 
       if (byId?.intervalId != null) {
         return true;
@@ -100,7 +111,7 @@ function isCineClipRunning(
       return false;
     }
 
-    const data = csToolsUtils.cine?.getToolState?.(element);
+    const data = cineUtils?.getToolState?.(element);
 
     return data?.intervalId != null;
   } catch {

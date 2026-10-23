@@ -15,14 +15,14 @@ import { getRenderProbe, requestRenderProbe } from './renderLoopGuard';
 /**
  * Console diagnostics for tiles that stay black.
  *
- * - `[tileDiag] Tile black …` (warn): a tile stayed black for REPORT_AFTER_MS,
- *   with a snapshot of its stack, image, playhead, clip download and canvas.
+ * Off by default (canvas readback every second was a measurable cost on 2×2 cine).
+ * Enable with localStorage.setItem('ohifTileDiagnostics', 'on') or ?tileDiag=1,
+ * then reload. `ohifTileDiagnostics()` in the console still works when installed.
+ *
+ * - `[tileDiag] Tile black …` (warn): a tile stayed black for REPORT_AFTER_MS.
  * - `[tileDiag] Tile shows an image again` (info): the same tile recovered.
  * - `[tileDiag] Layout now shows …` (info): page / layout change.
  * - `[tileDiag] Frame loads failed …` (warn): failed frame loads, every few seconds.
- * - `ohifTileDiagnostics()` in the console prints every tile now and returns the rows.
- *
- * Off with localStorage.setItem('ohifTileDiagnostics', 'off').
  */
 
 const WATCH_INTERVAL_MS = 1000;
@@ -43,12 +43,26 @@ type TileProblem =
 
 let installed = false;
 
-function isDisabled(): boolean {
+function isEnabled(): boolean {
   try {
-    return localStorage.getItem('ohifTileDiagnostics') === 'off';
+    if (localStorage.getItem('ohifTileDiagnostics') === 'on') {
+      return true;
+    }
+    if (localStorage.getItem('ohifTileDiagnostics') === 'off') {
+      return false;
+    }
+  } catch {
+    // private mode
+  }
+  try {
+    return new URLSearchParams(window.location.search).get('tileDiag') === '1';
   } catch {
     return false;
   }
+}
+
+function isDisabled(): boolean {
+  return !isEnabled();
 }
 
 function shortUid(uid: unknown): string {
@@ -178,6 +192,7 @@ function snapshotTile(servicesManager: AppTypes.ServicesManager, viewportId: str
     clipStatus: clip.status,
     clipDecoded: `${clip.decoded}/${clip.total}`,
     clipDownloaded: `${clip.downloaded}/${clip.total}`,
+    clipPendingNew: clip.pendingNew,
     clipInFlight: clip.inFlight,
     clipFailed: clip.failed,
     clipViewers: clip.viewers.join(','),
@@ -251,7 +266,7 @@ function describeTileLine(snapshot: ReturnType<typeof snapshotTile>): string {
     `image=${snapshot.imageBound ? `#${snapshot.boundImageIndex} content=${snapshot.boundImageHasContent}` : 'none'}`,
     `canvas=${snapshot.canvas} black=${snapshot.canvasBlack}`,
     `glLost=${snapshot.webglContextLost} coveredBy=${snapshot.coveredBy}`,
-    `clip decoded=${snapshot.clipDecoded} downloaded=${snapshot.clipDownloaded} failed=${snapshot.clipFailed}`,
+    `clip decoded=${snapshot.clipDecoded} downloaded=${snapshot.clipDownloaded} pendingNew=${snapshot.clipPendingNew} failed=${snapshot.clipFailed}`,
   ].join(' | ');
 }
 

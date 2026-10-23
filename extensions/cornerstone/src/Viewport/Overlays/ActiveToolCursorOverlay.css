@@ -1,0 +1,34 @@
+/* Must never receive pointer events, including inside `.noselect > *` (usViewportCine.css). */
+.viewport-wrapper .noselect > .active-tool-cursor,
+.active-tool-cursor {
+  pointer-events: none !important;
+}
+
+.active-tool-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #ffd600;
+  visibility: hidden;
+  will-change: transform;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.9));
+}
+
+.active-tool-cursor svg {
+  width: 100%;
+  height: 100%;
+}
+
+.active-tool-cursor svg [stroke]:not([stroke='none']) {
+  stroke: currentColor;
+}
+
+.active-tool-cursor svg [fill]:not([fill='none']) {
+  fill: currentColor;
+}

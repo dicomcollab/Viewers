@@ -336,6 +336,18 @@ const toolbarButtons: Button[] = [
       evaluate: 'evaluate.action',
     },
   },
+  {
+    id: 'DownloadStudy',
+    uiType: 'ohif.toolButton',
+    props: {
+      // Cloud + arrow — distinct from the study-panel prefetch Download icon.
+      icon: 'DownloadCloud',
+      label: 'Download Study',
+      tooltip: 'Download study DICOM images (ZIP)',
+      commands: 'downloadStudy',
+      evaluate: 'evaluate.action',
+    },
+  },
 
   {
     id: 'ImageSliceSync',
@@ -486,7 +498,7 @@ const toolbarButtons: Button[] = [
     id: 'ZoomIn',
     uiType: 'ohif.toolButton',
     props: {
-      icon: 'Plus',
+      icon: 'tool-zoom-in',
       label: i18n.t('Buttons:Zoom In'),
       tooltip: i18n.t('Buttons:Zoom In'),
       commands: 'zoomInWithState',
@@ -520,7 +532,7 @@ const toolbarButtons: Button[] = [
     id: 'ZoomOut',
     uiType: 'ohif.toolButton',
     props: {
-      icon: 'Minus',
+      icon: 'tool-zoom-out',
       label: i18n.t('Buttons:Zoom Out'),
       tooltip: i18n.t('Buttons:Zoom Out'),
       commands: 'zoomOutWithState',
@@ -783,7 +795,7 @@ const toolbarButtons: Button[] = [
     id: 'AddKeyImage',
     uiType: 'ohif.toolButton',
     props: {
-      icon: 'tool-capture',
+      icon: 'tool-key-image',
       label: 'Add Key Image',
       tooltip: 'Add current image to Key Images',
       commands: 'addKeyImage',

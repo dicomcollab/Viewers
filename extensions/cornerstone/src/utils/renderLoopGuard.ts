@@ -330,8 +330,8 @@ const stuckUnitsLoggedAt = new Map<number, number>();
  * render that throws midway (texture upload failing under memory pressure, a mapper
  * torn down by paging) never frees them, and the render guard swallows the error.
  * A WebGL context has only ~16 units, so after a few such failures every image drawn
- * on that context finds no unit, is drawn without its texture and the tile stays black
- * while frames keep loading. Free them after every render on the context.
+ * on that context finds no unit. Free stuck units only after a failed render — not
+ * on every happy-path frame (4× cine FPS made freeAll a main-thread cost).
  */
 function guardRenderTextureUnits(proto: EnginePrototype): void {
   const original = proto._renderViewportWithContext as
@@ -355,20 +355,14 @@ function guardRenderTextureUnits(proto: EnginePrototype): void {
       // Context being torn down.
     }
 
-    let failed = false;
     try {
       return original.call(this, viewport, context, container);
     } catch (error) {
-      failed = true;
-      throw error;
-    } finally {
       try {
-        if (failed) {
-          // The engine leaves this viewport's renderer drawing and its render passes set.
-          context?.getRenderWindow?.()?.getRenderers?.()?.forEach(renderer => renderer.setDraw?.(false));
-          if (renderPasses) {
-            view?.setRenderPasses?.(renderPasses);
-          }
+        // The engine leaves this viewport's renderer drawing and its render passes set.
+        context?.getRenderWindow?.()?.getRenderers?.()?.forEach(renderer => renderer.setDraw?.(false));
+        if (renderPasses) {
+          view?.setRenderPasses?.(renderPasses);
         }
         const released = releaseStuckTextureUnits(context?.getOpenGLRenderWindow?.());
         if (released) {
@@ -377,17 +371,25 @@ function guardRenderTextureUnits(proto: EnginePrototype): void {
           if (now - (stuckUnitsLoggedAt.get(contextIndex) ?? 0) > STUCK_UNITS_LOG_INTERVAL_MS) {
             stuckUnitsLoggedAt.set(contextIndex, now);
             console.warn(
-              `[renderLoopGuard] WebGL context ${contextIndex} had ${released.inUse}/${released.total} texture units stuck after ${
-                failed ? 'a failed' : 'a'
-              } render of ${viewport.id}; released them.`
+              `[renderLoopGuard] WebGL context ${contextIndex} had ${released.inUse}/${released.total} texture units stuck after a failed render of ${viewport.id}; released them.`
             );
           }
         }
       } catch {
         // Diagnostics and cleanup must not break the render loop.
       }
+      // VTK ImageMapper delete races (null openGLTexture) must not abort setViewportData.
+      if (isVtkGraphicsTeardownRace(error)) {
+        return undefined;
+      }
+      throw error;
     }
   };
+}
+
+function isVtkGraphicsTeardownRace(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes('releaseGraphicsResources');
 }
 
 type CoreRendererLike = object;
@@ -517,8 +519,11 @@ export type RenderProbe = {
 
 const PROBE_GRID = 5;
 const PROBE_BLACK_MAX = 6;
+/** Downscale tile into this buffer once; avoids many getImageData calls on the on-screen 2D context. */
+const PROBE_SAMPLE_SIZE = 64;
 const requestedProbes = new Set<string>();
 const renderProbes = new Map<string, RenderProbe>();
+let probeSampleCanvas: HTMLCanvasElement | null = null;
 
 /** Probe the next render of this viewport (one readback, then off). */
 export function requestRenderProbe(viewportId: string): void {
@@ -554,18 +559,39 @@ function glRegionHasContent(
   return false;
 }
 
-function canvas2dHasContent(ctx: CanvasRenderingContext2D, width: number, height: number): boolean {
-  for (let row = 1; row <= PROBE_GRID; row++) {
-    for (let col = 1; col <= PROBE_GRID; col++) {
-      const x = Math.floor((width * col) / (PROBE_GRID + 1));
-      const y = Math.floor((height * row) / (PROBE_GRID + 1));
-      const [r, g, b] = ctx.getImageData(x, y, 1, 1).data;
-      if (r > PROBE_BLACK_MAX || g > PROBE_BLACK_MAX || b > PROBE_BLACK_MAX) {
+/**
+ * Sample the on-screen tile via a dedicated 2D canvas with willReadFrequently.
+ * Reading getImageData on the viewport canvas (created without that flag) spams
+ * Chrome's Canvas2D warning and is slower under blank-tile repair probes.
+ */
+function canvasHasVisibleContent(canvas: HTMLCanvasElement): boolean | null {
+  if (!canvas.width || !canvas.height) {
+    return null;
+  }
+  try {
+    probeSampleCanvas ??= document.createElement('canvas');
+    probeSampleCanvas.width = PROBE_SAMPLE_SIZE;
+    probeSampleCanvas.height = PROBE_SAMPLE_SIZE;
+    const ctx = probeSampleCanvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      return null;
+    }
+    ctx.clearRect(0, 0, PROBE_SAMPLE_SIZE, PROBE_SAMPLE_SIZE);
+    ctx.drawImage(canvas, 0, 0, PROBE_SAMPLE_SIZE, PROBE_SAMPLE_SIZE);
+    const { data } = ctx.getImageData(0, 0, PROBE_SAMPLE_SIZE, PROBE_SAMPLE_SIZE);
+    for (let i = 0; i < data.length; i += 4) {
+      if (
+        data[i] > PROBE_BLACK_MAX ||
+        data[i + 1] > PROBE_BLACK_MAX ||
+        data[i + 2] > PROBE_BLACK_MAX
+      ) {
         return true;
       }
     }
+    return false;
+  } catch {
+    return null;
   }
-  return false;
 }
 
 /**
@@ -603,7 +629,7 @@ function probeCopyToOnscreenCanvas(proto: EnginePrototype): void {
         isContextLost?: () => boolean;
       };
       onscreenContextLost = ctx?.isContextLost?.() ?? null;
-      onscreenHasContent = ctx ? canvas2dHasContent(ctx, width, height) : null;
+      onscreenHasContent = canvasHasVisibleContent(viewport.canvas);
     } catch {
       // Unreadable canvas.
     }

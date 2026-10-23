@@ -154,11 +154,66 @@ export function onModeEnter({
     }
   })();
 
-  // Use different toolbar sections based on iframe mode
-  const sectionsToUse = isIframeMode ? this.iframeToolbarSections : this.toolbarSections;
+  // Phones/tablets: compact bottom-bar tool set (same detection as ViewerLayout).
+  const isMobileLayout = (() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    const withinWidth = window.matchMedia('(max-width: 1024px)').matches;
+    if (!withinWidth) {
+      return false;
+    }
+    const isIPad =
+      /iPad/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIPad) {
+      return true;
+    }
+    return window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  })();
+
+  // Prefer iframe sections when embedded; else mobile bottom-bar set; else desktop header set.
+  const sectionsToUse = isIframeMode
+    ? this.iframeToolbarSections
+    : isMobileLayout && this.mobileToolbarSections
+      ? this.mobileToolbarSections
+      : this.toolbarSections;
 
   for (const [key, section] of Object.entries(sectionsToUse)) {
     toolbarService.updateSection(key, section);
+  }
+
+  // Mobile: force 1×1 + minimal viewport overlays (patient name moves to header).
+  if (isMobileLayout) {
+    try {
+      commandsManager.runCommand('setViewportGridLayout', {
+        numRows: 1,
+        numCols: 1,
+      });
+    } catch {
+      /* layout may not be ready yet; ViewerLayout retries */
+    }
+
+    customizationService.setCustomizations({
+      'viewportOverlay.topLeft': { $set: [] },
+      'viewportOverlay.topRight': { $set: [] },
+      'viewportOverlay.bottomLeft': {
+        $set: [
+          {
+            id: 'WindowLevel',
+            inheritsFrom: 'ohif.overlayItem.windowLevel',
+          },
+        ],
+      },
+      'viewportOverlay.bottomRight': {
+        $set: [
+          {
+            id: 'InstanceNumber',
+            inheritsFrom: 'ohif.overlayItem.instanceNumber',
+          },
+        ],
+      },
+    });
   }
 
   if (!this.enableSegmentationEdit) {
@@ -227,20 +282,25 @@ export function onModeExit({ servicesManager }: withAppTypes) {
   cornerstoneViewportService.destroy();
 }
 
+// '|' starts a new pill group in the header toolbar (see TOOLBAR_GROUP_SEPARATOR in extension-default)
 export const toolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
-    'WindowLevelTools',
+    'WindowLevel',
     'Pan',
     'ZoomTools',
+    '|',
     'RotateTools',
     'MeasurementTools',
+    '|',
     'Layout',
     'StackScroll',
     'Cine',
     'Crosshairs',
     'TrackballRotate',
+    '|',
     'Capture',
     'AddKeyImage',
+    'DownloadStudy',
     'Reset',
     'MoreTools',
   ],
@@ -286,6 +346,7 @@ export const toolbarSections = {
   ],
 
   MoreTools: [
+    'invert',
     'ImageSliceSync',
     'ReferenceLines',
     'ImageOverlayViewer',
@@ -301,19 +362,14 @@ export const toolbarSections = {
   ],
 };
 
-// Iframe toolbar — compact primary bar; HP/cine live on the strip below the header
-export const iframeToolbarSections = {
+// Mobile/tablet PWA — max 5 essentials + More (labels shown in MobileBottomToolbar)
+export const mobileToolbarSections = {
   [TOOLBAR_SECTIONS.primary]: [
+    'WindowLevel',
+    'Pan',
     'Zoom',
     'MeasurementTools',
-    'WindowLevelTools',
-    'Pan',
-    'RotateTools',
-    'Layout',
-    'Cine',
-    'Crosshairs',
     'AddKeyImage',
-    'Reset',
     'MoreTools',
   ],
 
@@ -360,10 +416,103 @@ export const iframeToolbarSections = {
   MoreTools: [
     'ZoomIn',
     'ZoomOut',
-    'Magnify',
+    'Cine',
+    'Reset',
+    'Layout',
     'StackScroll',
+    'Crosshairs',
     'TrackballRotate',
+    'rotate-right',
+    'rotate-left',
+    'flipHorizontal',
+    'flipVertical',
     'Capture',
+    'DownloadStudy',
+    'invert',
+    'Magnify',
+    'ImageSliceSync',
+    'ReferenceLines',
+    'ImageOverlayViewer',
+    'Probe',
+    'Angle',
+    'CobbAngle',
+    'CalibrationLine',
+    'TagBrowser',
+    'AdvancedMagnify',
+    'UltrasoundDirectionalTool',
+    'WindowLevelRegion',
+    'SegmentLabelTool',
+  ],
+};
+
+// Iframe toolbar — compact primary bar; HP/cine live on the strip below the header
+export const iframeToolbarSections = {
+  [TOOLBAR_SECTIONS.primary]: [
+    'WindowLevel',
+    'Pan',
+    'Zoom',
+    'ZoomIn',
+    'ZoomOut',
+    '|',
+    'MeasurementTools',
+    'RotateTools',
+    '|',
+    'Layout',
+    'StackScroll',
+    'Crosshairs',
+    'Reset',
+    '|',
+    'AddKeyImage',
+    'DownloadStudy',
+    'MoreTools',
+  ],
+
+  [TOOLBAR_SECTIONS.secondary]: ['HangingProtocol'],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.topLeft]: ['orientationMenu', 'dataOverlayMenu'],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.bottomMiddle]: ['AdvancedRenderingControls'],
+
+  AdvancedRenderingControls: [
+    'windowLevelMenuEmbedded',
+    'voiManualControlMenu',
+    'Colorbar',
+    'opacityMenu',
+    'thresholdMenu',
+  ],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.topRight]: [
+    'modalityLoadBadge',
+    'trackingStatus',
+    'navigationComponent',
+  ],
+
+  [TOOLBAR_SECTIONS.viewportActionMenu.bottomLeft]: ['windowLevelMenu'],
+
+  WindowLevelTools: ['WindowLevel', 'invert'],
+
+  ZoomTools: ['ZoomIn', 'Zoom', 'Magnify', 'ZoomOut'],
+
+  RotateTools: ['rotate-right', 'rotate-left', 'flipHorizontal', 'flipVertical'],
+
+  MeasurementTools: [
+    'Length',
+    'Bidirectional',
+    'ArrowAnnotate',
+    'EllipticalROI',
+    'RectangleROI',
+    'CircleROI',
+    'PlanarFreehandROI',
+    'SplineROI',
+    'LivewireContour',
+  ],
+
+  MoreTools: [
+    'Cine',
+    'TrackballRotate',
+    'invert',
+    'Capture',
+    'Magnify',
     'ImageSliceSync',
     'ReferenceLines',
     'ImageOverlayViewer',
@@ -447,6 +596,7 @@ export const modeInstance = {
   _activatePanelTriggersSubscriptions: [],
   toolbarSections,
   iframeToolbarSections,
+  mobileToolbarSections,
 
   /**
    * Lifecycle hooks

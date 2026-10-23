@@ -1,0 +1,63 @@
+.ohif-mobile-drawer-root {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+}
+
+.ohif-mobile-drawer-root--open {
+  pointer-events: auto;
+}
+
+.ohif-mobile-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.ohif-mobile-drawer-root--open .ohif-mobile-drawer-backdrop {
+  opacity: 1;
+}
+
+.ohif-mobile-drawer-panel {
+  position: absolute;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  width: min(85vw, 360px);
+  max-width: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.65);
+  transition: transform 220ms ease;
+}
+
+.ohif-mobile-drawer-panel--left {
+  left: 0;
+  transform: translateX(-105%);
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ohif-mobile-drawer-panel--right {
+  right: 0;
+  transform: translateX(105%);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.ohif-mobile-drawer-panel--open {
+  transform: translateX(0);
+}
+
+.ohif-mobile-drawer-panel > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}

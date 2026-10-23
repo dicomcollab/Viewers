@@ -1,0 +1,59 @@
+.ohif-mobile-cine-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: #111;
+  box-sizing: border-box;
+}
+
+.ohif-mobile-cine-bar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+.ohif-mobile-cine-bar__divider {
+  width: 1px;
+  height: 28px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.ohif-mobile-cine-bar__play,
+.ohif-mobile-cine-bar__step,
+.ohif-mobile-cine-bar__nav {
+  height: 44px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  color: #fff !important;
+}
+
+.ohif-mobile-cine-bar__play svg,
+.ohif-mobile-cine-bar__step svg,
+.ohif-mobile-cine-bar__nav svg {
+  height: 22px;
+  width: 22px;
+}
+
+.ohif-mobile-cine-bar__series {
+  min-width: 36px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: center;
+}
+
+.ohif-mobile-cine-bar__frames {
+  margin-left: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+

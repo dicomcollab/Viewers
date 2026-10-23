@@ -5,6 +5,7 @@ import CustomizableViewportOverlay from './CustomizableViewportOverlay';
 import ViewportOrientationMarkers from './ViewportOrientationMarkers';
 import ViewportImageSliceLoadingIndicator from './ViewportImageSliceLoadingIndicator';
 import CinePlayheadCover from './CinePlayheadCover';
+import ActiveToolCursorOverlay from './ActiveToolCursorOverlay';
 
 function CornerstoneOverlays(props: withAppTypes) {
   const { viewportId, element, scrollbarHeight, servicesManager } = props;
@@ -78,6 +79,12 @@ function CornerstoneOverlays(props: withAppTypes) {
         viewportData={viewportData}
         servicesManager={servicesManager}
         viewportId={viewportId}
+      />
+
+      <ActiveToolCursorOverlay
+        viewportId={viewportId}
+        element={element}
+        servicesManager={servicesManager}
       />
     </div>
   );

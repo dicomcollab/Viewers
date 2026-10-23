@@ -16,11 +16,30 @@ function initStudyPrefetcherService(servicesManager: AppTypes.ServicesManager) {
   studyPrefetcherService.imageLoadPoolManager = imageLoadPoolManager;
   studyPrefetcherService.imageLoader = imageLoader;
 
+  // A load object exists from the moment a request starts; only a loaded entry
+  // is decoded and resident. isLoaded() is checked first because getImage and
+  // getImageLoadObject refresh the entry's LRU timestamp (status checks must not).
   studyPrefetcherService.cache = {
     isImageCached(imageId: string): boolean {
-      return !!cache.getImageLoadObject(imageId);
+      return cache.isLoaded(imageId);
+    },
+    isImageLoading(imageId: string): boolean {
+      return !cache.isLoaded(imageId) && Boolean(cache.getImageLoadObject(imageId));
+    },
+    getImageSizeInBytes(imageId: string): number {
+      return Number(cache.getImage(imageId)?.sizeInBytes) || 0;
+    },
+    getMaxCacheSizeInBytes(): number {
+      return cache.getMaxCacheSize();
+    },
+  };
+
+  eventTarget.addEventListener(csEvents.IMAGE_CACHE_IMAGE_REMOVED, (evt: CustomEvent) => {
+    const imageId = evt?.detail?.imageId;
+    if (imageId) {
+      studyPrefetcherService.notifyImageEvicted(imageId);
     }
-  }
+  });
 
   studyPrefetcherService.imageLoadEventsManager = {
     addEventListeners(onImageLoaded, onImageLoadFailed) {
@@ -29,14 +48,15 @@ function initStudyPrefetcherService(servicesManager: AppTypes.ServicesManager) {
 
       return [
         {
-          unsubscribe: () => eventTarget.removeEventListener(csEvents.IMAGE_LOADED, onImageLoaded)
+          unsubscribe: () => eventTarget.removeEventListener(csEvents.IMAGE_LOADED, onImageLoaded),
         },
         {
-          unsubscribe: () => eventTarget.removeEventListener(csEvents.IMAGE_LOAD_FAILED, onImageLoadFailed)
+          unsubscribe: () =>
+            eventTarget.removeEventListener(csEvents.IMAGE_LOAD_FAILED, onImageLoadFailed),
         },
-      ]
-    }
-  }
+      ];
+    },
+  };
 
   const onVolumeModified = (evt: CustomEvent) => {
     const detail = evt?.detail || {};
