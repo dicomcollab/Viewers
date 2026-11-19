@@ -1,6 +1,7 @@
 import { PubSubService } from '@ohif/core';
 import type { KeyImageItem } from '../types';
 import { fetchKeyImagesForStudy } from '../utils/keyImagesApi';
+import { postKeyImagesChangedToRis } from '../utils/postKeyImagesChangedToRis';
 
 export type { KeyImageItem } from '../types';
 
@@ -100,6 +101,16 @@ export default class KeyImagesService extends PubSubService {
     });
   }
 
+  private _notifyRisKeyImagesChanged(studyInstanceUID?: string | null): void {
+    const uid = String(studyInstanceUID || '').trim();
+    if (!uid) return;
+    try {
+      postKeyImagesChangedToRis(uid, this.getKeyImagesForStudy(uid));
+    } catch {
+      /* best-effort live sync only */
+    }
+  }
+
   public async loadKeyImagesForStudy(studyInstanceUID: string): Promise<void> {
     if (!studyInstanceUID) {
       return;
@@ -119,6 +130,7 @@ export default class KeyImagesService extends PubSubService {
       ];
       this._loadedStudyUIDs.add(studyInstanceUID);
       this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
+      this._notifyRisKeyImagesChanged(studyInstanceUID);
     } finally {
       this._loadingStudyUID = null;
       this._broadcastEvent(EVENTS.KEY_IMAGES_LOADING_CHANGED, {
@@ -135,6 +147,7 @@ export default class KeyImagesService extends PubSubService {
     ];
     this._loadedStudyUIDs.add(studyInstanceUID);
     this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
+    this._notifyRisKeyImagesChanged(studyInstanceUID);
   }
 
   public removeKeyImage(id: string): void {
@@ -145,6 +158,7 @@ export default class KeyImagesService extends PubSubService {
     if (removed?.studyInstanceUID && this.getKeyImagesForStudy(removed.studyInstanceUID).length === 0) {
       this._loadedStudyUIDs.delete(removed.studyInstanceUID);
     }
+    this._notifyRisKeyImagesChanged(removed?.studyInstanceUID);
   }
 
   public clearKeyImagesForStudy(studyInstanceUID: string): void {
@@ -155,6 +169,7 @@ export default class KeyImagesService extends PubSubService {
     this._keyImages = this._keyImages.filter(item => item.studyInstanceUID !== studyInstanceUID);
     this._loadedStudyUIDs.delete(studyInstanceUID);
     this._broadcastEvent(EVENTS.KEY_IMAGES_CHANGED, { keyImages: this.getKeyImages() });
+    this._notifyRisKeyImagesChanged(studyInstanceUID);
   }
 
   private _clearLegacyStorage(): void {

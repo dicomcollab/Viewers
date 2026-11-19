@@ -222,7 +222,8 @@ const StudyItem = ({
       collapsible
       value={isExpanded ? 'study-item' : ''}
       onValueChange={nextValue => {
-        if (nextValue === 'study-item' && !isExpanded) {
+        const shouldBeExpanded = nextValue === 'study-item';
+        if (shouldBeExpanded !== isExpanded) {
           onClick();
         }
       }}

@@ -14,6 +14,60 @@ import { updateAuthServiceAndCleanUrl } from './updateAuthServiceAndCleanUrl';
 
 const { getSplitParam } = utils;
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts[1]) {
+    return null;
+  }
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+/** True when the viewer URL already carries the share JWT minted after PIN verification. */
+function shareAccessTokenInUrlMatches(shortCode: string): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const token = (params.get('accessToken') || params.get('viewerAccessToken') || '').trim();
+  if (!token) {
+    return false;
+  }
+  const payload = decodeJwtPayload(token);
+  if (!payload || payload.purpose !== 'viewer-share' || payload.shortCode !== shortCode) {
+    return false;
+  }
+  if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * PIN-protected shares stay closed unless check-expiry confirms the bearer JWT,
+ * or an older API omitted that check and the URL already has a matching share JWT.
+ */
+function sharePinGateAllowsOpen(
+  result: { data?: { pinRequired?: boolean; accessGranted?: boolean; tokenChecked?: boolean } } | null | undefined,
+  shortCode: string
+): boolean {
+  if (!result?.data?.pinRequired) {
+    return true;
+  }
+  if (result.data.accessGranted === true) {
+    return true;
+  }
+  if (result.data.tokenChecked === true) {
+    return false;
+  }
+  return shareAccessTokenInUrlMatches(shortCode);
+}
+
 export default function ModeRoute({
   mode,
   dataSourceName,
@@ -154,7 +208,7 @@ export default function ModeRoute({
           if (!window.closed) window.location.href = '/';
           return;
         }
-        if (result?.data?.pinRequired && !result?.data?.viewerAccessToken) {
+        if (!sharePinGateAllowsOpen(result, shortCodeInUrl)) {
           window.alert('This share link requires an access code. Open the link from the email or worklist share flow.');
           return;
         }

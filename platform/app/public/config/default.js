@@ -657,22 +657,31 @@ function getShortCodeFromUrl() {
 }
 
 // Cache for check-expiry to avoid multiple API calls (e.g. on load + initial layout events)
-var _shareLinkExpiryCache = { apiResponse: null, expiryState: null, shortCode: null, ts: 0 };
+var _shareLinkExpiryCache = { apiResponse: null, expiryState: null, cacheKey: null, ts: 0 };
 var SHARE_LINK_EXPIRY_CACHE_MS = 60000; // 1 minute - same shortCode reuses result
+
+function readShareAccessTokenFromLocation() {
+  if (typeof window === 'undefined' || !window.location) return '';
+  const urlParams = new URLSearchParams(window.location.search);
+  return (urlParams.get('accessToken') || urlParams.get('viewerAccessToken') || '').trim();
+}
 
 /**
  * Call RIS API to check if the share link (short code) is expired.
+ * Sends the viewer-share JWT when the URL has one so the API can set accessGranted.
  * Stores result in window._shareLinkExpiry for use by getAuthorizationHeader.
  * Uses a short-lived cache so the API is only called once per shortCode per minute.
  * @param {string} shortCode
- * @returns {Promise<{ error: boolean, data?: { isExpired: boolean, expiresAt?: string, studyInstanceUID?: string }, errorMessage?: string }>}
+ * @returns {Promise<{ error: boolean, data?: { isExpired: boolean, pinRequired?: boolean, accessGranted?: boolean, tokenChecked?: boolean }, errorMessage?: string }>}
  */
 async function checkShortCodeExpiry(shortCode) {
   if (!shortCode) return { error: true, errorMessage: 'No shortCode' };
 
+  const accessToken = readShareAccessTokenFromLocation();
+  const cacheKey = accessToken ? shortCode + ':with-token' : shortCode;
   const now = Date.now();
   if (
-    _shareLinkExpiryCache.shortCode === shortCode &&
+    _shareLinkExpiryCache.cacheKey === cacheKey &&
     _shareLinkExpiryCache.apiResponse != null &&
     now - _shareLinkExpiryCache.ts < SHARE_LINK_EXPIRY_CACHE_MS
   ) {
@@ -683,18 +692,37 @@ async function checkShortCodeExpiry(shortCode) {
   }
 
   const url = `${RIS_API_BASE}/api/v1/shorturl/check-expiry/${encodeURIComponent(shortCode)}`;
+
+  async function fetchExpiry(token) {
+    const headers = {};
+    if (token) {
+      headers.Authorization = 'Bearer ' + token;
+    }
+    const res = await fetch(url, Object.keys(headers).length ? { headers: headers } : undefined);
+    return res.json();
+  }
+
   try {
-    const res = await fetch(url);
-    const json = await res.json();
+    let json;
+    try {
+      json = await fetchExpiry(accessToken);
+    } catch (withTokenErr) {
+      if (!accessToken) {
+        throw withTokenErr;
+      }
+      json = await fetchExpiry('');
+    }
     const expiryState =
       json.error === false && json.data
         ? {
-            shortCode: json.data.shortCode,
+            shortCode: json.data.shortCode || shortCode,
             isExpired: json.data.isExpired,
             expiresAt: json.data.expiresAt,
             studyInstanceUID: json.data.studyInstanceUID,
             pinRequired: json.data.pinRequired,
-            viewerAccessToken: json.data.viewerAccessToken || null,
+            accessGranted: json.data.accessGranted === true,
+            tokenChecked: json.data.tokenChecked === true,
+            viewerAccessToken: json.data.viewerAccessToken || accessToken || null,
           }
         : { isExpired: true };
     if (typeof window !== 'undefined') {
@@ -706,7 +734,7 @@ async function checkShortCodeExpiry(shortCode) {
     _shareLinkExpiryCache = {
       apiResponse: json,
       expiryState: expiryState,
-      shortCode: shortCode,
+      cacheKey: cacheKey,
       ts: now,
     };
     return json;
@@ -719,7 +747,7 @@ async function checkShortCodeExpiry(shortCode) {
     _shareLinkExpiryCache = {
       apiResponse: apiResponse,
       expiryState: expiryState,
-      shortCode: shortCode,
+      cacheKey: cacheKey,
       ts: now,
     };
     return apiResponse;

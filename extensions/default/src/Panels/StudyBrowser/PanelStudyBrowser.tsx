@@ -810,8 +810,31 @@ function PanelStudyBrowser({
     setStudyPanelNavigationOrder(displaySets.map(ds => ds.displaySetInstanceUID));
   }, [displaySets]);
 
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  // Stable id of the study a pending thumbnail jump belongs to.
+  // `tabs` is a new array every render, so the expand effect must not depend on it
+  // or on the expanded list — both re-ran on the first chevron click and opened
+  // the study again in the same turn.
+  const jumpTargetStudyUID = jumpToDisplaySet
+    ? (_findTabAndStudyOfDisplaySet(jumpToDisplaySet, tabs, activeTabName)?.StudyInstanceUID ??
+      null)
+    : null;
+
   function _handleStudyClick(StudyInstanceUID) {
-    if (expandedStudyInstanceUIDs.includes(StudyInstanceUID)) {
+    const isExpanded = expandedStudyInstanceUIDs.includes(StudyInstanceUID);
+
+    if (isExpanded) {
+      setExpandedStudyInstanceUIDs(
+        expandedStudyInstanceUIDs.filter(uid => uid !== StudyInstanceUID)
+      );
+      if (jumpToDisplaySet) {
+        const location = _findTabAndStudyOfDisplaySet(jumpToDisplaySet, tabs, activeTabName);
+        if (!location || location.StudyInstanceUID === StudyInstanceUID) {
+          setJumpToDisplaySet(null);
+        }
+      }
       return;
     }
 
@@ -821,54 +844,41 @@ function PanelStudyBrowser({
   }
 
   useEffect(() => {
-    if (jumpToDisplaySet) {
-      // Get element by displaySetInstanceUID
-      const displaySetInstanceUID = jumpToDisplaySet;
-      const element = document.getElementById(`thumbnail-${displaySetInstanceUID}`);
-
-      if (element && typeof element.scrollIntoView === 'function') {
-        // TODO: Any way to support IE here?
-        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-        setJumpToDisplaySet(null);
-      }
-    }
-  }, [jumpToDisplaySet, expandedStudyInstanceUIDs, activeTabName]);
-
-  useEffect(() => {
     if (!jumpToDisplaySet) {
       return;
     }
 
-    const displaySetInstanceUID = jumpToDisplaySet;
-    // It is possible to navigate to a study not currently in view
-    const thumbnailLocation = _findTabAndStudyOfDisplaySet(displaySetInstanceUID, tabs, activeTabName);
-    if (!thumbnailLocation) {
+    const element = document.getElementById(`thumbnail-${jumpToDisplaySet}`);
+
+    if (element && typeof element.scrollIntoView === 'function') {
+      // TODO: Any way to support IE here?
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      setJumpToDisplaySet(null);
+    }
+  }, [jumpToDisplaySet, expandedStudyInstanceUIDs, activeTabName]);
+
+  useEffect(() => {
+    if (!jumpToDisplaySet || !jumpTargetStudyUID) {
+      return;
+    }
+
+    const thumbnailLocation = _findTabAndStudyOfDisplaySet(
+      jumpToDisplaySet,
+      tabsRef.current,
+      activeTabName
+    );
+    if (!thumbnailLocation || thumbnailLocation.StudyInstanceUID !== jumpTargetStudyUID) {
       return;
     }
     const { tabName, StudyInstanceUID } = thumbnailLocation;
-    setActiveTabName(tabName);
-    const studyExpanded = expandedStudyInstanceUIDs.includes(StudyInstanceUID);
-    if (!studyExpanded) {
-      const updatedExpandedStudyInstanceUIDs = [...expandedStudyInstanceUIDs, StudyInstanceUID];
-      setExpandedStudyInstanceUIDs(updatedExpandedStudyInstanceUIDs);
+    if (tabName !== activeTabName) {
+      setActiveTabName(tabName);
     }
-  }, [expandedStudyInstanceUIDs, jumpToDisplaySet, tabs]);
-
-  // Keep the study panel scrolled to the current layout page so page 3's
-  // four instances sit together instead of leaving the last one off-screen.
-  useEffect(() => {
-    if (!displayedThumbnailsKey) {
-      return;
-    }
-
-    const displayed = new Set(activeDisplaySetInstanceUIDs);
-    const firstOnViewport = displaySets.find(ds => displayed.has(ds.displaySetInstanceUID));
-
-    if (firstOnViewport?.displaySetInstanceUID) {
-      setJumpToDisplaySet(firstOnViewport.displaySetInstanceUID);
-    }
-  }, [activeDisplaySetInstanceUIDs, displaySets.length, displayedThumbnailsKey]);
+    setExpandedStudyInstanceUIDs(expanded =>
+      expanded.includes(StudyInstanceUID) ? expanded : [...expanded, StudyInstanceUID]
+    );
+  }, [jumpToDisplaySet, jumpTargetStudyUID, activeTabName]);
 
   const studyLoadingPercent = useMemo(() => {
     const activeDisplaySets = displaySetService.getActiveDisplaySets?.() || [];
@@ -942,6 +952,33 @@ function PanelStudyBrowser({
   const showInitialStudyLoading =
     isStudyPanelLoading ||
     (!hasSeenFirstViewportReady && hasRenderableDisplaySets && !hasViewportReadyWithDisplaySet);
+
+  // Keep the study panel scrolled to the current layout page so page 3's
+  // four instances sit together instead of leaving the last one off-screen.
+  // Scroll only. A jump token also expands the study, and one queued while the
+  // loading screen was up made the first chevron click close and reopen.
+  useEffect(() => {
+    if (!displayedThumbnailsKey || showInitialStudyLoading) {
+      return;
+    }
+
+    const displayed = new Set(activeDisplaySetInstanceUIDs);
+    const firstOnViewport = displaySets.find(ds => displayed.has(ds.displaySetInstanceUID));
+    const displaySetInstanceUID = firstOnViewport?.displaySetInstanceUID;
+    if (!displaySetInstanceUID) {
+      return;
+    }
+
+    const element = document.getElementById(`thumbnail-${displaySetInstanceUID}`);
+    if (element && typeof element.scrollIntoView === 'function') {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [
+    activeDisplaySetInstanceUIDs,
+    displaySets.length,
+    displayedThumbnailsKey,
+    showInitialStudyLoading,
+  ]);
   // MoreDropdownMenu internally uses hooks, so compute menu components unconditionally
   // to keep PanelStudyBrowser hook order stable across loading/non-loading renders.
   const thumbnailMenuItems = MoreDropdownMenu({
