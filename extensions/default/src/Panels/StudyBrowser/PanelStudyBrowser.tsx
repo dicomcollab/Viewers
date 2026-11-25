@@ -17,6 +17,18 @@ const { formatDate, createStudyBrowserTabs, compareDisplaySetsByReviewOrder } = 
 
 const thumbnailNoImageModalities = ['SR', 'SEG', 'RTSTRUCT', 'RTPLAN', 'RTDOSE', 'DOC', 'PMAP'];
 
+/** DOC/SR/SEG rows are listed under the image grid in the study panel. */
+function isStudyPanelNoImageThumbnail(displaySet) {
+  if (!displaySet) {
+    return false;
+  }
+  if (displaySet.componentType === 'thumbnailNoImage') {
+    return true;
+  }
+  const modality = displaySet.modality || displaySet.Modality;
+  return thumbnailNoImageModalities.includes(modality);
+}
+
 /** Persists study panel state across sidebar close/reopen so thumbnails and loading are not repeated. */
 const studyPanelLoadSession = {
   fetchedStudyUIDs: new Set<string>(),
@@ -957,28 +969,44 @@ function PanelStudyBrowser({
   // four instances sit together instead of leaving the last one off-screen.
   // Scroll only. A jump token also expands the study, and one queued while the
   // loading screen was up made the first chevron click close and reopen.
+  //
+  // That "first displayed thumbnail" is the earliest row in panel order. Images
+  // are listed above DOC/SR, so opening a document into one viewport while the
+  // other viewports still show images used to jump the panel back to the top.
+  // Follow the active viewport instead when it is one of those document rows,
+  // and leave the panel where it is if that row is already on screen.
   useEffect(() => {
     if (!displayedThumbnailsKey || showInitialStudyLoading) {
       return;
     }
 
     const displayed = new Set(activeDisplaySetInstanceUIDs);
-    const firstOnViewport = displaySets.find(ds => displayed.has(ds.displaySetInstanceUID));
-    const displaySetInstanceUID = firstOnViewport?.displaySetInstanceUID;
+    const activeViewport = viewports?.get(activeViewportId);
+    const activeUid = activeViewport?.displaySetInstanceUIDs?.[0];
+    const activeThumbnail = activeUid
+      ? displaySets.find(ds => ds.displaySetInstanceUID === activeUid)
+      : null;
+    const activeIsDocument = isStudyPanelNoImageThumbnail(activeThumbnail);
+    const target = activeIsDocument
+      ? activeThumbnail
+      : displaySets.find(ds => displayed.has(ds.displaySetInstanceUID));
+    const displaySetInstanceUID = target?.displaySetInstanceUID;
     if (!displaySetInstanceUID) {
       return;
     }
 
     const element = document.getElementById(`thumbnail-${displaySetInstanceUID}`);
     if (element && typeof element.scrollIntoView === 'function') {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      element.scrollIntoView({
+        behavior: 'smooth',
+        block: activeIsDocument ? 'nearest' : 'start',
+      });
     }
-  }, [
-    activeDisplaySetInstanceUIDs,
-    displaySets.length,
-    displayedThumbnailsKey,
-    showInitialStudyLoading,
-  ]);
+    // displayedThumbnailsKey already tracks which series are on screen.
+    // Depending on the uid array or the viewport map re-ran this on every
+    // loading tick and pulled the panel back to the first image.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedThumbnailsKey, displaySets.length, showInitialStudyLoading]);
   // MoreDropdownMenu internally uses hooks, so compute menu components unconditionally
   // to keep PanelStudyBrowser hook order stable across loading/non-loading renders.
   const thumbnailMenuItems = MoreDropdownMenu({
@@ -1124,7 +1152,7 @@ function applyStudyBrowserSeriesProgressVisibility(
 ) {
   const active = new Set(activeDisplaySetInstanceUIDs || []);
   return mappedThumbnails.map(t => {
-    if (t.modality === 'SR') {
+    if (thumbnailNoImageModalities.includes(t.modality)) {
       return {
         ...t,
         showInstanceLoadProgressUi: false,

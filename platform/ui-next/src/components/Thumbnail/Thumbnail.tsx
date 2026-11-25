@@ -6,6 +6,16 @@ import { Icons } from '../Icons';
 import { DisplaySetMessageListTooltip } from '../DisplaySetMessageListTooltip';
 import { TooltipTrigger, TooltipContent, Tooltip } from '../Tooltip';
 
+const NON_IMAGE_MODALITIES = new Set([
+  'SR',
+  'SEG',
+  'RTSTRUCT',
+  'RTPLAN',
+  'RTDOSE',
+  'DOC',
+  'PMAP',
+]);
+
 /**
  * Display a thumbnail for a display set.
  */
@@ -45,12 +55,18 @@ const Thumbnail = ({
       ? loadingProgress.loadingProgress
       : loadingProgress;
 
+  // Documents and other non-image series are not frame downloads. A PDF is
+  // already the whole instance, so a 0/1 image-progress bar is wrong.
+  const supportsPreload = !NON_IMAGE_MODALITIES.has(modality);
+
   const showLoading =
+    supportsPreload &&
     showInstanceLoadProgressUi &&
     ((normalizedLoadingProgress != null && normalizedLoadingProgress < 1) || isLayoutLoading);
 
   // Instance count + bar: user-triggered preload, or the series a viewport is downloading.
   const showUserPreloadProgress =
+    supportsPreload &&
     Boolean(showStudyPanelProgress) &&
     numInstances != null &&
     normalizedLoadingProgress != null &&
@@ -61,7 +77,6 @@ const Thumbnail = ({
   // is running the live progress replaces it; failed instances bring it back as a retry.
   const isFullyLoaded =
     normalizedLoadingProgress != null && normalizedLoadingProgress >= 1 && !(failedInstances > 0);
-  const supportsPreload = modality !== 'SR';
   const showPrefetchButton =
     Boolean(onPrefetchDisplaySet) && supportsPreload && !isFullyLoaded && !showUserPreloadProgress;
 

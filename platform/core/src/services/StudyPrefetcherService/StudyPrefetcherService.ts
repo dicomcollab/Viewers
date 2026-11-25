@@ -448,6 +448,14 @@ class StudyPrefetcherService extends PubSubService {
   public getDisplaySetLoadProgress(
     displaySetInstanceUID: string
   ): DisplaySetDownloadProgress | undefined {
+    const displaySet = this._servicesManager.services.displaySetService.getDisplaySetByUID(
+      displaySetInstanceUID
+    ) as { Modality?: string } | undefined;
+
+    if (displaySet && NO_IMAGE_MODALITIES.includes(displaySet.Modality)) {
+      return undefined;
+    }
+
     const viewportProgress = this._viewportDownloadProgress.get(displaySetInstanceUID);
 
     // On-screen US clips report "downloaded at least once". That wins over the
@@ -804,7 +812,12 @@ class StudyPrefetcherService extends PubSubService {
     const displaySets = displaySetInstanceUIDs
       .filter(uid => !this._completedDisplaySets.has(uid))
       .map(uid => displaySetService.getDisplaySetByUID(uid))
-      .filter(displaySet => displaySet && !displaySet.unsupported);
+      .filter(
+        displaySet =>
+          displaySet &&
+          !displaySet.unsupported &&
+          !NO_IMAGE_MODALITIES.includes(displaySet.Modality)
+      );
 
     if (!displaySets.length) {
       return;
@@ -1498,6 +1511,12 @@ class StudyPrefetcherService extends PubSubService {
 
   private _addDisplaySetLoadingState(displaySet: DisplaySet): void {
     const { displaySetInstanceUID } = displaySet;
+
+    // DOC/SR/etc. are not image frames. Tracking them creates a stuck 0/1 bar
+    // even when the document itself is already available.
+    if (NO_IMAGE_MODALITIES.includes(displaySet.Modality)) {
+      return;
+    }
 
     if (this._completedDisplaySets.has(displaySetInstanceUID)) {
       return;
